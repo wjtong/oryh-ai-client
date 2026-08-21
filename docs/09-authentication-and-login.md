@@ -1,5 +1,7 @@
 # ORYH AI Client 登录、认证与设备会话设计
 
+服务端检查基线：ORYH `1ea1509`，2026-08-21。本章区分“当前已实现”和“客户端上线要求”；后者不能被误读为现有服务端保证。
+
 ## 1. 结论
 
 ORYH AI Client 不采用“每次打开客户端都登录 ORYH”的产品模型。登录与认证拆成四个独立过程：
@@ -26,10 +28,10 @@ ORYH AI Client 不采用“每次打开客户端都登录 ORYH”的产品模型
 | 账号登录 | ORYH 系统浏览器页面，账号密码不交给设备 | 方向正确；企业版仍需要浏览器侧 SSO/MFA/Passkey |
 | 设备开始 | `POST /auth/device/start` 返回短码、批准地址、15 分钟期限和 5 秒轮询间隔 | 可用于首版；需限流、结构化客户端身份和机器错误码 |
 | 设备批准 | 已登录用户查看短码和 `client_name` 后批准或拒绝 | 需显著显示企业、账号、角色、平台、版本、安装实例和授权后果；批准需 recent auth 与 CSRF/同源保护 |
-| 凭据交付 | `POST /auth/device/token` 一次返回 access key、refresh token、用户与租户 | API 意图正确；并发轮询未证明严格单次消费，批准后过期也未清除待交付明文，真实企业发布前必须修复 |
+| 凭据交付 | `POST /auth/device/token` 当前返回 access key、refresh token、到期时间、用户摘要、租户 name/slug 和 `install_dir` | 响应未直接返回稳定 tenant id/credential id；客户端必须随后以 `/auth/me` 核对稳定身份。并发轮询未证明严格单次消费，批准后过期也未清除待交付明文，真实企业发布前必须修复 |
 | access 生命周期 | 个人 access key 默认 24 小时 | 可接受；客户端应提前刷新，不等待业务请求失败 |
 | refresh 生命周期 | 每次同时旋转 access/refresh；旧 refresh 有 60 秒丢包重试窗口，窗口外重放会吊销设备 key | 符合 refresh rotation 方向；缺少 refresh 绝对/不活跃期限，客户端必须 single-flight 和崩溃安全保存 |
-| 身份验证 | `/auth/me` 返回用户、企业、角色和当前权限 | 应作为连接就绪的最终门槛；建议补充稳定 `credential_id`、认证时间和服务端能力版本 |
+| 身份验证 | `/auth/me` 返回稳定用户/企业标识、员工、角色和当前权限 | 作为连接就绪的最终门槛；仍建议补充当前 `credential_id`、认证时间和服务端能力版本 |
 | 多设备 | 每次批准创建独立 `device:<client_name>` key | 正确；不能只依赖可伪造的显示名称识别设备 |
 | 自助设备撤销 | `keys.manage` 用户可管理租户 API keys；普通用户没有只管理自己设备的接口 | 产品阻断项；“断开连接”目前不能可靠完成服务端吊销 |
 | 浏览器会话 | Cookie 为 Host-only、HttpOnly、SameSite=Lax，HTTPS 时 Secure；API 写入使用 CSRF token | API 浏览器认证基础良好；遗留 `/web/device/*` 表单还需统一同源/CSRF 保护 |
@@ -44,6 +46,7 @@ ORYH AI Client 不采用“每次打开客户端都登录 ORYH”的产品模型
 3. 普通用户无法列出、重命名或吊销自己的设备。现有 `/auth/logout` 以浏览器 `UserSession` 为撤销对象，不是 user-bound device key 的可靠撤销接口；客户端删除本地 Keychain 项也不等于服务端凭据已经失效。
 4. device start、短码查询和 poll 需要独立限流；服务端应强制最小 poll interval，并返回 `authorization_pending`、`slow_down`、`access_denied`、`expired_token` 等稳定机器码或语义等价的版本化错误。
 5. `/web/device/approve` 与 `/web/device/deny` 应统一进入同源/CSRF 守卫；设备批准必须要求近期账号认证，不能仅凭最长七天的旧浏览器会话静默签发新设备凭据。
+6. 当前没有普通用户列出/吊销自身设备授权的完整接口；管理员 API key 管理不能替代本人设备生命周期。
 6. token/device 响应必须带 `Cache-Control: no-store`，代理、访问日志、异常报告和 audit detail 都不得保存秘密。
 
 ## 3. 用户可理解的认证概念
@@ -117,6 +120,7 @@ stateDiagram-v2
 5. 客户端遵守服务端 `interval`，收到 `slow_down` 或网络超时时降低频率；用户取消、拒绝、过期或其他终止错误后停止 poll。
 6. Host 收到批准结果后，把完整 credential bundle 作为一个 Keychain item 原子写入；Renderer 不接收响应秘密。
 7. 保存成功后立刻调用 `/auth/me`，核对 origin、tenant、user、角色和权限；通过后才发布 `ConnectionReady`。
+8. 用 `/auth/me` 的 tenant/user 稳定 id 补全本地 connection metadata；不得把 device token 响应里的 tenant slug 或 `install_dir` 当授权标识。
 8. 保存失败时优先调用当前设备撤销 endpoint，再清空内存。若服务端撤销不可用，必须明确提示“服务端连接可能仍有效”，引导用户从 ORYH Console 吊销，不能显示为连接失败后已自动安全清理。
 
 ### 5.2 浏览器批准页
@@ -138,6 +142,7 @@ stateDiagram-v2
 
 - 一个 device approval 只创建一个 `(origin, tenant, user, installation)` 连接。
 - 添加第二家企业需要再次走 device flow；浏览器若仍登录第一家，批准页必须高显著显示企业并提供“使用其他账号”入口。
+- 连接完成后，工作空间与工具从 `/auth/me` capability 和 eligible Skill audience 计算；角色显示名和 device grant 本身都不授予额外业务能力。
 - 本地连接主键使用随机 `ConnectionId`；tenant slug、邮箱和设备名都不是授权标识。
 - 重新连接沿用原 `ConnectionId` 以保留历史 Session 归属，但递增 credential generation，并保留“何时、为什么重连”的非秘密审计元数据。
 

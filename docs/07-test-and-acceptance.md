@@ -8,6 +8,8 @@
 - 高频按钮、页面和结果刷新直接运行已注册 Operation，不产生模型请求；
 - UI Consumer 与 AI Tool Consumer 对同一 Operation 使用相同认证、权限、结果和错误语义；
 - 工具严格遵守 ORYH API 契约、租户和权限；
+- 工作空间只按 capability 与 eligible Skill 出现，业务线程只沿显式关系且能从 ORYH 重建；
+- 服务端事实、服务端派生值、Agent 结论和未执行 proposal 在数据和 UI 中可区分；
 - 写操作在失败、重试、并发和崩溃下保持可判断；
 - 凭据和敏感数据不进入错误的平面；
 - 真实目标用户可以理解草稿、确认、审批和错误；
@@ -72,7 +74,9 @@
 - TypeScript strict typecheck；
 - lint、format、依赖循环和未使用导出；
 - OpenAPI 生成产物与固定 snapshot 一致；
+- ORYH 审计基线（`app/api` 326 个路由、60 个映射模型、33 产品 Skill + 6 演示 Skill）发生变化时生成覆盖差异，不能静默遗漏新业务域；
 - 所有模型可见工具有参数 schema、输出 schema、风险级别和 presentation；
+- 所有 Operation 声明 Query/Draft/Lifecycle/Human decision/Ledger/Governance/Batch/Automation 类别及 evidence 要求；
 - 所有业务按钮、页面和 AI Tools 可追溯到一个稳定 operation id/version，不各自拼接 API；
 - 所有 mutation 声明幂等/未知结果恢复策略；
 - 禁止生产 Profile 出现 Bash、PowerShell、通用 HTTP、任意 FS、Terminal、LSP 和 self-modification 包；
@@ -124,7 +128,9 @@
 
 ### 5.4 Skills
 
-- manifest 角色过滤；
+- manifest capability 过滤；
+- capability mode、targeted audience、capability 缺失和 audience 未命中的完整真值表；
+- `/my/skills/reach` 的 received/withheld 原因与 manifest 对齐，`granted_by_roles` 不触发提权建议；
 - name/version/hash 变化；
 - hash 不匹配、目录穿越、非法类型、超限；
 - 无凭据扫描；
@@ -146,19 +152,32 @@
 - read rerun 允许，mutation receipt 只能创建新 proposal 并重新确认；
 - 模型不可用时确定性视图仍能执行和显示错误。
 
-### 5.6 工具与确认
+### 5.6 工作空间、业务线程与证据
+
+- 工作空间由 capability、eligible Skill 与租户功能生成，不按角色名硬编码；
+- 同一角色名在两个租户拥有不同 capability/Skill 时产生不同模块；
+- 工作空间显隐不绕过服务端 403，权限变化后旧 scope 和 proposal 失效；
+- quote-to-cash、procure-to-pay、expense reimbursement 与 custom typed links 只沿声明关系边；
+- 标题、金额和日期相似但无显式链接的记录绝不进入同一线程；
+- 线程的一个来源 404/403/超时时保留其他来源并标注局部不可见/陈旧，不推断隐藏事实；
+- 对象 status、approval facts、开放 todos、workflow 可能后续节点分别投影；
+- evidence packet 包含详情、明细、附件引用、主数据、服务端派生值、approval/todo、Policy/Workflow/对象定义/Skill 版本和读取时间；
+- evidence 或依据变化使 proposal/confirmation 失效；
+- 工作空间与业务线程投影删除后可以从 ORYH 当前事实重建。
+
+### 5.7 工具与确认
 
 - 参数 schema 正负例；
 - canonical output 和 card projection；
 - risk level 与 required capability；
 - 只读、草稿、提交、审批和 R4 的确认差异；
 - approval 绑定 tool name、args digest、Session 和 expiry；
-- 参数或服务端版本变化使 approval 失效；
+- 参数、关键事实、`updated_at`（若提供）或判断依据版本变化使 approval 失效；
 - partial success 恢复；
 - result unknown 查询；
 - duplicate idempotency replay 显示已有事实。
 
-### 5.7 本地存储
+### 5.8 本地存储
 
 - 加密 round-trip、错误 key、损坏和版本升级；
 - tenant 分区与 crypto-shredding；
@@ -202,6 +221,8 @@ Snapshot fixture 中使用 canary token；预期产物必须证明 token 不存�
 - multipart attachment；
 - date/time/Decimal/JSON Schema 字段；
 - deprecated 和新增字段兼容策略。
+- 固定审计基线中的 326 个员工/租户 API 路由变化报告；只为产品采用的端点生成 Operation，禁止“一个路由一个模型工具”的机械投影。
+- invoice direction 覆盖 `sales`、`purchase`、`payroll` 和 `reimbursement`；附件优先使用 owning-document scoped 路由。
 
 ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral 和 breaking。Breaking 变化不能只重新生成类型后合并。
 
@@ -209,6 +230,7 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 
 - `/my/skills/manifest` 与内容 endpoint 的 name/version/hash 对齐；
 - 权限变化后 eligible 集合变化；
+- capability 与 targeted audience 交集、reach 原因和自定义 Skill 投放；
 - tenant custom Skill 隔离；
 - 内容不含当前或历史 access/refresh token；
 - references 完整且路径安全；
@@ -222,6 +244,17 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 - 超时后按 key 查询或重新读取能确定结果；
 - 客户端 correlation id 出现在服务端可关联记录；
 - actor 必须是当前 user/key，不能由模型参数伪造。
+
+### 7.4 ORYH 领域不变量
+
+客户端发布不复制 ORYH 全套单元测试，但必须把依赖的服务端保证纳入兼容基线并在集成环境验证关键负向路径：
+
+- 当前付款核销和 billing account 的 PostgreSQL 行锁/多连接并发测试持续通过；每个新增 Ledger post 端点提供同等级测试；
+- 同一 expense item 不能进入两张 reimbursement invoice，claim 可以拆分到多张发票；
+- payroll 他人记录与 restricted policy 不可见时返回 404，不通过列表、线程、搜索或错误文案侧漏；
+- status、approval records、open todos 和 workflow definition 保持独立，不用一个字段替代其余三类事实；
+- document-scoped attachment 路由只读取所属单据允许的文件，跨单据/跨租户引用被拒绝；
+- 服务端派生的 outstanding、quote drift、order match、available amount 与明细事实一致。
 
 ## 8. 端到端业务场景
 
@@ -288,6 +321,32 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 **Given** 提交请求已到服务端但响应丢失
 **When** 客户端超时
 **Then** 进入结果未知，按幂等/记录事实确认，最终展示一条提交而不是第二次调用。
+
+### 8.11 业务线程与流程位置
+
+**Given** 一张已赢报价明确关联销售订单、销售发票和部分收款，且当前有一个开放审批 todo
+**When** 用户打开业务线程
+**Then** 客户端只展示显式关联记录，把对象 status、approval facts、开放 todo 和 workflow 中可能的后续节点分开；一个标题/金额相似但未关联的发票不能出现，刷新模型调用数为零。
+
+### 8.12 费用报销到付款
+
+**Given** 租户采用报销发票路径，一份费用申请的明细被拆到两个 `reimbursement` 发票
+**When** 财务记录出站付款并分别应用到发票
+**Then** 线程显示申请、两个发票、付款和 applications；同一费用明细不能重复开票，记录付款与核销分别确认，未知结果不会重复记账。
+
+另一个测试租户采用直接付款路径，客户端必须从 workflow/Skill 得出实际路径，不能仍强制创建发票。
+
+### 8.13 Skill audience 与工作空间变化
+
+**Given** 用户保留业务 capability，但从某 targeted Skill audience 移除
+**When** 客户端刷新 manifest/reach
+**Then** 对应业务指引和依赖它的工作空间入口按产品规则收敛，底层 capability 仍准确显示；客户端不建议用户申请 reach 响应里列出的角色，也不继续执行基于旧 Skill 的 proposal。
+
+### 8.14 审批 todo 绑定
+
+**Given** 模型尝试提交另一个用户的 todo、错误实体或过期轮次
+**When** 审批 Operation 执行
+**Then** 客户端从当前 `todo_id` 重读并拒绝不一致参数，服务端负向测试拒绝越权；若当前后端无法原子绑定 approval 与 todo，该限制在结果和发布门禁中保持可见。
 
 ## 9. UI、无障碍和视觉测试
 
@@ -362,6 +421,7 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 | 长会话 | 大量事件、compaction 和卡片 replay 内存 |
 | 首页 | 最大合理 todo/在途记录分页与部分失败 |
 | 确定性操作 | 我的待办/项目/刷新 p50/p95，模型调用数固定为零 |
+| 业务线程 | 最大合理关系 fan-out、分页、局部失败、刷新与重建；模型调用数固定为零 |
 | Skill | 多租户、多版本、更新风暴和 last-known-good |
 | 附件 | 1–10 MB、并发、取消、断网和重复 hash |
 | Token | 多并发请求同时过期，只触发一次 refresh；刷新响应丢失和保存前崩溃不产生部分 bundle |
@@ -378,6 +438,7 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 - 是否选择正确 Skill；
 - 是否只调用允许的工具；
 - 是否先读取必要事实；
+- 是否正确区分服务端事实/派生值与依据 Skill 得出的结论；
 - 是否在关键字段不确定时追问；
 - 是否生成与用户意图一致的 proposal；
 - 是否尊重拒绝、取消和权限错误；
@@ -429,6 +490,8 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 8. 多企业切换后解释当前上下文；
 9. 模拟断网/过期后恢复；
 10. 打开 Console 完成复杂管理动作。
+11. 从一个待办打开业务线程，指出当前状态、当前持有人和下一项可能动作；
+12. 解释一项建议采用了哪个 Skill/Policy，以及规则变化后为什么需要重新确认。
 
 特别询问用户能否区分：
 
@@ -436,6 +499,8 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 - 本地草稿与 ORYH 草稿；
 - 提交与批准；
 - 工具执行允许与正式业务审批；
+- 对象状态与工作流位置；
+- 服务端派生值、Agent 结论与未执行 proposal；
 - 删除本地会话与删除服务端记录。
 
 ## 15. MVP 发布门禁
@@ -444,7 +509,9 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 
 - [ ] Device flow、多企业、刷新、重连和断开 E2E；
 - [ ] 我的待办、项目、最近结果和已保存视图不依赖模型并共享 Operation；
-- [ ] 我的工作、工时、费用、请假、资源和三类审批 E2E；
+- [ ] capability/eligible Skill 派生的“我的工作/提交中心/决策中心”通过双租户矩阵；
+- [ ] 我的工作、工时、费用、附件和费用审批纵向闭环 E2E；请假/资源若列入当前 MVP 则同样通过；
+- [ ] 费用业务线程、evidence packet、四类真相标记和无模型刷新；
 - [ ] 会话恢复、归档、删除、Console 深链；
 - [ ] 中英文和目标平台无障碍关键路径。
 
@@ -454,6 +521,7 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 - [ ] mutation 幂等、结果未知、部分成功和 409 恢复；
 - [ ] Session replay 和 card projection snapshot；
 - [ ] 两租户/多角色矩阵全部通过。
+- [ ] 业务线程显式关系、局部不可见、重建与四类信息投影通过；无推测关系进入结果。
 
 ### 15.3 安全
 

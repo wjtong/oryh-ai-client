@@ -9,6 +9,7 @@
 - ORYH 后端依赖、DSH 扩展点和客户端工作分别跟踪；
 - 每个阶段都有明确退出条件，未达成时不把后续功能当作完成；
 - 财务、权限、批量和无人值守能力最后开放并单独评审。
+- 以业务弧和可重建业务线程交付纵向切片，不以“接了多少 API/Skill”衡量完成度。
 
 本文中的迭代表示约两周的规划单位，仅用于排序，不构成承诺日期。实际排期取决于团队规模、ORYH 后端改造和桌面签名基础设施。
 
@@ -37,6 +38,8 @@
 - 确定测试用 ORYH 环境、两个隔离租户和测试账号矩阵；
 - 固定 DSH 精确版本、commit 和启用包清单；
 - 固定 ORYH OpenAPI snapshot 和最低服务端版本；
+- 固定 ORYH 产品事实基线（当前为 `1ea1509`、`app/api` 326 个员工/租户路由、60 个映射模型、33 个产品 Skill + 6 个演示 Skill）；
+- 评审[ORYH 产品模型与客户端蓝图](10-oryh-product-model-and-client-blueprint.md)，确认第一方参考客户端而非唯一入口的定位；
 - 与 ORYH 后端确认无凭据 Skill 内容接口；
 - 定义产品术语表和中英文动作名称；
 - 为秘密泄漏测试生成专用 canary 格式；
@@ -64,11 +67,13 @@
 4. 本地解锁/锁定、启动认证状态机、`/auth/me`、连接目录与 tenant-bound Session；
 5. 一个无凭据内置测试 Skill；
 6. “我的工作”一级按钮、共享 Operation、待办视图与无模型刷新；
-7. 同一 Operation 的 AI Tool Consumer，证明 UI 与 Agent 不重复实现 API；
-8. 一个低风险服务端草稿写 Operation；
-9. 参数绑定的一次性确认卡；
-10. Session/日志/Renderer 的 canary secret 扫描；
-11. mock LLM keyless replay 与一个真实测试租户 E2E。
+7. 由 capability + eligible Skill 生成的最小“我的工作/提交中心”工作空间；
+8. 从一个 todo/记录沿显式关系构建的只读业务线程和四类真相标记；
+9. 同一 Operation 的 AI Tool Consumer，证明 UI 与 Agent 不重复实现 API；
+10. 一个低风险服务端草稿写 Operation；
+11. 参数与 evidence digest 绑定的一次性确认卡；
+12. Session/日志/Renderer 的 canary secret 扫描；
+13. mock LLM keyless replay 与一个真实测试租户 E2E。
 
 ### 4.2 明确排除
 
@@ -105,6 +110,9 @@
 - 无凭据远程 Skill provider、manifest/hash/last-known-good；
 - OpenAPI 生成契约和错误分类；
 - Operation registry、稳定 id/version、UI/Tool 双 Consumer 和统一 policy；
+- Operation 执行类别、evidence packet、依据失效和部分成功规范；
+- capability/eligible Skill 派生的 workspace registry；
+- 只沿外键/typed links 的 business-thread projector 与逐来源陈旧状态；
 - 最近结果、无模型刷新、已保存只读视图和 operation receipt；
 - 加密 Session、投影和草稿 provider；
 - 首页、会话列表、设置、连接状态与 Console 深链；
@@ -140,16 +148,17 @@
 
 建议投入：2–3 个迭代。
 
-目标：普通员工用客户端完成高频个人业务。
+目标：普通员工用客户端完成一条足够深的个人业务闭环，再复用同一基础扩展其他员工自助能力。
 
 ### 6.1 业务范围
 
 - 一键打开我的开放/逾期待办和在途记录，不依赖模型；
+- “我的工作/提交中心”按 capability 与 eligible Skill 生成并显示 reach 解释；
 - 项目等常用业务视图、最近查看、固定视图和只读结果重跑；
 - 工时创建、编辑、明细、提交和退回修正；
 - 费用附件、字段抽取、查重、草稿和提交；
-- 请假创建、提交和状态查询；
-- 资源可用性和预订；
+- 费用申请的业务线程与 evidence packet；
+- 请假和资源预订作为复用验证项，在不削弱工时/费用闭环时纳入本阶段；
 - 服务端事实卡、本地/服务端草稿卡、正式提交卡；
 - 401/403/409/422/429/5xx 与未知写结果恢复。
 
@@ -181,12 +190,14 @@
 ### 7.1 范围
 
 - 从本人 todo 进入审批；
+- “决策中心”工作空间、todo target 首屏和处理前完整 evidence packet；
 - 通用 approval timeline；
 - 工时、费用、请假三类实体检查器；
 - 附件和来源事实预览；
 - 批准、驳回、退回专用确认；
 - approval fact + complete own todo 的部分成功恢复；
 - 并行、重复节点和多轮审批的只读展示；
+- 对象 status、approval facts、开放 todos 和可能后续节点的分区展示；
 - DSH 工具批准与 ORYH 正式审批的视觉、文案和事件分离。
 
 ### 7.2 退出条件
@@ -195,6 +206,7 @@
 - [ ] 业务审批不能通过普通工具确认 UI 混淆完成；
 - [ ] 参数变化、状态变化和过期确认均要求重新确认；
 - [ ] approval 成功/todo 失败不会重复写 approval；
+- [ ] 当前后端非原子审批限制被准确呈现，客户端不会把预检查称为服务端强保证；
 - [ ] 三类实体的强制检查材料缺失时明确阻止或提示。
 
 完成 M1、M2 和桌面发布基础后，才称为 ORYH AI Client MVP。
@@ -232,6 +244,7 @@
 
 - `oryh-business-object` 与动态 JSON Schema 表单/卡片；
 - business object links 和有界 summary；
+- 从显式外键/typed links 重建“报价到收款”“采购到付款”和自定义对象线程；
 - 报价创建、修订、折扣检查、提交/发送/关闭；
 - 销售订单创建、提交和报价差异；
 - 采购申请、未定价/SKU 待定和估算总额；
@@ -244,6 +257,7 @@
 - [ ] 新租户对象类型和 Skill 可动态出现，无需客户端版本变化；
 - [ ] 对象定义/工作流更新导致旧确认失效；
 - [ ] 报价漂移、采购未定价等派生检查由规范数据渲染；
+- [ ] 业务线程不按标题、金额或日期猜测关系，缺失边明确可见；
 - [ ] 工具目录通过渐进披露保持有界。
 
 ## 10. 阶段 B2：财务、人事敏感数据和企业能力
@@ -252,15 +266,16 @@
 
 ### 10.1 前置条件
 
-- ORYH 财务并发、金额 Decimal、幂等 request hash 和 PostgreSQL 测试通过；
+- ORYH 当前结算路径 PostgreSQL 行锁与真实并发测试保持通过；新增端点逐项通过同等级测试，并补齐 Decimal API 语义和幂等 request hash；
 - 企业模型与数据处理政策明确；
 - 高敏感 Session 零/短保留策略可用；
 - R4 重新认证或双人控制策略确定。
 
 ### 10.2 范围
 
-- 发票与三方匹配；
+- `sales`、`purchase`、`payroll`、`reimbursement` 四类发票与适用匹配；
 - 收款、付款、核销和未核销余额；
+- 费用申请 → reimbursement 发票 → 出站付款 → applications 的可追溯线程，并兼容租户直接付款路径；
 - billing account 与 append-only ledger；
 - 工资处理和本人 payslip；
 - 企业模型网关、策略下发、MDM 配置；
@@ -298,7 +313,7 @@
 
 | 依赖 | 阻断阶段 | 建议负责人 | 验收证据 |
 |---|---|---|---|
-| 无凭据 eligible Skill content | F/M1 | ORYH backend | 角色过滤、hash、无 secret 负向测试 |
+| 无凭据 eligible Skill content | F/M1 | ORYH backend | capability + audience 过滤、hash、无 secret 负向测试 |
 | correlation/request id | V/F | ORYH backend | 工具结果与 audit 对齐 E2E |
 | mutation idempotency + body hash | M1 起逐域 | ORYH backend | 同 key 同 body/异 body 测试 |
 | 机器可读 error codes | F/M1 | ORYH backend | 客户端错误映射契约测试 |
@@ -309,7 +324,9 @@
 | Refresh grant 生命周期 | F | ORYH backend | 绝对/不活跃过期、密码重置/禁用/撤销失效 E2E |
 | R4 step-up assurance | B2 | ORYH backend/Identity | challenge、短期绑定、过期/跨租户/参数变化负向测试 |
 | ETag/version concurrency | B1/B2 | ORYH backend | 并发更新 409 与重新确认 |
-| 财务并发正确性 | B2 | ORYH backend | PostgreSQL 多连接门禁 |
+| 当前结算并发正确性 | 已有基线，B2 持续门禁 | ORYH backend | 现有 PostgreSQL 多连接测试持续通过；新增路径逐项补测 |
+| 财务 request hash + Decimal API 语义 | B2 | ORYH backend | 同 key 异 body 409、金额舍入/序列化和未知结果测试 |
+| 审批 todo 绑定/原子完成 | M2/企业正式发布 | ORYH backend | 非本人/自批负向测试、approval + todo 原子或可证明的等价语义 |
 | 稳定实体深链 | M1/B1 | Console | 路由契约和回归测试 |
 
 ## 13. 团队与所有权建议
@@ -349,7 +366,9 @@
 | mutation 重复写入 | 中/高 | 幂等、未知结果恢复、禁止盲重试 | 暂停相应写工具 |
 | 工具目录随业务膨胀 | 高/中 | 按 Skill/权限渐进披露 | 拆分工具族和 Profile |
 | 客户端复制 Console | 中/中 | 明确分工和深链 | 功能评审拒绝低价值复制 |
-| ORYH 服务端 P0 未完成 | 中/极高 | 阶段门禁 | 不开放财务或自动化能力 |
+| ORYH 必需的端点级保证未完成 | 中/极高 | 按 capability 的阶段门禁，不把已修复问题泛化成全局阻断 | 不开放受影响的写 Operation |
+| 业务线程误连记录 | 中/高 | 只用显式外键/typed links，逐边契约测试 | 禁用受影响投影，不允许模型补边 |
+| Agent 结论冒充服务端事实 | 中/高 | 四类真相标记、evidence digest、依据版本 | 失效 proposal 并阻断提交 |
 
 ## 16. 实施启动清单
 
@@ -359,6 +378,7 @@
 - [ ] 选择阶段 V 的测试租户与第一个草稿实体；
 - [ ] 确认 DSH 固定版本；
 - [ ] 确认 ORYH OpenAPI 基线；
+- [ ] 确认第一个纵向业务弧、对应显式关系边和 evidence packet；
 - [ ] 决定首个 OS credential provider 平台；
 - [ ] 确认无凭据 Skill 接口由谁实现；
 - [ ] 选择桌面 spike 的默认方案；

@@ -1,6 +1,6 @@
 # ORYH AI Client
 
-ORYH AI Client 是面向 ORYH 用户的“业务应用 + Agent”本地工作客户端。它以 DeepSeek Harness（DSH）作为 Agent 运行时，通过 ORYH 公共 API 读取和写入业务事实；高频已知操作直接运行，模糊意图、材料理解、判断和编排再交给 AI。
+ORYH AI Client 是面向 ORYH 用户的“个人企业工作台 + Agent”本地客户端。它以 DeepSeek Harness（DSH）作为 Agent 运行时，通过 ORYH 公共 API 读取和写入业务事实；高频已知操作直接运行，模糊意图、材料理解、规则判断和编排再交给 AI。它是第一方优化客户端和兼容性参考实现，不是使用 ORYH 的强制入口。
 
 本仓库当前处于需求与架构规划阶段，尚未开始产品代码实现。
 
@@ -9,14 +9,18 @@ ORYH AI Client 是面向 ORYH 用户的“业务应用 + Agent”本地工作客
 ORYH AI Client 负责：
 
 - 为“我的待办”、项目列表、最近结果和已保存视图提供无需调用模型的直接入口；
+- 按当前 capability 和 Skill reach 显示提交、决策、销售、采购、财务、人事和自定义业务工作空间；
 - 把一次已经确定的只读 API 操作保存为可刷新、可固定、可重复运行的业务视图；
+- 把报价到回款、请购到付款、报销到员工应付等显式关系投影成连续业务线程；
 - 把用户的自然语言请求转化为受约束、可预览、可审计的 ORYH API 操作；
-- 为待办、单据、审批、附件和执行结果提供业务化交互，而不是暴露通用开发工具；
+- 为待办、单据、审批证据、规则版本、附件、账本和执行结果提供业务化交互，而不是暴露通用开发工具；
 - 安全管理设备授权、短期访问令牌、模型凭据和多企业连接；
 - 动态加载用户在当前企业有权使用的 ORYH Skills；
 - 保留可恢复的会话和本地工作上下文。
 
 ORYH 服务端仍然是业务记录、租户隔离、权限、生命周期、幂等和审计的唯一权威来源。现有 ORYH Console 继续负责完整的可视化管理；AI Client 不复制整个管理后台。
+
+ORYH 的核心定位是 agent-native 企业事实与控制层。不同员工仍可使用不同的兼容 Agent，工作流也可跨多个 Agent 继续；本客户端提供更完整的个人工作、确定性操作、证据决策、多企业和本地安全体验，但不把 ORYH 重新绑定到一个专有界面。
 
 ## 文档导航
 
@@ -31,6 +35,7 @@ ORYH 服务端仍然是业务记录、租户隔离、权限、生命周期、幂
 | [测试与验收](docs/07-test-and-acceptance.md) | 测试层次、安全测试、质量门禁和 MVP 验收 |
 | [决策与待定问题](docs/08-decisions-and-open-questions.md) | 已确定的架构决策、待验证假设和产品选择 |
 | [登录、认证与设备会话](docs/09-authentication-and-login.md) | 首次连接、日常启动、本地解锁、刷新、撤销和高风险重新认证 |
+| [ORYH 产品模型与客户端蓝图](docs/10-oryh-product-model-and-client-blueprint.md) | 服务端、API、Skills 和设计文档审计后的产品模型、业务弧与工作空间基线 |
 
 架构决策记录：
 
@@ -39,6 +44,7 @@ ORYH 服务端仍然是业务记录、租户隔离、权限、生命周期、幂
 - [ADR-0003：会话固定绑定一个租户](docs/adr/0003-tenant-bound-sessions.md)
 - [ADR-0004：确定性业务操作优先于模型调用](docs/adr/0004-deterministic-operations-before-model.md)
 - [ADR-0005：分离账号认证、设备授权、本地解锁和高风险 step-up](docs/adr/0005-separate-account-auth-device-grant-local-unlock-and-step-up.md)
+- [ADR-0006：采用能力派生工作空间、业务线程投影和分类 Operation](docs/adr/0006-capability-derived-workspaces-and-business-thread-projections.md)
 
 ## 当前基线决定
 
@@ -53,6 +59,9 @@ ORYH 服务端仍然是业务记录、租户隔离、权限、生命周期、幂
 9. 已知意图和参数的操作直接执行确定性业务 Operation；模型只用于理解、判断、解释和编排。
 10. 日常打开客户端不重复 ORYH 登录；账号认证、设备授权、本地解锁和高风险 step-up 是四个独立机制。
 11. “锁定客户端”“断开企业”“删除本地数据”和“退出 ORYH 浏览器”不得合并为一个含义不清的“退出”。
+12. 客户端按当前 capability 与 Skill reach 派生工作空间，不按 endpoint、模型或固定角色名复制 Console。
+13. 跨单据业务线程只是由 ORYH 显式关系构建的可重建投影；缺失关系不由 Agent 猜测。
+14. 客户端明确区分 ORYH 事实、ORYH 派生值、Agent 判断和未执行 proposal，并记录实际使用的规则版本。
 
 ## 规划依据
 
@@ -60,5 +69,7 @@ ORYH 服务端仍然是业务记录、租户隔离、权限、生命周期、幂
 
 - ORYH 服务端与 Console：`/Users/wtong/git/calwbiz`
 - DeepSeek Harness：`/Users/wtong/git/deepseek-harness`
+
+本次产品审计对应 ORYH commit `1ea1509`（2026-08-21）：`app/api` 中 326 个员工/租户 API 路由声明、60 个 SQLAlchemy 映射模型、33 个产品 Skills 和 6 个演示租户 Skills。数字用于覆盖审计，不作为未来兼容承诺；详细结论见[产品模型与客户端蓝图](docs/10-oryh-product-model-and-client-blueprint.md)。
 
 实现启动前应重新核对两个上游仓库的版本，并把采用的 ORYH OpenAPI 快照和 DSH 精确版本写入本仓库。

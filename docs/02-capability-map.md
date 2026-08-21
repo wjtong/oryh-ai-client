@@ -1,6 +1,8 @@
 # ORYH 能力与 Skills 映射
 
-本文把 ORYH 当前产品 Skills 映射为客户端功能、工具族、交互表面和交付阶段。它回答“整个客户端最终覆盖什么”，但不要求每个 Skill 对应一个独立页面或一个超大工具。
+本文把 ORYH 当前产品 Skills 映射为客户端功能、工作空间、Operation、交互表面和交付阶段。它回答“整个客户端最终覆盖什么”，但不要求每个 Skill 对应一个独立页面或一个超大工具。
+
+审计基线为 ORYH `1ea1509`（2026-08-21）：`app/api` 中 326 个员工/租户 API 路由声明、60 个 SQLAlchemy 映射模型、33 个产品 Skill，另有 6 个演示租户 Skill。数量用于检查覆盖面，不代表要向模型暴露 326 个工具；详细事实见[ORYH 产品模型与客户端蓝图](10-oryh-product-model-and-client-blueprint.md)。
 
 ## 1. 分层规则
 
@@ -15,6 +17,10 @@
 | ORYH 服务端 | 权限、租户、生命周期、幂等、审计和事实 | 拒绝无权写入或非法状态转换 |
 
 Skill 不包含真实凭据。Operation 不自行决定工作流下一节点。客户端卡片不把模型推断显示成服务端事实。意图和参数明确时，按钮和视图直接运行 Operation；需要自然语言理解或业务判断时，AI Tool 才成为同一 Operation 的 Consumer。
+
+Skill eligibility 是两个条件的交集：用户具备 Skill 所需 capability，并且 Skill 采用 capability 模式或当前用户在其目标 audience 中。Audience 只能缩小投放，不能授予 capability。`/my/skills/reach` 用于解释“为什么收到/为什么未收到”，其中的角色信息不得被客户端转换成提权建议。
+
+每个 Operation 还必须属于一个执行类别：Query、Draft command、Lifecycle command、Human decision、Ledger post、Governance publish、Batch job 或 Automation control。类别决定确认、幂等、审计、部分成功和未知结果的恢复策略；它比简单的“读/写”二分更能表达 ORYH 业务风险。
 
 ## 2. 阶段定义
 
@@ -102,9 +108,11 @@ Skill 不包含真实凭据。Operation 不自行决定工作流下一节点。�
 | `oryh-invoice-approval-flow` | 发票审批与账龄待办 | 高，默认服务端流程侧 | A |
 | `oryh-payment-approval-flow` | 付款审批和状态推进 | 极高，默认服务端流程侧 | A |
 
+ORYH 当前发票方向包含 `sales`、`purchase`、`payroll` 与 `reimbursement`。费用报销可按租户流程采用直接付款，或采用“费用申请 → 一个或多个 reimbursement 发票 → 出站付款 → payment applications”；客户端读取适用 workflow/Skill 后展示实际路径，不硬编码唯一方案。付款记录和核销是两个独立 Ledger post，必须分别确认和审计。
+
 财务能力进入客户端前必须满足以下前置条件：
 
-1. ORYH 服务端完成并发一致性、幂等请求摘要和金额 Decimal 相关生产门禁；
+1. 当前 PostgreSQL 结算并发锁与真实并发测试继续作为发布基线；新增高风险端点仍需逐项证明并发正确性，并补齐 request-body 幂等摘要、统一 Decimal API 语义和未知结果恢复；
 2. 客户端实现不可绕过的金额/币种/对象/收款方确认卡；
 3. 未知结果的写调用不会自动重试；
 4. 每次动作都能关联 ORYH audit log；
@@ -133,6 +141,8 @@ Skill 不包含真实凭据。Operation 不自行决定工作流下一节点。�
 
 管理工具永远不能因为 Agent 自己建议而扩大当前用户权限。服务端 capability 仍是最终判断，客户端同时使用本地工具目录限制减少误调用。
 
+产品 Skill 之外，当前演示租户还证明了租户专有流程可以在不发布客户端版本的情况下出现：`jc-quote`、`jc-warranty-card-apply`、`jc-warranty-card-approve`、`jc-warranty-card-flow`、`jc-warranty-repair-record` 和 `sb-quote`。这些 Skill 不是第一方硬编码模块；只要它们组合已有 Operation，客户端通过自定义业务工作空间、动态卡片和 Skill 内容承载。需要新 API 语义时才增加受审查的 Operation。
+
 ## 12. 流程推进 Skills
 
 以下 Skills 面向 admin/flow agent，而不是普通桌面会话：
@@ -149,11 +159,34 @@ Skill 不包含真实凭据。Operation 不自行决定工作流下一节点。�
 
 客户端首要职责是展示它们产生的状态、待办和 flow run，而不是在员工设备上持续无人值守地执行它们。后续管理员可以在受限诊断模式下人工触发单次运行，但这不能替代 Hosted Flow Runner 的隔离设计。
 
-## 13. 首批工具目录
+## 13. 能力派生工作空间与业务线程
+
+客户端导航按当前 capability、eligible Skill 与租户功能动态生成，而不是按角色名切换一套固定菜单：
+
+| 工作空间 | 典型内容 | 主要事实源 |
+|---|---|---|
+| 我的工作 | 开放 todo、逾期、本人在途、最近结果 | `/todos?include=target` 与本人可见记录 |
+| 提交中心 | 工时、费用、请假、资源预订 | 员工自助 Skill 与对应 API |
+| 决策中心 | 本人的审批待办、证据包、正式决定 | todo、实体详情、approval facts、附件 |
+| 业务线程 | 上下游单据、关系、阻塞项和审计 | 显式外键、typed links、服务端派生值 |
+| 销售 | 报价到订单、开票、收款与核销 | quotation、sales order、invoice、payment |
+| 采购 | 采购申请、采购单、收货、进项发票与付款 | purchasing、inventory、invoice、payment |
+| 财务 | 应收应付、账龄、账户流水、工资/报销发票 | billing、claims、payroll |
+| 人员与规则 | 请假、工资单、Policy 与人员事实 | people、policies、payroll |
+| 自定义业务 | 租户对象类型、对象、typed links 与流程 | objects、workflows |
+| 自动化与治理 | flow runs、Skills/Policy 发布和诊断 | hosted flow、skills、audit/Console |
+
+工作空间只改变信息组织，不改变授权。一个用户可以同时拥有多个工作空间；同名角色在不同租户也可以看到不同模块。每次 Operation 仍由 ORYH 服务端按当前 credential 判定。
+
+“业务线程”是只读、可重建的投影，不是新的 `Case` 实体。客户端只沿服务端返回的外键和 typed links 关联记录，缺失链接显示为缺失，绝不让模型猜测。线程必须把四类信息分开：对象当前状态、已经写入的 approval facts、代表当前持有人的开放 todos、workflow 定义中可能的后续节点。
+
+R2–R4 动作在业务线程上生成 evidence packet，记录原始详情/明细、附件引用、主数据、服务端派生指标、审批轨迹、开放待办以及适用 Policy、Workflow、对象定义和 Skill 版本。UI 分别标识存储事实、服务端派生值、Agent 结论与尚未执行的 proposal；依据变化会让旧 proposal 失效。
+
+## 14. 首批工具目录
 
 技术验证与 MVP 建议保持小目录。
 
-### 13.1 始终可用的只读工具
+### 14.1 始终可用的只读工具
 
 - 当前身份和权限；
 - 当前租户 Skill/对象目录摘要；
@@ -161,7 +194,7 @@ Skill 不包含真实凭据。Operation 不自行决定工作流下一节点。�
 - 单个业务记录详情和审批进度；
 - Console 深链生成。
 
-### 13.2 按 Skill 开放的写工具
+### 14.2 按 Skill 开放的写工具
 
 - 工时草稿、明细和提交；
 - 费用草稿、明细、附件和提交；
@@ -174,7 +207,7 @@ Operation 应使用业务动词和规范 JSON 结果，避免向模型暴露通�
 
 一次只读 Operation 成功后可以产生可复用的调用描述：稳定 operation id、版本、结构化参数、租户绑定和结果投影。它支持页面刷新、结果卡重跑和固定视图，不包含模型生成代码。Mutation 结果不能按相同方式静默重跑，必须重新建立 proposal 和确认。
 
-## 14. 变更管理
+## 15. 变更管理
 
 当 ORYH 新增 Skill 或 API 时，按下面问题决定客户端变化：
 

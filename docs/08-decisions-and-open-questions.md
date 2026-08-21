@@ -33,6 +33,13 @@
 | D-016 | 日常启动不重复 ORYH 登录；本地解锁后刷新/验证当前连接，`/auth/me` 成功才进入 Ready | [认证设计](09-authentication-and-login.md#4-日常启动状态机) |
 | D-017 | 断开企业先服务端吊销当前设备，再删除本地凭据；锁定、断开、删除数据和浏览器退出不混用 | [认证设计](09-authentication-and-login.md#8-锁定断开与卸载) |
 | D-018 | R4 重新认证必须由 ORYH 服务端 challenge 和最终验证，本地生物识别只能作为附加控制 | [认证设计](09-authentication-and-login.md#7-高风险操作的重新认证) |
+| D-019 | ORYH AI Client 是第一方优化/参考客户端，不是员工使用 ORYH 的强制入口；兼容 Agent 继续存在 | [产品蓝图](10-oryh-product-model-and-client-blueprint.md#9-客户端产品主张) |
+| D-020 | 一级业务模块由 capability、eligible Skill 与租户功能派生，不按固定角色名硬编码 | [ADR-0006](adr/0006-capability-derived-workspaces-and-business-thread-projections.md) |
+| D-021 | 跨单据“业务线程”是沿显式外键/typed links 的只读可重建投影，不引入客户端 Case 真相 | [ADR-0006](adr/0006-capability-derived-workspaces-and-business-thread-projections.md) |
+| D-022 | UI 与 Session 区分存储事实、服务端派生值、Agent 结论和未执行 proposal；结论记录规则依据版本 | [产品蓝图](10-oryh-product-model-and-client-blueprint.md#6-四类信息必须分开显示) |
+| D-023 | Operation 分为 Query、Draft、Lifecycle、Human decision、Ledger、Governance、Batch 与 Automation 类别，类别决定确认/恢复策略 | [产品蓝图](10-oryh-product-model-and-client-blueprint.md#12-operation-分类) |
+| D-024 | 开放 todo 和业务线程通过状态式重新读取收敛；推送/通知只降低延迟，不作为真相源 | [技术架构](04-technical-architecture.md#74-工作空间业务线程与状态收敛) |
+| D-025 | 当前通用审批仍是 approval fact 与 todo completion 两步；客户端以 todo 为入口并处理部分成功，但不把它宣称为服务端原子保证 | [安全设计](05-security-and-privacy.md#92-部分成功) |
 
 ## 3. 建议等待批准
 
@@ -137,6 +144,22 @@
 - 最晚决定：阶段 F 结束；涉及 R4 的 assurance 语义最晚在 B2 开始前冻结。
 - 负责人：ORYH identity、安全与试点租户 IT。
 
+### Q-014 首个纵向业务弧
+
+- 状态：建议
+- 建议：以“我的工作 → 费用申请/附件 → 审批 todo → 业务线程”为首个完整业务弧；工时作为第二个较简单复用验证。先证明 evidence、部分成功、状态收敛和无模型刷新，再扩展请假/资源。
+- 原因：费用同时覆盖附件、Agent 抽取、服务端草稿、正式提交、审批与跨记录追踪，能更早暴露真实产品问题；不在 MVP 内提前开放付款/核销。
+- 最晚决定：阶段 0 结束。
+- 负责人：产品、ORYH 业务负责人和客户端技术负责人。
+
+### Q-015 业务线程首批关系边
+
+- 状态：建议
+- 建议：阶段 V/M 只实现费用/审批关系；B1 增加 quote-to-cash、procure-to-pay 和 custom typed links；B2 增加 reimbursement/payroll 到付款。每条边必须有服务端字段、可见性和分页契约，不能靠模型相似度。
+- 需要后端决定：哪些详情响应应直接返回关系 id，哪些使用专用有界查询；是否需要统一 relation endpoint。
+- 最晚决定：对应阶段设计冻结。
+- 负责人：ORYH backend、领域负责人和客户端架构。
+
 ## 4. 产品研究清单
 
 | 研究问题 | 方法 | 阻断阶段 |
@@ -148,6 +171,9 @@
 | 何时用户主动进入 Console | 试点埋点 + 访谈 | B1 |
 | 历史会话的实际价值与保留要求 | 日记研究 + 企业访谈 | F/D |
 | 企业是否接受 BYOK | 商业/安全访谈 | D |
+| 能力派生工作空间是否比固定角色菜单更可理解 | 同角色不同能力的原型对比 | M1 |
+| 用户能否分清 status、approval、开放 todo 和可能后续节点 | 业务线程任务测试 | M2 |
+| 四类真相和“查看依据”是否能阻止建议被误认成结果 | 费用/审批原型与理解测试 | M1/M2 |
 
 研究事件不记录业务正文，只记录任务类型、时间、步骤和结果类别。
 
@@ -168,6 +194,9 @@
 | Electron vs Tauri | 决策报告和安全/发布 PoC | D |
 | Renderer transport | 来源认证、stream、取消、崩溃恢复 | D |
 | OpenAPI generation | snapshot diff 和一个领域工具生成/适配 | F |
+| Capability-derived workspace registry | `/auth/me` + manifest/reach 变化后的模块收敛和无提权 | V/F |
+| Business-thread projector | 显式关系、局部失败、分页、重建和零模型刷新 | V/M1 |
+| Evidence packet/proposal digest | 事实与 Skill/Policy/Workflow 版本变化后的确认失效 | M1/M2 |
 
 Spike 代码是可丢弃验证；如果进入产品，必须重新满足正式包、文档和测试要求。
 
@@ -182,5 +211,8 @@ Spike 代码是可丢弃验证；如果进入产品，必须重新满足正式�
 - 开放通用网络、文件、第三方插件或无人值守执行；
 - 变更高风险确认、审计或幂等策略；
 - 改变 Skills 与工具的职责边界。
+- 新增业务线程的推测关系、持久业务实体或跨租户聚合方式；
+- 改变 capability/audience 到工作空间和工具目录的计算规则；
+- 改变事实、服务端派生值、Agent 结论与 proposal 的记录或展示语义。
 
 ADR 必须写清背景、决定、替代方案、正负后果和重新评估条件。
