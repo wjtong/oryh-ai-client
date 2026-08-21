@@ -1,0 +1,541 @@
+# ORYH AI Client 技术架构
+
+## 1. 架构目标
+
+ORYH AI Client 使用 DSH 提供的 Agent loop、模型适配、Session 事件、工具注册、Skill 注册、Web Client 扩展和插件生命周期，但把 ORYH 产品能力保留为独立的外部插件与 Profile。
+
+DSH Agent 是产品的一条执行路径，不是所有交互的必经层。已知业务入口直接调用共享 Operation；只有自然语言理解、非结构化材料、判断、解释和多步编排进入 Agent loop。
+
+架构必须同时满足：
+
+- ORYH 服务端继续是业务和权限的唯一事实源；
+- 高频已知操作在模型不可用时仍能通过确定性业务视图执行；
+- UI Action 与 AI Tool 共享同一个 Operation 实现；
+- 浏览器/Renderer、模型和普通工具进程均拿不到真实业务凭据；
+- 一个 Agent Session 只能调用一个租户的工具；
+- Skill 判断文本与 API 机械调用分离；
+- 客户端可以升级 DSH 或在必要时替换其中的 Provider；
+- 产品不依赖修改 DSH agent loop；
+- 开发形态、桌面形态和企业托管模型形态共享同一业务插件层。
+
+## 2. 系统上下文
+
+```mermaid
+flowchart LR
+    User["用户"] --> UI["ORYH Client UI"]
+    UI --> Host["本地 DSH Host + ORYH Plugins"]
+    Host --> Model["模型 Provider / 企业模型网关"]
+    Host --> Oryh["ORYH REST API"]
+    Oryh --> DB["PostgreSQL + RLS"]
+    UI -->|"可信深链"| Console["ORYH Console"]
+    Console --> Oryh
+    Host --> Keychain["OS Keychain / Credential Manager"]
+    Host --> LocalStore["加密本地 Session、缓存与草稿"]
+    User --> Browser["系统浏览器：ORYH 账号认证/设备批准"]
+    Browser --> Oryh
+    User --> LocalAuth["OS user presence：本地解锁"]
+    LocalAuth --> Host
+```
+
+### 2.1 责任边界
+
+| 组件 | 拥有的责任 | 不拥有的责任 |
+|---|---|---|
+| ORYH Client UI | 快捷入口、业务视图、输入、预览、卡片、确认、导航、可访问性 | 令牌、RBAC 真相、独立 API 实现 |
+| ORYH Plugins | 身份上下文、API 传输、工具、Skills、策略、投影 | 服务端业务状态真相 |
+| DSH | Agent、Session、工具/Skill 注册、模型适配、UI 扩展 | ORYH 业务规则和租户凭据策略 |
+| ORYH API | 租户隔离、权限、生命周期、幂等、记录、审计 | 对话状态、模型选择、本地 UI |
+| ORYH Console | 全局浏览、配置和管理 | 自然语言任务执行和本地凭据 |
+| 模型 Provider | 推理 | 权限决定、秘密保存、事实持久化 |
+
+## 3. 运行时拓扑
+
+### 3.1 开发与技术验证
+
+本地 DSH Host 只绑定 `127.0.0.1` 的随机或显式开发端口，加载 ORYH Profile 和开发构建的 Web Client。只允许测试租户和测试数据。该形态用于快速验证插件、Session、工具与交互，不被定义为企业部署。
+
+### 3.2 桌面生产形态
+
+```mermaid
+flowchart TB
+    subgraph Desktop["桌面应用进程边界"]
+        Renderer["沙箱化 Renderer\n无 Node、无凭据"]
+        Broker["本地受认证 UI Transport / IPC"]
+        Main["主进程 / DSH Host"]
+        Cred["Credential Provider"]
+        Store["Encrypted Session Provider"]
+        Renderer <--> Broker <--> Main
+        Main --> Cred
+        Main --> Store
+    end
+    Main -->|"Authorization 在传输层注入"| API["ORYH API"]
+    Main -->|"Provider 凭据在适配层注入"| LLM["LLM / Gateway"]
+```
+
+Renderer 只接收渲染所需的脱敏业务数据和 Session 事件。ORYH token、refresh token、模型密钥、Keychain 引用解析能力和任意本地文件能力都留在主进程。
+
+如果桌面壳仍通过 loopback HTTP 连接 DSH Host，必须增加来源检查、Host 校验、每次启动的本地认证、严格 CSP 和随机端口；不能把 DSH 原始无认证 Webserver 直接当生产桌面安全边界。优先评估自定义协议或受限 IPC。
+
+## 4. DSH 组装策略
+
+### 4.1 依赖方式
+
+- 本仓库精确锁定一个已验证的 DSH prerelease 或正式版本；
+- ORYH 插件作为 out-of-tree npm workspace packages 开发；
+- 一个 `@oryh/dsh-bundle` 描述 ORYH Profile 的完整 patch layer；
+- 开发时从本仓库启动，发布时由 ORYH 安装器携带经过验证的 DSH runtime；
+- 只有插件机制无法表达的通用缺口才在 ORYH 的 DSH fork 中维护补丁，并优先提交上游。
+
+详细决策见 [ADR-0001](adr/0001-dsh-integration-strategy.md)。
+
+### 4.2 Profile 基线
+
+ORYH Profile 复用 DSH 的基础 Agent、模型、Session、Web Client 和批准能力，但明确移除或替换编码 Agent 能力：
+
+| DSH 默认能力 | ORYH 处理 |
+|---|---|
+| Coding persona | 替换为 ORYH 业务助理 persona |
+| Workspace picker | 从主要交互移除；应用数据目录由产品决定 |
+| Bash / PowerShell | 生产 Profile 禁用 |
+| 文件写入与编辑 | 生产 Profile 禁用；附件通过专用服务读取 |
+| LSP / terminal / jobs | 生产 Profile 禁用 |
+| 通用 Web 搜索 | 默认禁用；未来按企业策略单独启用 |
+| Cordis self-modification | 禁用 |
+| 通用 Skills filesystem roots | 不作为 ORYH Skill 来源；由远程 Provider 替换 |
+| DSH 本地凭据文件 | 不保存 ORYH 或模型生产凭据；由 OS provider 替换 |
+| DSH Session persistence | 由 ORYH 加密 Provider 或明确的无持久模式替换 |
+| Chat、stream、commands | 复用并品牌化 |
+| Conversation nodes / tool cards | 复用扩展点，增加 ORYH 业务渲染器 |
+
+## 5. 规划的插件与模块
+
+包名是设计名称，实施时可调整，但责任边界不得无说明地合并。
+
+| 模块 | DSH 角色 | 责任 |
+|---|---|---|
+| `@oryh/dsh-bundle` | Bundle/Profile layer | 组装产品、禁用开发工具、挂载全部 ORYH 插件 |
+| `@oryh/dsh-auth` | Service Provider | device flow、启动认证状态机、连接验证、刷新协调、吊销和重新连接 |
+| `@oryh/dsh-credentials-os` | Credential Provider | macOS Keychain、Windows Credential Manager；只返回引用所需秘密 |
+| `@oryh/desktop-presence` | Product shell service | Touch ID/Windows Hello/系统凭据、本地锁定、OS 锁屏/睡眠/用户切换事件 |
+| `@oryh/dsh-tenants` | Service + Session context | 管理连接目录，创建 tenant-bound Agent scope |
+| `@oryh/dsh-api` | Service Provider | ORYH HTTP、认证头、刷新、超时、重试、幂等、错误映射 |
+| `@oryh/api-contract` | 生成契约 | 固定 OpenAPI 快照、类型和兼容性基线 |
+| `@oryh/dsh-operations-*` | Operation Providers | 按业务域实现共享的类型化查询/命令、规范结果和风险元数据 |
+| `@oryh/dsh-tools-*` | Tool Consumers | 把允许的 Operation 投影为模型工具，不重复 API 实现 |
+| `@oryh/dsh-tool-policy` | Hook/Guard | 权限交集、风险分级、正式确认和网络目标限制 |
+| `@oryh/dsh-skills` | Skill Provider | 按租户同步无凭据 manifest/content、版本和缓存 |
+| `@oryh/dsh-context` | Prompt/Context Provider | 注入当前企业、身份、角色、权限、时区和版本；不含秘密 |
+| `@oryh/dsh-ui-shell` | Client UI plugin | 首页、企业切换、导航、品牌和设置 |
+| `@oryh/dsh-ui-views` | Operation Consumers | 快捷入口、业务列表、最近结果、已保存视图和无模型刷新 |
+| `@oryh/dsh-ui-business` | Conversation nodes | 待办、单据、审批、附件、确认和结果卡 |
+| `@oryh/dsh-session-store` | Session persistence Provider | 租户分区、加密、保留、删除、搜索策略 |
+| `@oryh/dsh-telemetry` | Telemetry Provider | 脱敏健康指标、显式策略和诊断导出 |
+| `@oryh/dsh-console-links` | Pure service | 校验 base URL 并生成支持的 Console 深链 |
+| `@oryh/desktop` | Product shell | 启停 Host、Renderer 沙箱、系统集成、签名更新 |
+
+### 5.1 完整能力缝规则
+
+跨包能力使用 DSH/Cordis 的 Service Definition、Service Provider 和 Consumer 三类角色表达。示例：
+
+- `oryh-api` 定义请求与结果服务；OS credential provider 为它提供秘密解析；业务 Operation 是 Consumer；
+- `oryh-operations` 提供规范业务执行；页面/按钮和 AI Tool 分别是 UI Consumer 与 Model Consumer；
+- `oryh-skills` 提供 Skill source；DSH Skill registry 聚合；Skill loader 是 Consumer；
+- `oryh-session-store` 提供持久化；Session lifecycle 是 Consumer；UI 只读取投影。
+
+生命周期注册必须通过 effect/listener disposer 完成，热重载和关闭时释放网络、观察器和文件句柄。
+
+## 6. 租户与 Session 模型
+
+### 6.1 连接标识
+
+本地 `ConnectionId` 是不透明标识，指向：
+
+- ORYH base URL；
+- tenant id、tenant slug 和显示名；
+- user id、employee id、角色与权限快照；
+- OS credential references；
+- 服务端 credential/device id 与本地 credential generation；
+- 最近验证与 Skill 同步状态。
+
+tenant slug 只用于展示和命名，不是授权依据。每次连接验证以 `/auth/me` 返回的 tenant id 和权限为准。
+
+一个连接对应一个 `(ORYH origin, tenant id, user id, installation id)` 授权。`installation_id` 是本安装随机生成的不可公开秘密之外标识，不使用 MAC 地址、磁盘序列号或其他硬件指纹。重新连接可以沿用本地 `ConnectionId`，但必须替换整个 credential bundle 并递增 generation。
+
+### 6.2 Session 不变量
+
+每个 Session 创建时写入并固定：
+
+- `connectionId`；
+- ORYH tenant id；
+- ORYH API origin；
+- 创建时的用户 id；
+- 当前 Skill manifest digest；
+- 客户端与插件版本。
+
+模型可见的企业名称、身份和权限摘要必须通过 Session 事件可重放。凭据引用和真实值都不进入 Session 事件。详细决策见 [ADR-0003](adr/0003-tenant-bound-sessions.md)。
+
+### 6.3 Scope
+
+Agent scope 从 Session 的 connection id 构造。所有 ORYH services、Skills、Operations、tools、context 和 UI projections 都从该 scope 获取租户，不接受模型传入 tenant id 来切换租户。业务 Operation 参数可以包含服务端对象 id，但不能包含另一个 connection id 或凭据引用。
+
+### 6.4 客户端认证状态
+
+认证状态由 Host 拥有，Renderer 只收到可展示的投影：
+
+```text
+Booting
+→ LocalLocked
+→ LoadingConnection
+→ Refreshing?
+→ Verifying(/auth/me)
+→ Ready | CachedReadOnly | ReconnectRequired | AccountBlocked
+```
+
+- `LocalLocked` 表示本机秘密和业务数据尚未释放，不代表 ORYH credential 失效；
+- `CachedReadOnly` 只允许读取带时间标记的本地加密投影，不发布写 Operation 和 Agent 业务工具；
+- `Ready` 只能由 `/auth/me` 与本地 origin/tenant/user 完全匹配产生；
+- 多企业启动只验证上次活动 connection，其他连接在切换时惰性验证；
+- 状态变化通过类型化事件发布，不把 access/refresh、Keychain handle 或浏览器 Cookie写入事件。
+
+完整状态机见 [登录、认证与设备会话设计](09-authentication-and-login.md)。
+
+## 7. 两种执行路径
+
+### 7.1 确定性应用操作
+
+“我的待办”、项目列表、业务视图刷新和只读结果重跑走确定性路径：
+
+```mermaid
+sequenceDiagram
+    actor U as 用户
+    participant UI as Renderer / Business View
+    participant R as ORYH Operation Registry
+    participant P as Operation Policy
+    participant H as ORYH API Service
+    participant K as OS Credential Store
+    participant O as ORYH API
+
+    U->>UI: 点击“我的待办”/“刷新项目”
+    UI->>R: operation id + version + typed args + connection
+    R->>P: 权限、租户、风险和重跑策略
+    P->>H: 执行确定性只读 Operation
+    H->>K: 解析 connection access token
+    H->>O: 类型化 REST 请求
+    O-->>H: 规范响应
+    H-->>R: canonical result
+    R-->>UI: 业务投影 + operation receipt
+```
+
+该路径不创建隐藏 Prompt、不运行 Agent loop、也不调用模型。模型没有配置或暂时不可用时，它仍然工作。
+
+### 7.2 Agent 对话操作
+
+```mermaid
+sequenceDiagram
+    actor U as 用户
+    participant UI as Renderer
+    participant A as DSH Agent
+    participant S as ORYH Skill Provider
+    participant T as ORYH Tool Consumer
+    participant R as ORYH Operation Registry
+    participant P as Operation/Tool Policy
+    participant H as ORYH API Service
+    participant K as OS Credential Store
+    participant O as ORYH API
+
+    U->>UI: 输入请求/选择附件
+    UI->>A: tenant-bound user message
+    A->>S: 加载适用 Skill 版本
+    S-->>A: 无凭据判断文本
+    A->>T: 规范工具调用
+    T->>R: operation id + typed args + Session connection
+    R->>P: 参数、Agent、风险和 Session 租户
+    alt 需要正式确认
+        P-->>UI: 结构化确认请求
+        U->>UI: 明确确认
+        UI-->>P: 一次性批准结果
+    end
+    P->>H: 执行同一个业务 Operation
+    H->>K: 解析当前 connection 的 access token
+    K-->>H: 仅在主进程内返回秘密
+    H->>O: Authorization + request id/idempotency key
+    O-->>H: 规范 API envelope/error
+    H-->>R: 领域结果
+    R-->>T: canonical result
+    T-->>A: 模型可见的有界结果
+    T-->>UI: 可重放卡片投影
+    A-->>UI: 回答与下一步
+```
+
+两条路径共享 Operation、policy、API transport 和 card projection。差别只在 Consumer：UI 已经知道要做什么时直接调用；Agent 在理解和判断后通过 Tool 调用。
+
+### 7.3 从结果转入 Agent
+
+业务视图默认存在于应用投影，不进入 Session，也不消耗模型上下文。用户点击“就此询问 AI”时，Host 把用户选择的、有界的最新结果转换为 model-visible 且 logged 的 Session 事件，然后启动或继续 tenant-bound Agent。不能把整个缓存数据库或未选择的列表隐式塞入模型。
+
+## 8. ORYH API 层
+
+### 8.1 契约来源
+
+- 把经过审核的 ORYH `/openapi.json` 固定为本仓库版本化输入；
+- 生成 TypeScript 请求/响应类型和 endpoint 元数据；
+- 构建时检测 OpenAPI 快照漂移；
+- 破坏性变化必须更新工具、卡片、契约测试和版本兼容表；
+- 运行时只信任网络响应边界的解析结果，不能假设服务端永远与编译版本一致。
+
+### 8.2 传输职责
+
+`oryh-api` 统一处理：
+
+- base URL 规范化和 allowlist；
+- Authorization 注入；
+- access token 到期与 refresh token 单次轮换；
+- 同一连接的 refresh single-flight；
+- access/refresh/到期时间/credential id/generation 的 credential bundle 原子替换；
+- 超时、取消和响应大小上限；
+- 读取的有界退避；
+- mutation request id 与服务端支持的 Idempotency-Key；
+- ORYH envelope 解包和错误分类；
+- correlation id 记录；
+- 日志字段脱敏。
+
+业务工具不得自行读取 Keychain、拼接 Authorization header 或实现刷新。
+
+刷新成功的完成点不是收到 HTTP 响应，而是新 credential bundle 已原子写入系统凭据库。刷新等待者只能在该完成点之后继续。服务端已旋转、客户端保存前崩溃且超过 retry grace 时进入 `reconnect-required`；客户端不保留旧 token 的第二份普通文件备份。
+
+### 8.3 错误类型
+
+传输层向工具提供稳定的领域错误：unauthenticated、reconnect-required、forbidden、not-found-or-invisible、conflict、validation、rate-limited、transient-read-failure、mutation-outcome-unknown。模型只看到解决任务所需的说明，不看到堆栈、请求头和秘密。
+
+## 9. Operation 与工具架构
+
+### 9.1 Operation 是执行来源
+
+Operation 对应一个可审计业务动作或有界查询，例如“读取我的开放待办”“列出项目”“创建工时草稿”“提交费用申请”。它是页面、按钮、已保存视图和 AI Tool 共同使用的执行来源。禁止 UI 和 Tool 分别拼接相同 HTTP 调用，也禁止暴露通用 HTTP method/path/body Operation。
+
+每个 Operation 定义：
+
+- 稳定 id 和版本；
+- 严格的参数 schema；
+- 规范 JSON 输出；
+- 应用视图与对话卡片使用的纯 presentation；
+- 所需 ORYH capability；
+- 风险等级；
+- 是否支持幂等、自动读取重试和取消；
+- 是否允许无模型重跑、缓存或固定为视图；
+- 结果未知时的恢复查询；
+- 允许的 API origin 和 endpoint 模板。
+
+AI Tool 是 Operation 的适配器：它增加模型可见 description/schema、把 canonical result 裁剪成模型需要的内容，并通过 DSH Tool pipeline 记录调用。它不拥有另一份网络实现。
+
+### 9.2 Operation receipt 与已保存视图
+
+成功的直接操作生成不含凭据的 receipt：
+
+- operation id/version；
+- connection/tenant binding；
+- canonical typed args 或其安全投影；
+- 执行时间、结果版本和 correlation id；
+- 用于 UI 重放的 presentation metadata；
+- 风险等级和是否可直接 rerun。
+
+只读 Operation 可以从 receipt 刷新或再次执行。已保存视图保存 operation id/version、用户命名、结构化参数和展示设置。Operation 版本升级时由代码迁移参数或要求用户重新配置，绝不保存和运行模型生成的 TypeScript、Shell 或 `curl`。
+
+Mutation receipt 只表示历史结果。用户选择“以此为模板新建”时创建新的 proposal，重新读取关键服务端事实并按当前风险策略确认；旧 receipt 不是新的执行授权。
+
+### 9.3 可见工具计算
+
+模型可见工具集合是以下集合的交集：
+
+```text
+产品已安装工具
+∩ 当前用户服务端权限允许的工具
+∩ 当前 Agent Profile 允许的工具
+∩ 当前任务/Skill 需要的工具族
+∩ 企业安全策略允许的工具
+```
+
+ORYH 服务端继续做最终授权。本地收窄的目标是减少误调用和 prompt injection 的可利用面，不代替服务端 RBAC。
+
+MVP 使用固定的小型工具目录。工具数量增长后，引入 DSH scoped restriction/渐进披露，让模型先选择 Skill/领域，再看到相关工具，避免把全部 ERP API schema 放入每次请求。
+
+### 9.4 两步业务写入
+
+对于需要正式确认的动作，模型或表单首先产生规范化 action proposal。UI 从 proposal 渲染确认卡。用户确认后，策略层签发只对该 operation id/version、参数摘要、connection/Session 和短时间窗口有效的一次性 approval；任何参数变化都使确认失效。
+
+不要让模型在用户确认后重新生成一份可能不同的参数。
+
+## 10. Skill 架构
+
+### 10.1 远程 Provider
+
+ORYH Skill Provider 按 Session tenant scope 工作：
+
+1. 使用当前 user credential 获取 eligible manifest；
+2. 比较 name、version 和 content hash；
+3. 下载无凭据的 Skill Markdown 与 references；
+4. 验证大小、名称、hash 和文件类型；
+5. 原子发布新目录；
+6. 失败时保留 last-known-good；
+7. 将版本和 hash 记录到 Skill 加载事件。
+
+该 Provider 不依赖 DSH filesystem provider 的单层目录扫描，也不把 ORYH personal ZIP 直接解压到共享 `~/.agents/skills`。多企业 Skills 按 connection id 分区，由 Session scope 选择。
+
+### 10.2 模型上下文
+
+Skill 正文进入模型可见历史，因此必须满足 DSH 的“model-visible 等于 logged”原则。正文中允许：
+
+- 业务判断和检查顺序；
+- 当前租户定义的流程说明；
+- 工具名称和非秘密业务字段；
+- Console 的受控业务路径说明。
+
+正文中禁止：
+
+- access/refresh token；
+- Authorization header；
+- 模型 Provider key；
+- 本地 Keychain 路径或 secret reference；
+- 要求使用 Bash/curl 绕过工具的指令；
+- 任意外部上传目标。
+
+### 10.3 REST 与未来 MCP
+
+首版使用 ORYH REST API，因为现有 Console、flow runner 和 Skills 都以 REST 为契约。`oryh-api` 的 Consumer 不依赖具体 transport 细节；当 ORYH MCP 达到产品条件时，可以增加 MCP Provider 承担部分机械调用，但 Skill 判断层和 Session/租户不变量保持不变。
+
+## 11. ORYH 服务端依赖与差距
+
+### 11.1 MVP 阻断项
+
+1. **无凭据 Skill 内容接口。** 当前 `/my/skill-bundle` 会把 access token 渲染到 Markdown。需要按当前用户权限返回 canonical Skill 内容和 references，但保留 credential placeholders 或完全移除认证片段。建议 manifest 与内容分离，内容带 hash/ETag。
+2. **生产写入幂等语义。** 对客户端会自动恢复的 mutation，服务端需要 Idempotency-Key + canonical request hash；同 key 不同 body 返回 409。未覆盖的 endpoint，客户端不得自动重试。
+3. **稳定的关联标识。** 响应返回 request/correlation id，使客户端结果可以与 audit log 对齐。
+4. **安全的设备凭据交付。** approved device secret 必须具有强制短 TTL 和后台清理；并发 poll 通过行锁或原子状态转换保证只有一个请求拿到凭据；device/token/refresh 响应设置 `Cache-Control: no-store`。
+5. **当前设备自助吊销。** 普通用户可以使用当前 user-bound device credential 幂等吊销自己这一台设备。断开失败时客户端不能伪装成已完成。
+6. **设备批准保护。** approve/deny 统一执行同源和 CSRF 校验；旧浏览器会话批准新设备前要求 recent authentication；start、短码和 poll 有独立限流与稳定机器错误码。
+
+### 11.2 P1 依赖
+
+1. 用户自助查看、重命名和吊销自己的其他设备，而不是只有 `keys.manage` 管理员处理 API Keys；
+2. 对并发编辑提供版本字段或 ETag/If-Match；
+3. 为客户端深链提供稳定的实体到 Console URL 约定；
+4. 提供稳定、机器可读的错误 code，避免依赖英文 `detail`；
+5. 明确附件内容读取的缓存和授权头策略；
+6. 完成财务写路径的 PostgreSQL 并发一致性门禁后再开放 B2；
+7. refresh grant 的绝对/不活跃期限，以及密码重置、账号禁用和风险事件的级联失效；
+8. R4 操作的服务端 step-up challenge、短期 assurance 和最终写入验证；
+9. 浏览器侧企业 SSO 与 MFA/Passkey；客户端继续只使用系统浏览器。
+
+### 11.3 非阻断项
+
+ORYH MCP 不阻断客户端首版。Hosted Flow Runner 的 DSH adapter 也不属于客户端 MVP。
+
+## 12. 本地数据与存储
+
+| 数据 | 存储 | 规则 |
+|---|---|---|
+| refresh/access credential bundle | OS Keychain/Credential Manager | 整体原子替换，不进入普通文件和 Session |
+| 模型 key | OS Keychain 或企业网关 | Renderer 与模型不可读取原值 |
+| 本地数据加密 key | OS Keychain | 每安装或每用户生成，可轮换 |
+| Connection 非秘密元数据 | 加密或 owner-only 设置库 | tenant/user id 可视为敏感元数据 |
+| Session 事件 | 加密 Session Provider | 按租户分区、可保留/删除 |
+| UI 投影与搜索索引 | 加密派生存储 | 可从 Session 重建，删除同步 |
+| Operation receipts、最近操作和已保存视图 | 加密派生存储 | tenant-bound、无凭据、版本化；只读可重跑 |
+| Skill 缓存 | 租户分区缓存 | 无凭据、hash 验证、last-known-good |
+| 附件临时文件 | 临时加密/受限目录 | 使用后删除，不进入通用工作区 |
+| 诊断日志 | 结构化脱敏日志 | 有界保留，不含正文和秘密 |
+
+DSH 当前本地 YAML credential provider 的 `0600` 只能隔离其他 OS 用户，不能隔离同 UID 的模型工具进程，因此不满足生产秘密存储要求。由于 ORYH Profile 禁用通用文件工具，风险进一步降低，但 OS Keychain 仍是必须条件。
+
+## 13. UI 与 Host 通信
+
+### 13.1 原则
+
+- Renderer 不直接调用 ORYH；
+- 所有 UI Remote endpoint 以当前 Session/connection 上下文解析租户；
+- Renderer 不能提交任意 URL、method 或 Authorization；
+- Host 对调用来源、schema、大小、频率和生命周期做验证；
+- UI 展示卡使用持久化的 presentation metadata 重放，不依赖重新调用 ORYH；
+- 当前事实需要显式刷新并显示刷新时间。
+- UI 只能用注册的 operation id 和 schema 参数调用 Host，不能提交任意 API path。
+
+### 13.2 首页与无模型操作
+
+设备连接、企业切换、首页刷新、我的待办、项目等业务视图、只读结果重跑、设置、删除缓存和打开 Console 不需要模型参与。它们通过注册的确定性 Operation 或 Host API 执行。这样即使模型未配置或不可用，用户仍能完成已知操作。
+
+设备连接、本地解锁、刷新、`/auth/me` 验证、锁定和断开也不进入 Agent loop。Renderer 只能触发命名的 auth intent 并订阅脱敏状态；Host 决定是否调用系统浏览器、OS user-presence、Keychain 和 ORYH auth endpoint。系统浏览器与 Renderer 使用不同 Cookie/storage partition，客户端不提供嵌入 WebView 登录。
+
+## 14. 桌面封装与发布
+
+### 14.1 推荐路径
+
+第一阶段用 DSH Web Profile 完成纵向切片。桌面封装默认优先验证 Electron，因为 DSH Host 与插件是 Node.js，Web Client 是 React，Electron 能以最少的进程桥接承载二者。是否最终采用 Electron 仍需完成安全、启动、包体、更新和崩溃恢复 spike；Tauri 只有在 Node sidecar 生命周期和签名更新同样可靠时才成为候选。
+
+### 14.2 桌面要求
+
+- Renderer sandbox、context isolation、禁用任意导航和新窗口；
+- 只允许受控 ORYH/帮助深链进入系统浏览器；
+- Host 随桌面生命周期关闭并等待 Session 持久化；
+- 单实例与协议唤起不允许注入任意命令或 URL；
+- 安装包、更新 manifest 和二进制签名验证；
+- 支持企业禁用自动更新并指定内部更新源；
+- 崩溃报告默认不包含 Session 内容和内存 dump。
+
+## 15. 版本与上游策略
+
+### 15.1 DSH
+
+- package.json 和 lockfile 固定精确版本；
+- 记录 DSH commit/tag、Cordis 版本和启用插件目录；
+- 升级先在独立分支运行契约、Session replay、UI snapshot、安全和端到端测试；
+- 禁止 ORYH 包导入未公开的 DSH `src` 路径；
+- 需要核心修改时记录 fork patch、上游 issue/PR 和移除条件。
+
+### 15.2 ORYH API
+
+- 固定 OpenAPI snapshot 与支持的最小/最大服务端版本；
+- 客户端启动时读取服务能力或版本信息；
+- 服务端缺少客户端所需 capability 时降级或拒绝相关功能，不猜测；
+- Skill manifest 和 API 契约分别版本化。
+
+### 15.3 本地格式
+
+Session、connection 和缓存格式各自有 schema version。预发布阶段可以不兼容旧格式，但迁移或明确清理必须可观察，不能静默丢失用户草稿。
+
+## 16. 可观测性
+
+### 16.1 本地结构化事件
+
+允许记录：时间、版本、连接的不可逆匿名 id、Session 匿名 id、工具名、风险级别、耗时、结果类别、HTTP status、错误 code、重试/刷新次数、Skill hash 和 correlation id。
+
+默认禁止记录：消息正文、Skill 正文、工具完整参数/结果、附件内容、业务标题、人员姓名、邮箱、记录自然语言、token 和请求头。
+
+### 16.2 运维指标
+
+- 启动和崩溃；
+- 模型可用性和请求时延；
+- ORYH API 读取/写入成功率；
+- 401 刷新与重连率；
+- 409/422 业务冲突率；
+- Skill 同步成功率和陈旧持续时间；
+- 正式确认展示、取消和执行结果；
+- 未知 mutation outcome 数量。
+
+遥测是否上传由用户选择和企业策略共同决定，策略只能进一步收紧，不能绕过默认脱敏。
+
+## 17. 实施期间必须保持的架构检查
+
+每个新功能评审都回答：
+
+1. 意图和参数是否已经明确，能否先做成无模型 Operation/业务视图？
+2. 这项状态的唯一事实源在哪里？
+3. UI 与 AI Tool 是否共享同一个 Operation？
+4. 是否让模型、Renderer、Session 或日志看见了秘密？
+5. 是否可能跨 tenant-bound scope 调用？
+6. 为什么需要新 Operation，而不是组合已有窄 Operation？
+7. 风险等级和确认卡是什么？
+8. 请求结果未知时如何恢复？
+9. UI 卡片如何从规范数据重放？
+10. 是否能通过外部 DSH 插件完成？
+11. ORYH Console 是否更适合承载该交互？
+12. 需要哪些 OpenAPI、Skill、Session 和安全测试？
