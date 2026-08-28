@@ -15,7 +15,7 @@ ORYH 源码基线：`/Users/wtong/git/calwbiz`，commit `1ea1509`
 3. README 和演示数据说明；
 4. 带明确日期的历史评审与 E2E findings，只作为变更背景，不能直接当成现状。
 
-因此，2026-08-16 架构评审指出的财务并发丢失更新不能继续写成“当前未修复事实”：当前代码已经使用行锁，并有真实 PostgreSQL 多连接测试。与此同时，device secret 的原子单次交付、自助设备撤销、无凭据 Skill 内容和服务端 step-up 等仍可从当前代码确认尚未完成，继续作为客户端发布依赖。
+因此，2026-08-16 架构评审指出的财务并发丢失更新不能继续写成“当前未修复事实”：当前代码已经使用行锁，并有真实 PostgreSQL 多连接测试。与此同时，device secret 的原子单次交付、自助设备撤销、canonical 无凭据 Skill 内容和服务端 step-up 等仍可从当前代码确认尚未完成；其中 Skill content 可由客户端严格的 Host 内存 adapter 暂时绕开，其他项按对应风险仍是发布依赖。
 
 ## 2. 当前产品事实快照
 
@@ -311,7 +311,7 @@ Human decision Operation 应以 `todo_id` 为入口，从当前用户自己的 o
 
 ### 14.2 真实企业客户端发布阻断或降级点
 
-- 当前个人 Skill bundle 会把 access key 渲染进 Skill 文本；需要 eligible、无凭据、按 hash 获取的内容接口；
+- 当前个人 Skill bundle 会把 access key 渲染进 Skill 文本；客户端只能在 Host 内存中严格解析并去除该字段，原始 bundle 不得进入模型/缓存/Renderer；eligible、无凭据、按 hash 获取的内容接口仍是应优先完成的 P1 平台契约；
 - device approved secret 还需要短 TTL 清理和 PostgreSQL 原子单次消费证明；
 - 普通用户缺少当前设备自助 revoke 和本人设备列表/管理 API；
 - device start/poll、approve/deny 的限流、稳定机器错误、recent auth、统一 CSRF/no-store 仍需补齐；

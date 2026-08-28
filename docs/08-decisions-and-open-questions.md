@@ -26,7 +26,7 @@
 | D-009 | Skill 保存判断层；认证、刷新、重试、幂等和参数编码在确定性工具层 | [能力映射](02-capability-map.md#1-分层规则) |
 | D-010 | ORYH Console 保持完整管理面，客户端通过可信深链协作 | [体验设计](03-experience-design.md#11-console-分工与深链) |
 | D-011 | DSH 工具执行批准与 ORYH 正式业务审批是独立概念和交互 | [体验设计](03-experience-design.md#73-两类批准必须分开) |
-| D-012 | 真实租户上线前必须使用无凭据 Skill 内容和加密本地 Session | [安全设计](05-security-and-privacy.md) |
+| D-012 | 真实租户的模型、Session、Renderer 和持久缓存只能接收无凭据 Skill 内容；当前服务端 bundle 仅允许 Host 内存中的严格兼容适配，canonical 无凭据 endpoint 为 P1 | [ADR-0002](adr/0002-credentials-outside-model-context.md) |
 | D-013 | 交互客户端不承担 Hosted Flow Runner 的常驻多租户流程执行 | [能力映射](02-capability-map.md#12-流程推进-skills) |
 | D-014 | 已知操作直接执行确定性 Operation；按钮、视图和 AI Tool 共享实现 | [ADR-0004](adr/0004-deterministic-operations-before-model.md) |
 | D-015 | ORYH 账号认证只在系统浏览器；设备授权、本地解锁和 R4 step-up 是不同机制 | [ADR-0005](adr/0005-separate-account-auth-device-grant-local-unlock-and-step-up.md) |
@@ -40,6 +40,7 @@
 | D-023 | Operation 分为 Query、Draft、Lifecycle、Human decision、Ledger、Governance、Batch 与 Automation 类别，类别决定确认/恢复策略 | [产品蓝图](10-oryh-product-model-and-client-blueprint.md#12-operation-分类) |
 | D-024 | 开放 todo 和业务线程通过状态式重新读取收敛；推送/通知只降低延迟，不作为真相源 | [技术架构](04-technical-architecture.md#74-工作空间业务线程与状态收敛) |
 | D-025 | 当前通用审批仍是 approval fact 与 todo completion 两步；客户端以 todo 为入口并处理部分成功，但不把它宣称为服务端原子保证 | [安全设计](05-security-and-privacy.md#92-部分成功) |
+| D-026 | DSH `0.1.2-alpha.1` 的 `oryh-web` Profile、Connection/Gateway/Remote、Client Modules/slots 和 `oryh-business` preset 是客户端 Web 基线；业务 Remote 不另建通用 IPC/HTTP proxy | [ADR-0007](adr/0007-dsh-web-profile-and-typed-remotes.md) |
 
 ## 3. 建议等待批准
 
@@ -77,10 +78,10 @@
 
 ### Q-005 无凭据 Skill API 形式
 
-- 状态：建议，MVP 阻断
-- 建议：保留 `/my/skills/manifest`，新增按当前 user credential 返回 eligible canonical content 的 endpoint；内容和 references 不渲染 access token，支持 hash/ETag 和按名称获取。不要让客户端先下载含 token ZIP 再正则清理。
+- 状态：建议，P1 平台契约
+- 建议：保留 `/my/skills/manifest`，新增按当前 user credential 返回 eligible canonical content 的 endpoint；内容和 references 不渲染 access token，支持 hash/ETag 和按名称获取。客户端开始开发和首个纵向切片可使用 Host-only current-bundle adapter，但它只能按固定结构转换并在内存中丢弃原文，绝不是正则清理或长期接口。
 - 需要后端决定：单个 Skill endpoint、无凭据 ZIP，或两者同时提供；如何表示 include 后的内容。
-- 最晚决定：阶段 0 结束。
+- 最晚决定：阶段 F 结束；adapter 的 fixture/扫描契约在阶段 V 前冻结。
 - 负责人：ORYH backend 与客户端架构。
 
 ### Q-006 本地 UI 通信
@@ -189,7 +190,8 @@
 | Tenant-bound Session scope | A/B 工具、Skill、context 和 replay 隔离 | V |
 | Shared Operation registry | “我的待办”按钮和 AI Tool 共享执行；刷新时模型调用为零 | V |
 | Tool proposal/approval binding | args digest、过期、参数变化、重放 | V |
-| 无凭据 remote Skill provider | manifest/hash/LKG/tenant isolation | F |
+| Skill bundle compatibility adapter | current bundle 结构、内存去密、零落盘与 canary | V |
+| 无凭据 remote Skill provider | canonical content、manifest/hash/LKG/tenant isolation，移除 adapter | F |
 | Encrypted Session provider | replay、索引、删除、损坏恢复 | F |
 | Electron vs Tauri | 决策报告和安全/发布 PoC | D |
 | Renderer transport | 来源认证、stream、取消、崩溃恢复 | D |

@@ -159,7 +159,7 @@ DSH 要求模型可见内容能够从 Session 重建。ORYH 采用反向安全�
 
 - 用户消息和明确添加的附件文本；
 - 当前企业显示名、用户角色、权限摘要；
-- 无凭据 Skill 正文和版本；
+- 经 canonical 无凭据 endpoint 或严格 Host 内存适配后发布的 Skill 正文和版本；
 - 有界的业务工具结果；
 - 用户选择的业务线程片段、事实类型标记和判断依据版本；
 - 用户确认后的业务 action 和服务端结果；
@@ -201,7 +201,7 @@ ORYH 当前多数业务读取是租户范围，而 payroll 与 restricted policy
 5. 正式确认绑定规范 tool args digest，确认后参数不能变化；
 6. 资金账户、审批目标、权限对象等关键字段在卡片中由规范参数直接渲染；
 7. Console 深链由纯函数生成并校验 origin；
-8. 租户 Skill 不能注册新原生代码或秘密读取能力，只能引用已安装工具；
+8. 租户 Skill 不能注册新原生代码或秘密读取能力，只能引用已安装工具；当前 `/my/skill-bundle` 的原始 ZIP 仅可由 Host 在内存中经过结构化去密后读取，不能进入 Skill cache、Renderer、Session 或模型；
 9. 高风险流程进行对抗性附件和 Skill 测试。
 10. 按钮和已保存视图只能调用已注册的 Operation id/version，不能保存或运行模型生成代码、任意 URL 或 HTTP 请求。
 11. 业务线程只沿允许的显式关系边查询，模型不能新增关系、扩大查询范围或把相似记录当成已关联事实。
@@ -215,7 +215,7 @@ ORYH 当前多数业务读取是租户范围，而 payroll 与 restricted policy
 - hash/manifest 不匹配；
 - 非允许文件类型、绝对路径和目录穿越；
 - 声明任意外部网络目标；
-- 包含已知凭据格式或渲染后的认证头。
+- 包含已知凭据格式、渲染后的认证头，或不符合当前 bundle adapter 允许结构的认证字段。
 
 内容安全扫描只作为补充，不能用关键词扫描代替工具隔离和服务端授权。
 
@@ -330,8 +330,8 @@ Session 导出必须用户主动发起，默认不包含秘密、内部诊断和
 如果使用 loopback：
 
 - 仅监听 loopback，不监听 LAN；
-- 随机端口和启动级认证；
-- 校验 Origin、Host 和 Content-Type；
+- 使用 DSH `client-connection` 的一次性启动 token 换取 authority-bound HttpOnly 签名 cookie；随机端口仅减少冲突，不作为身份认证；
+- 校验 Origin、Host、Content-Type 和 DSH Connection browser session；
 - 拒绝无凭据浏览器跨站请求；
 - 限制请求体和并发；
 - shutdown 后端口立即释放。

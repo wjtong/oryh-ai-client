@@ -45,13 +45,14 @@ ORYH 的核心定位是 agent-native 企业事实与控制层。不同员工仍�
 - [ADR-0004：确定性业务操作优先于模型调用](docs/adr/0004-deterministic-operations-before-model.md)
 - [ADR-0005：分离账号认证、设备授权、本地解锁和高风险 step-up](docs/adr/0005-separate-account-auth-device-grant-local-unlock-and-step-up.md)
 - [ADR-0006：采用能力派生工作空间、业务线程投影和分类 Operation](docs/adr/0006-capability-derived-workspaces-and-business-thread-projections.md)
+- [ADR-0007：采用 DSH 0.1.2 Web Profile 与类型化 Remote 集成](docs/adr/0007-dsh-web-profile-and-typed-remotes.md)
 
 ## 当前基线决定
 
 1. 产品代码保留在本仓库，DSH 官方仓库仅作为依赖和源码参考；只有缺少扩展点时才维护最小 fork。
 2. 第一阶段以本地 Web 形态完成纵向验证，生产目标是 Windows 与 macOS 桌面客户端。
 3. 每个会话只属于一个 ORYH 租户；切换企业必须切换或创建会话。
-4. ORYH access token、refresh token 和模型密钥不得出现在 Skill Markdown、模型请求、会话日志或遥测中。
+4. ORYH access token、refresh token 和模型密钥不得出现在本客户端产出的或模型可见的 Skill Markdown、模型请求、会话日志或遥测中。
 5. 生产 Profile 默认不提供 Bash、任意文件读写、LSP、通用 `curl` 或自修改能力。
 6. 所有业务写操作通过窄类型工具完成；高影响操作必须展示业务预览并由用户明确确认。
 7. DSH 系统级工具批准与 ORYH 业务审批是两套概念，界面和数据模型必须明确区分。
@@ -71,5 +72,7 @@ ORYH 的核心定位是 agent-native 企业事实与控制层。不同员工仍�
 - DeepSeek Harness：`/Users/wtong/git/deepseek-harness`
 
 本次产品审计对应 ORYH commit `1ea1509`（2026-08-21）：`app/api` 中 326 个员工/租户 API 路由声明、60 个 SQLAlchemy 映射模型、33 个产品 Skills 和 6 个演示租户 Skills。数字用于覆盖审计，不作为未来兼容承诺；详细结论见[产品模型与客户端蓝图](docs/10-oryh-product-model-and-client-blueprint.md)。
+
+本轮 Harness 架构基线对应 DSH `dsh-v0.1.2-alpha.1`（commit `cd5ef81481`，2026-08-28）。客户端将采用其 `dsh --profile` 启动约束、Web App、浏览器 Connection、Typert Gateway/Remote 和可组合 Client 插件面；采用细节见 [ADR-0007](docs/adr/0007-dsh-web-profile-and-typed-remotes.md)。
 
 实现启动前应重新核对两个上游仓库的版本，并把采用的 ORYH OpenAPI 快照和 DSH 精确版本写入本仓库。

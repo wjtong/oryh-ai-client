@@ -2,7 +2,7 @@
 
 ## 1. 架构目标
 
-ORYH AI Client 使用 DSH 提供的 Agent loop、模型适配、Session 事件、工具注册、Skill 注册、Web Client 扩展和插件生命周期，但把 ORYH 产品能力保留为独立的外部插件与 Profile。
+ORYH AI Client 使用 DSH 提供的 Agent loop、模型适配、Session 事件、工具/Skill 注册、Profile、Web App、浏览器 Connection、Typert Gateway/Remote 和 Client plugin 生命周期，但把 ORYH 产品能力保留为独立的外部插件与 Profile。
 
 DSH Agent 是产品的一条执行路径，不是所有交互的必经层。已知业务入口直接调用共享 Operation；只有自然语言理解、非结构化材料、判断、解释和多步编排进入 Agent loop。
 
@@ -55,7 +55,7 @@ flowchart LR
 
 ### 3.1 开发与技术验证
 
-本地 DSH Host 只绑定 `127.0.0.1` 的随机或显式开发端口，加载 ORYH Profile 和开发构建的 Web Client。只允许测试租户和测试数据。该形态用于快速验证插件、Session、工具与交互，不被定义为企业部署。
+本地验证通过 `dsh --profile oryh-web --no-open` 启动，不发布另一个 Node 应用入口。`oryh-web` 在 DSH Profile 中叠加官方 Web App 与 ORYH bundle，只绑定 loopback；DSH 启动 URL 的一次性 token 换取当前 authority 的 HttpOnly 签名 cookie，随后浏览器通过受 Host/Origin 检查保护的 `/api` 使用类型化 Remote。只允许测试租户和测试数据。该形态用于快速验证 Profile、Session、工具、Remote 和交互，不被定义为企业部署。
 
 ### 3.2 桌面生产形态
 
@@ -63,52 +63,67 @@ flowchart LR
 flowchart TB
     subgraph Desktop["桌面应用进程边界"]
         Renderer["沙箱化 Renderer\n无 Node、无凭据"]
-        Broker["本地受认证 UI Transport / IPC"]
-        Main["主进程 / DSH Host"]
+        Shell["桌面壳\n窗口、签名、更新、生命周期"]
+        Host["DSH Web Host sidecar\ndsh --profile oryh-web"]
         Cred["Credential Provider"]
         Store["Encrypted Session Provider"]
-        Renderer <--> Broker <--> Main
-        Main --> Cred
-        Main --> Store
+        Renderer <-->|"DSH Connection 受认证 loopback"| Host
+        Shell -->|"启动/停止与窗口生命周期"| Host
+        Host --> Cred
+        Host --> Store
     end
-    Main -->|"Authorization 在传输层注入"| API["ORYH API"]
-    Main -->|"Provider 凭据在适配层注入"| LLM["LLM / Gateway"]
+    Host -->|"Authorization 在传输层注入"| API["ORYH API"]
+    Host -->|"Provider 凭据在适配层注入"| LLM["LLM / Gateway"]
 ```
 
-Renderer 只接收渲染所需的脱敏业务数据和 Session 事件。ORYH token、refresh token、模型密钥、Keychain 引用解析能力和任意本地文件能力都留在主进程。
+Renderer 只接收渲染所需的脱敏业务数据和 Session 事件。ORYH token、refresh token、模型密钥、Keychain 引用解析能力和任意本地文件能力都留在 Host。
 
-如果桌面壳仍通过 loopback HTTP 连接 DSH Host，必须增加来源检查、Host 校验、每次启动的本地认证、严格 CSP 和随机端口；不能把 DSH 原始无认证 Webserver 直接当生产桌面安全边界。优先评估自定义协议或受限 IPC。
+DSH `0.1.2-alpha.1` 的 `client-connection` 已提供启动 token、签名 HttpOnly cookie、loopback Host/Origin 检查和 `/api` trust fence；ORYH 在此之上使用 Gateway 的严格 codec，而不把它称作“原始无认证 Webserver”。桌面 shell 仍必须限制导航、preload 和外链，并以严格 CSP 保护 Renderer。若将来改用 custom protocol 或 IPC，它只能承担窗口/生命周期桥接；业务调用仍复用命名的 Remote，不另建任意 Host RPC 面。
 
 ## 4. DSH 组装策略
 
 ### 4.1 依赖方式
 
-- 本仓库精确锁定一个已验证的 DSH prerelease 或正式版本；
+- 本仓库精确锁定 DSH `dsh-v0.1.2-alpha.1`（`cd5ef81481`）及其 Cordis 依赖闭包；
 - ORYH 插件作为 out-of-tree npm workspace packages 开发；
-- 一个 `@oryh/dsh-bundle` 描述 ORYH Profile 的完整 patch layer；
-- 开发时从本仓库启动，发布时由 ORYH 安装器携带经过验证的 DSH runtime；
+- 安装器创建 `oryh-web` Profile，依次叠加 `dsh-base`、`dsh-web-app` 与 `@oryh/dsh-bundle` 的 patch layer；每次升级先用 `dsh --profile oryh-web --dump-config` 审核最终树；
+- 开发、测试、发布和桌面 sidecar 都通过 `dsh --profile oryh-web` 启动；ORYH 不新增 package bin、内联 Cordis tree 或绕过 DSH Loader 的 Node 应用；
+- 发布时由 ORYH 安装器携带经过验证的 DSH runtime、Profile 和 ORYH client bundles；
 - 只有插件机制无法表达的通用缺口才在 ORYH 的 DSH fork 中维护补丁，并优先提交上游。
 
-详细决策见 [ADR-0001](adr/0001-dsh-integration-strategy.md)。
+详细决策见 [ADR-0001](adr/0001-dsh-integration-strategy.md) 与 [ADR-0007](adr/0007-dsh-web-profile-and-typed-remotes.md)。
 
 ### 4.2 Profile 基线
 
-ORYH Profile 复用 DSH 的基础 Agent、模型、Session、Web Client 和批准能力，但明确移除或替换编码 Agent 能力：
+ORYH Profile 选择 DSH `web-app` 的浏览器内核，而不是继承默认 coding 产品。每个 ORYH Session 通过 `oryh-business` preset 得到业务 persona 和受限工具集合；Host 层只保留必须跨 Session 或由浏览器 Remote 使用的服务。
 
 | DSH 默认能力 | ORYH 处理 |
 |---|---|
-| Coding persona | 替换为 ORYH 业务助理 persona |
-| Workspace picker | 从主要交互移除；应用数据目录由产品决定 |
+| `standard` / `ptc` agent preset | 不采用；新建 `oryh-business` preset，并以 ORYH persona 覆盖 deployment persona |
+| PTC tool presentation | 禁用；业务工具以窄类型原生 Tool 调用呈现，不让模型写 TypeScript 编排 API |
+| DSH local Workspace Controller | 可保留作 Harness Session 组织，但不用于 ORYH capability 派生的业务工作空间或业务线程 |
 | Bash / PowerShell | 生产 Profile 禁用 |
 | 文件写入与编辑 | 生产 Profile 禁用；附件通过专用服务读取 |
 | LSP / terminal / jobs | 生产 Profile 禁用 |
 | 通用 Web 搜索 | 默认禁用；未来按企业策略单独启用 |
 | Cordis self-modification | 禁用 |
-| 通用 Skills filesystem roots | 不作为 ORYH Skill 来源；由远程 Provider 替换 |
-| DSH 本地凭据文件 | 不保存 ORYH 或模型生产凭据；由 OS provider 替换 |
-| DSH Session persistence | 由 ORYH 加密 Provider 或明确的无持久模式替换 |
-| Chat、stream、commands | 复用并品牌化 |
-| Conversation nodes / tool cards | 复用扩展点，增加 ORYH 业务渲染器 |
+| 通用 Skills filesystem roots | 不作为 ORYH Skill 来源；由 tenant-scoped Provider 取代 |
+| DSH 本地 credential file | 只可保存 DSH 浏览器会话签名材料等非 ORYH 业务秘密；ORYH/model 生产秘密使用 OS provider |
+| DSH JSONL Session persistence | 由 ORYH 加密 Provider 或明确的无持久模式替换 |
+| `client-connection` + Gateway | 复用作为受认证的 loopback transport、严格 Remote codec、取消和重连基础；不把 ORYH REST 暴露到 Renderer |
+| Client Modules、slots、renderer、locale | 复用公共 `dsh.client`/`./client` 插件机制；全部 ORYH 文案走 locale dictionary |
+| Conversation/chat/primitives | 选择性复用对话壳、持久事件渲染和基础组件；增加 ORYH 业务卡与根布局 |
+| `ui-approval` | 只承接 DSH 工具的一次性允许/拒绝；ORYH 审批、付款和正式 decision 使用独立业务卡与服务端事实 |
+
+### 4.3 浏览器 Remote 与连接恢复
+
+`@oryh/dsh-api-remotes` 由 Host/Client 两面组成：Host 将 ORYH controller 的 generated Remote descriptors 注册进 Typert Gateway，Client 通过 `ctx.remote` 挂载同一份 descriptor。业务 React 组件只消费类型化的 ORYH Remote、业务投影和 slot props；不能 `fetch` ORYH、构造 `/api` path 或保存 Authorization。
+
+Remote API 分为三类：连接/认证状态、确定性 Operation/业务投影，以及 Session-scoped Agent 控制。前两类只接收受检查的 opaque connection 或 session reference，并在 Host 解析租户和 credential generation；第三类由 DSH Session Controller 定位 Agent。任何需要连续推送的 ORYH 投影都在 Remote stream opening frame 给出完整 baseline，或给出可验证 cursor；浏览器重连后以 replacement baseline 收敛。普通 forwarded events 只降低 UI 延迟，不能作为可恢复业务事实。
+
+### 4.4 Session、模型与直接操作
+
+DSH 的 Session log 是模型历史来源，因此所有抵达模型的 ORYH context、选中的结果快照、Tool call/result 与业务确认结果必须由扩展后的 Session event vocabulary 重放。直接 Operation 的 receipt、最近结果和业务投影默认不进入 Session；只有用户明确“就此询问 AI”时，Host 裁剪并记录一份 model-visible 事件。该隔离既保留无模型入口，也避免将全量业务缓存送入模型。
 
 ## 5. 规划的插件与模块
 
@@ -122,22 +137,23 @@ ORYH Profile 复用 DSH 的基础 Agent、模型、Session、Web Client 和批�
 | `@oryh/desktop-presence` | Product shell service | Touch ID/Windows Hello/系统凭据、本地锁定、OS 锁屏/睡眠/用户切换事件 |
 | `@oryh/dsh-tenants` | Service + Session context | 管理连接目录，创建 tenant-bound Agent scope |
 | `@oryh/dsh-api` | Service Provider | ORYH HTTP、认证头、刷新、超时、重试、幂等、错误映射 |
+| `@oryh/dsh-api-remotes` | Host/Client Remote assembly | 生成并挂载连接、Operation、投影与 ORYH 业务事件的 Typert Remote；只公开命名方法与 JSON codec |
 | `@oryh/api-contract` | 生成契约 | 固定 OpenAPI 快照、类型和兼容性基线 |
 | `@oryh/dsh-operations-*` | Operation Providers | 按业务域实现共享的类型化查询/命令、规范结果和风险元数据 |
 | `@oryh/dsh-tools-*` | Tool Consumers | 把允许的 Operation 投影为模型工具，不重复 API 实现 |
 | `@oryh/dsh-tool-policy` | Hook/Guard | 权限交集、风险分级、正式确认和网络目标限制 |
-| `@oryh/dsh-skills` | Skill Provider | 按租户同步无凭据 manifest/content、版本和缓存 |
+| `@oryh/dsh-skills` | Skill Provider | 按租户同步 manifest、版本和缓存；当前 bundle 仅经 Host 内存兼容适配后发布无秘密内容 |
 | `@oryh/dsh-context` | Prompt/Context Provider | 注入当前企业、身份、角色、权限、时区和版本；不含秘密 |
-| `@oryh/dsh-ui-shell` | Client UI plugin | 首页、企业切换、导航、品牌和设置 |
+| `@oryh/dsh-ui-shell` | Client UI plugin | 通过 `dsh.client`、slots 和 locale 提供首页、企业切换、导航、品牌和设置 |
 | `@oryh/dsh-workspaces` | Projection/registry | 由 capability、eligible Skill 和租户功能生成“我的工作/提交/决策/领域”工作空间 |
 | `@oryh/dsh-business-threads` | Read projection | 沿显式外键和 typed links 构建有界、可重建的跨单据线程 |
 | `@oryh/dsh-evidence` | Evidence service | 生成 proposal 的事实引用、服务端派生值及 Policy/Workflow/对象定义/Skill 版本依据 |
 | `@oryh/dsh-ui-views` | Operation Consumers | 快捷入口、业务列表、最近结果、已保存视图和无模型刷新 |
-| `@oryh/dsh-ui-business` | Conversation nodes | 待办、单据、审批、附件、确认和结果卡 |
+| `@oryh/dsh-ui-business` | Conversation/slot Consumers | 待办、单据、审批、附件、确认和结果卡；只从 Remote/session props 读取状态 |
 | `@oryh/dsh-session-store` | Session persistence Provider | 租户分区、加密、保留、删除、搜索策略 |
 | `@oryh/dsh-telemetry` | Telemetry Provider | 脱敏健康指标、显式策略和诊断导出 |
 | `@oryh/dsh-console-links` | Pure service | 校验 base URL 并生成支持的 Console 深链 |
-| `@oryh/desktop` | Product shell | 启停 Host、Renderer 沙箱、系统集成、签名更新 |
+| `@oryh/desktop` | Product shell | 受控启动/停止 `dsh --profile oryh-web`、Renderer 沙箱、系统集成、签名更新 |
 
 ### 5.1 完整能力缝规则
 
@@ -215,6 +231,7 @@ Booting
 sequenceDiagram
     actor U as 用户
     participant UI as Renderer / Business View
+    participant C as ORYH Typed Remote
     participant R as ORYH Operation Registry
     participant P as Operation Policy
     participant H as ORYH API Service
@@ -222,17 +239,19 @@ sequenceDiagram
     participant O as ORYH API
 
     U->>UI: 点击“我的待办”/“刷新项目”
-    UI->>R: operation id + version + typed args + connection
+    UI->>C: operation id + version + typed args
+    C->>R: 已检查 connection + typed args
     R->>P: 权限、租户、风险和重跑策略
     P->>H: 执行确定性只读 Operation
     H->>K: 解析 connection access token
     H->>O: 类型化 REST 请求
     O-->>H: 规范响应
     H-->>R: canonical result
-    R-->>UI: 业务投影 + operation receipt
+    R-->>C: canonical result
+    C-->>UI: 业务投影 + operation receipt
 ```
 
-该路径不创建隐藏 Prompt、不运行 Agent loop、也不调用模型。模型没有配置或暂时不可用时，它仍然工作。
+该路径不创建隐藏 Prompt、不运行 Agent loop、也不调用模型。模型没有配置或暂时不可用时，它仍然工作。`Typed Remote` 只接受登记的 operation id 与 schema 参数，并在 Host 绑定当前 connection；它不是 Renderer 可调用的通用 API proxy。
 
 ### 7.2 Agent 对话操作
 
@@ -391,18 +410,18 @@ R2–R4 proposal 同时绑定 evidence digest。Evidence packet 包含当前详�
 
 ### 10.1 远程 Provider
 
-ORYH Skill Provider 按 Session tenant scope 工作：
+ORYH Skill Provider 按 Session tenant scope 工作。当前服务端的 `/my/skill-bundle` 会把短期 access key 渲染进 Skill 文本，因此 Provider 分成两条明确路径：
 
 1. 使用当前 user credential 获取 eligible manifest；
 2. 获取 reach 解释并保留 capability 与 audience 两类原因；
 3. 比较 name、version 和 content hash；
-4. 下载无凭据的 Skill Markdown 与 references；
-5. 验证大小、名称、hash 和文件类型；
-6. 原子发布新目录；
-7. 失败时保留 last-known-good；
+4. **当前兼容路径：** Host 从 `/my/skill-bundle` 读取原始 ZIP 到内存，按已知 ORYH bundle 结构解析并移除被渲染的 `ORYH_API_KEY` 认证字段；原始 ZIP/Markdown 立即丢弃，不写缓存；
+5. **目标路径：** 使用 ORYH 未来提供的按用户权限返回的 canonical 无凭据 Markdown/references endpoint；
+6. 对即将发布的结果验证大小、名称、hash、文件类型和零秘密断言；不符合预期时拒绝本次更新，不把“尽力清洗”后的内容交给模型；
+7. 原子发布仅含无秘密内容的新目录，失败时保留 last-known-good；
 8. 将版本、hash 和 eligibility 摘要记录到 Skill 加载事件。
 
-该 Provider 不依赖 DSH filesystem provider 的单层目录扫描，也不把 ORYH personal ZIP 直接解压到共享 `~/.agents/skills`。多企业 Skills 按 connection id 分区，由 Session scope 选择。
+该 Provider 不依赖 DSH filesystem provider 的单层目录扫描，也不把 ORYH personal ZIP 解压到共享 `~/.agents/skills` 或任何持久目录。多企业 Skills 按 connection id 分区，由 Session scope 选择。兼容路径允许当前客户端开始开发，却不是长期 content contract：ORYH 无凭据 endpoint 完成后应删除该适配器。
 
 ### 10.2 模型上下文
 
@@ -430,24 +449,24 @@ Skill 正文进入模型可见历史，因此必须满足 DSH 的“model-visibl
 
 ### 11.1 MVP 阻断项
 
-1. **无凭据 Skill 内容接口。** 当前 `/my/skill-bundle` 会把 access token 渲染到 Markdown。需要按当前用户权限返回 canonical Skill 内容和 references，但保留 credential placeholders 或完全移除认证片段。建议 manifest 与内容分离，内容带 hash/ETag。
-2. **生产写入幂等语义。** 对客户端会自动恢复的 mutation，服务端需要 Idempotency-Key + canonical request hash；同 key 不同 body 返回 409。未覆盖的 endpoint，客户端不得自动重试。
-3. **稳定的关联标识。** 响应返回 request/correlation id，使客户端结果可以与 audit log 对齐。
-4. **安全的设备凭据交付。** approved device secret 必须具有强制短 TTL 和后台清理；并发 poll 通过行锁或原子状态转换保证只有一个请求拿到凭据；device/token/refresh 响应设置 `Cache-Control: no-store`。
-5. **当前设备自助吊销。** 普通用户可以使用当前 user-bound device credential 幂等吊销自己这一台设备。断开失败时客户端不能伪装成已完成。
-6. **设备批准保护。** approve/deny 统一执行同源和 CSRF 校验；旧浏览器会话批准新设备前要求 recent authentication；start、短码和 poll 有独立限流与稳定机器错误码。
+1. **生产写入幂等语义。** 对客户端会自动恢复的 mutation，服务端需要 Idempotency-Key + canonical request hash；同 key 不同 body 返回 409。未覆盖的 endpoint，客户端不得自动重试。
+2. **稳定的关联标识。** 响应返回 request/correlation id，使客户端结果可以与 audit log 对齐。
+3. **安全的设备凭据交付。** approved device secret 必须具有强制短 TTL 和后台清理；并发 poll 通过行锁或原子状态转换保证只有一个请求拿到凭据；device/token/refresh 响应设置 `Cache-Control: no-store`。
+4. **当前设备自助吊销。** 普通用户可以使用当前 user-bound device credential 幂等吊销自己这一台设备。断开失败时客户端不能伪装成已完成。
+5. **设备批准保护。** approve/deny 统一执行同源和 CSRF 校验；旧浏览器会话批准新设备前要求 recent authentication；start、短码和 poll 有独立限流与稳定机器错误码。
 
 ### 11.2 P1 依赖
 
-1. 用户自助查看、重命名和吊销自己的其他设备，而不是只有 `keys.manage` 管理员处理 API Keys；
-2. 对并发编辑提供版本字段或 ETag/If-Match；
-3. 为客户端深链提供稳定的实体到 Console URL 约定；
-4. 提供稳定、机器可读的错误 code，避免依赖英文 `detail`；
-5. 明确附件内容读取的缓存和授权头策略；
-6. 保持当前结算路径 PostgreSQL 行锁和真实并发测试为发布门禁，并为新增财务端点逐项补充 request-body 幂等摘要、Decimal API 语义和并发/未知结果测试；
-7. refresh grant 的绝对/不活跃期限，以及密码重置、账号禁用和风险事件的级联失效；
-8. R4 操作的服务端 step-up challenge、短期 assurance 和最终写入验证；
-9. 浏览器侧企业 SSO 与 MFA/Passkey；客户端继续只使用系统浏览器。
+1. **无凭据 canonical Skill content。** 按当前用户权限返回 content/references，不渲染 access token，提供按名称读取、hash/ETag 与 include 语义；完成后移除临时 bundle adapter；
+2. 用户自助查看、重命名和吊销自己的其他设备，而不是只有 `keys.manage` 管理员处理 API Keys；
+3. 对并发编辑提供版本字段或 ETag/If-Match；
+4. 为客户端深链提供稳定的实体到 Console URL 约定；
+5. 提供稳定、机器可读的错误 code，避免依赖英文 `detail`；
+6. 明确附件内容读取的缓存和授权头策略；
+7. 保持当前结算路径 PostgreSQL 行锁和真实并发测试为发布门禁，并为新增财务端点逐项补充 request-body 幂等摘要、Decimal API 语义和并发/未知结果测试；
+8. refresh grant 的绝对/不活跃期限，以及密码重置、账号禁用和风险事件的级联失效；
+9. R4 操作的服务端 step-up challenge、短期 assurance 和最终写入验证；
+10. 浏览器侧企业 SSO 与 MFA/Passkey；客户端继续只使用系统浏览器。
 
 ### 11.3 非阻断项
 
@@ -465,7 +484,7 @@ ORYH MCP 不阻断客户端首版。Hosted Flow Runner 的 DSH adapter 也不属
 | UI 投影与搜索索引 | 加密派生存储 | 可从 Session 重建，删除同步 |
 | 工作空间与业务线程投影 | 加密派生存储或内存 | tenant-bound、有刷新时间；只沿显式关系，可从 ORYH 重建 |
 | Operation receipts、最近操作和已保存视图 | 加密派生存储 | tenant-bound、无凭据、版本化；只读可重跑 |
-| Skill 缓存 | 租户分区缓存 | 无凭据、hash 验证、last-known-good |
+| Skill 缓存 | 租户分区缓存 | 仅保存经严格适配/endpoint 得到的无凭据内容、hash 验证、last-known-good；绝不保存原始 personal ZIP |
 | 附件临时文件 | 临时加密/受限目录 | 使用后删除，不进入通用工作区 |
 | 诊断日志 | 结构化脱敏日志 | 有界保留，不含正文和秘密 |
 
@@ -476,8 +495,10 @@ DSH 当前本地 YAML credential provider 的 `0600` 只能隔离其他 OS 用�
 ### 13.1 原则
 
 - Renderer 不直接调用 ORYH；
-- 所有 UI Remote endpoint 以当前 Session/connection 上下文解析租户；
+- 所有 UI Remote endpoint 由 DSH Connection + Typert Gateway 承载，以当前 Session/connection 上下文解析租户；
 - Renderer 不能提交任意 URL、method 或 Authorization；
+- Gateway 的 unary/stream descriptor 在 Host 和 Client 两面验证 schema、取消和返回值；ORYH Client plugin 不自建业务 HTTP/WebSocket 协议；
+- Connection generation 就绪后才读取 ORYH 初始投影；断线后以 Remote 的 replacement baseline/cursor 收敛，不假定转发事件可以补齐；
 - Host 对调用来源、schema、大小、频率和生命周期做验证；
 - UI 展示卡使用持久化的 presentation metadata 重放，不依赖重新调用 ORYH；
 - 当前事实需要显式刷新并显示刷新时间。
@@ -493,7 +514,7 @@ DSH 当前本地 YAML credential provider 的 `0600` 只能隔离其他 OS 用�
 
 ### 14.1 推荐路径
 
-第一阶段用 DSH Web Profile 完成纵向切片。桌面封装默认优先验证 Electron，因为 DSH Host 与插件是 Node.js，Web Client 是 React，Electron 能以最少的进程桥接承载二者。是否最终采用 Electron 仍需完成安全、启动、包体、更新和崩溃恢复 spike；Tauri 只有在 Node sidecar 生命周期和签名更新同样可靠时才成为候选。
+第一阶段用 `oryh-web` DSH Web Profile 完成纵向切片。桌面封装默认优先验证 Electron：其职责是沙箱窗口、Keychain/系统集成和受控 sidecar 生命周期，并启动同一 `dsh --profile oryh-web`，而不是把 ORYH Plugin 另做成 Node 应用。是否最终采用 Electron 仍需完成安全、启动、包体、更新和崩溃恢复 spike；Tauri 只有在 Node sidecar 生命周期、loopback trust 与签名更新同样可靠时才成为候选。
 
 ### 14.2 桌面要求
 
@@ -509,9 +530,8 @@ DSH 当前本地 YAML credential provider 的 `0600` 只能隔离其他 OS 用�
 
 ### 15.1 DSH
 
-- package.json 和 lockfile 固定精确版本；
-- 记录 DSH commit/tag、Cordis 版本和启用插件目录；
-- 升级先在独立分支运行契约、Session replay、UI snapshot、安全和端到端测试；
+- package.json 和 lockfile 固定 `0.1.2-alpha.1`；记录 tag `dsh-v0.1.2-alpha.1`、commit `cd5ef81481`、Cordis 版本和启用 Profile/Client plugin roster；
+- 升级先在独立分支执行 `dsh --profile oryh-web --dump-config` 差异审查、Profile Loader smoke、Session replay、`test:snapshot`/`test:web` 等价测试、安全和端到端测试；
 - 禁止 ORYH 包导入未公开的 DSH `src` 路径；
 - 需要核心修改时记录 fork patch、上游 issue/PR 和移除条件。
 

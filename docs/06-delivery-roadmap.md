@@ -18,14 +18,14 @@
 | 工作流 | 主要产物 |
 |---|---|
 | 产品与设计 | 用户研究、流程原型、术语、确认与错误设计 |
-| DSH 集成 | Profile、Bundle、插件能力缝、Session 与 UI 扩展 |
+| DSH 集成 | `oryh-web` Profile、Bundle、Agent preset、Connection/Gateway/Remote、Session 与 Client plugin 扩展 |
 | ORYH 连接 | OpenAPI 契约、auth、凭据、API transport、Skills |
 | 业务能力 | 工具、卡片、Employee/Approver/Domain workflows |
 | 桌面平台 | Renderer/Host 隔离、Keychain、安装、更新、系统集成 |
-| 后端依赖 | 无凭据 Skills、幂等、错误 code、设备与并发正确性 |
+| 后端依赖 | canonical 无凭据 Skills、幂等、错误 code、设备与并发正确性 |
 | 安全与质量 | 威胁模型、测试、脱敏、供应链、发布门禁 |
 
-每个业务能力至少需要 Skill、工具、卡片、服务端契约、错误恢复、Snapshot/E2E 和文档共同完成，不能只以“模型能调通 API”为完成。
+每个业务能力至少需要 Skill、工具、卡片、服务端契约、错误恢复、DSH Profile snapshot/Web evidence、E2E 和文档共同完成，不能只以“模型能调通 API”为完成。
 
 ## 3. 阶段 0：实施准备
 
@@ -36,11 +36,11 @@
 - 评审并批准本目录的需求、架构、安全和 ADR；
 - 确定首发平台顺序和桌面技术 spike 范围；
 - 确定测试用 ORYH 环境、两个隔离租户和测试账号矩阵；
-- 固定 DSH 精确版本、commit 和启用包清单；
+- 固定 DSH `dsh-v0.1.2-alpha.1`、commit `cd5ef81481`、Cordis 版本、`oryh-web` bundle 顺序与 Client plugin roster；
 - 固定 ORYH OpenAPI snapshot 和最低服务端版本；
 - 固定 ORYH 产品事实基线（当前为 `1ea1509`、`app/api` 326 个员工/租户路由、60 个映射模型、33 个产品 Skill + 6 个演示 Skill）；
 - 评审[ORYH 产品模型与客户端蓝图](10-oryh-product-model-and-client-blueprint.md)，确认第一方参考客户端而非唯一入口的定位；
-- 与 ORYH 后端确认无凭据 Skill 内容接口；
+- 冻结 current `/my/skill-bundle` 的 Host-only adapter fixture、允许结构与 canary 扫描；同时确定 canonical 无凭据 Skill content endpoint 的负责人和 P1 里程碑；
 - 定义产品术语表和中英文动作名称；
 - 为秘密泄漏测试生成专用 canary 格式；
 - 建立威胁模型评审人与发布责任人。
@@ -61,11 +61,11 @@
 
 ### 4.1 范围
 
-1. ORYH 外部 DSH Profile 与 Bundle；
-2. 移除 coding persona、Bash、文件编辑、终端和通用网络工具；
+1. ORYH 外部 `oryh-web` DSH Profile 与 Bundle；用 `dsh --profile oryh-web --dump-config` 证明层次与禁用项；
+2. `oryh-business` preset 替换 `standard`/`ptc`，并移除 coding persona、Bash、文件编辑、终端和通用网络工具；
 3. device flow、一个平台的 OS credential provider 与 credential bundle 原子替换；
 4. 本地解锁/锁定、启动认证状态机、`/auth/me`、连接目录与 tenant-bound Session；
-5. 一个无凭据内置测试 Skill；
+5. 一个无凭据内置测试 Skill，以及 current personal bundle 的严格 Host 内存 adapter fixture；
 6. “我的工作”一级按钮、共享 Operation、待办视图与无模型刷新；
 7. 由 capability + eligible Skill 生成的最小“我的工作/提交中心”工作空间；
 8. 从一个 todo/记录沿显式关系构建的只读业务线程和四类真相标记；
@@ -73,7 +73,7 @@
 10. 一个低风险服务端草稿写 Operation；
 11. 参数与 evidence digest 绑定的一次性确认卡；
 12. Session/日志/Renderer 的 canary secret 扫描；
-13. mock LLM keyless replay 与一个真实测试租户 E2E。
+13. DSH recorded-session replay、Web browser snapshot 和一个真实测试租户 E2E。
 
 ### 4.2 明确排除
 
@@ -89,6 +89,7 @@
 - [ ] A/B 租户会话不能交叉调用；
 - [ ] 正常启动、OS 解锁取消、离线只读、refresh 失败和重新连接状态可重复验证；
 - [ ] access/refresh 只作为一个 bundle 更新；Renderer、模型和 Session 均无法读取；
+- [ ] DSH startup token/cookie、Host/Origin trust、Gateway Remote codec 与断线 replacement baseline 均通过负向和重连测试；
 - [ ] 读工具展示规范卡片；
 - [ ] 点击“我的工作”和刷新相同结果时模型调用数为零；
 - [ ] UI 按钮与 AI Tool 产生相同 canonical Operation result；
@@ -107,7 +108,7 @@
 
 - 多企业连接目录、惰性启动验证、刷新 single-flight、重连和服务端吊销后断开；
 - OS user-presence、本地锁定、锁屏/睡眠恢复与敏感通知遮蔽；
-- 无凭据远程 Skill provider、manifest/hash/last-known-good；
+- canonical 无凭据远程 Skill provider、manifest/hash/last-known-good，并删除 V 阶段 bundle adapter；
 - OpenAPI 生成契约和错误分类；
 - Operation registry、稳定 id/version、UI/Tool 双 Consumer 和统一 policy；
 - Operation 执行类别、evidence packet、依据失效和部分成功规范；
@@ -119,11 +120,11 @@
 - 业务工具基类/约定、风险等级和统一确认策略；
 - 中英文、本地化时间/金额和基础无障碍；
 - 脱敏日志、诊断包和版本清单；
-- 确定性 mock LLM 与 UI snapshot harness。
+- 录制 Session replay、owner-local expected output 与 Web/ARIA snapshot harness。
 
 ### 5.2 ORYH 后端基础
 
-- 按用户权限返回无凭据 Skill 内容；
+- 按用户权限返回 canonical 无凭据 Skill 内容；
 - mutation idempotency 与 request hash 的最小覆盖；
 - 稳定机器错误 code 和 correlation id；
 - 客户端支持的版本/能力发现；
@@ -140,7 +141,7 @@
 - [ ] 普通用户可吊销当前设备和自己的其他设备，不能操作他人或 service key；
 - [ ] 两个目标桌面平台的 credential provider 通过基础测试，或 MVP 平台范围相应收窄；
 - [ ] 本地敏感数据加密和删除有效；
-- [ ] 无凭据 Skill 接口契约和负向测试通过；
+- [ ] canonical 无凭据 Skill 接口契约和负向测试通过，V 阶段 bundle adapter 被移除；
 - [ ] 无模型时仍可管理连接和查看客户端状态；
 - [ ] 所有 P0 工具可采用统一 policy/card 机制。
 
@@ -219,7 +220,7 @@
 
 ### 8.1 范围
 
-- Renderer sandbox 与 Host/IPC 安全边界；
+- Renderer sandbox、DSH Connection loopback trust 与桌面生命周期/IPC 安全边界；
 - 单实例、协议唤起、系统浏览器 device flow；
 - OS credential 与加密存储跨平台；
 - 签名安装包、更新验签、灰度和回滚；
@@ -231,7 +232,7 @@
 
 - [ ] 两个平台安装、升级、回滚和卸载矩阵通过；
 - [ ] Renderer 无秘密和任意 Host 能力；
-- [ ] loopback/IPC 安全测试通过；
+- [ ] DSH Connection loopback 或受限 IPC 的安全测试通过；
 - [ ] 试点隐私告知、数据保留和支持流程到位；
 - [ ] 连续试点周期没有跨租户、重复写入或秘密泄漏事件；
 - [ ] 用户任务成功率达到双方设定的 MVP 阈值。
@@ -313,7 +314,7 @@
 
 | 依赖 | 阻断阶段 | 建议负责人 | 验收证据 |
 |---|---|---|---|
-| 无凭据 eligible Skill content | F/M1 | ORYH backend | capability + audience 过滤、hash、无 secret 负向测试 |
+| canonical 无凭据 eligible Skill content | F | ORYH backend | capability + audience 过滤、hash/ETag、无 secret 负向测试；删除 V adapter |
 | correlation/request id | V/F | ORYH backend | 工具结果与 audit 对齐 E2E |
 | mutation idempotency + body hash | M1 起逐域 | ORYH backend | 同 key 同 body/异 body 测试 |
 | 机器可读 error codes | F/M1 | ORYH backend | 客户端错误映射契约测试 |
@@ -358,7 +359,7 @@
 | 风险 | 可能性/影响 | 缓解 | 触发处理 |
 |---|---|---|---|
 | DSH prerelease 频繁破坏接口 | 高/中 | 精确锁定、升级独立、公共 API 限制 | 评估 fork 或暂缓升级 |
-| 无凭据 Skill API 延迟 | 中/高 | MVP 使用审核过的内置无 secret Skill；不使用真实 personal ZIP | 阻断真实租户发布 |
+| canonical 无凭据 Skill API 延迟 | 中/中 | V 使用严格 Host 内存 adapter（固定结构、零落盘、canary）并保留 LKG；F 删除 adapter | adapter 结构变化或任何泄漏即停用同步；canonical endpoint 延期只阻断 F 的平台收敛 |
 | 桌面封装扩大工期 | 中/中 | 先 Web 纵向切片，早做 Electron/Tauri spike | 收窄首发平台 |
 | 模型错误或不稳定 | 高/中 | 确定性工具/卡片、草稿、确认、mock replay | 降级到 Console/保留草稿 |
 | 多租户上下文泄漏 | 低/极高 | tenant-bound Session、分区存储、双租户测试 | 发布阻断和安全事件 |
@@ -376,11 +377,11 @@
 
 - [ ] 用户确认本规划的产品边界和 MVP 范围；
 - [ ] 选择阶段 V 的测试租户与第一个草稿实体；
-- [ ] 确认 DSH 固定版本；
+- [ ] 确认 DSH `0.1.2-alpha.1`、`oryh-web` Profile/Client roster 和升级责任人；
 - [ ] 确认 ORYH OpenAPI 基线；
 - [ ] 确认第一个纵向业务弧、对应显式关系边和 evidence packet；
 - [ ] 决定首个 OS credential provider 平台；
-- [ ] 确认无凭据 Skill 接口由谁实现；
+- [ ] 确认 current bundle adapter 的 fixture/secret-scan owner，以及 canonical 无凭据 Skill endpoint 的负责人；
 - [ ] 选择桌面 spike 的默认方案；
 - [ ] 确定测试、签名和更新基础设施的负责人；
 - [ ] 为阶段 V 建立不可使用真实数据的环境控制。

@@ -224,9 +224,9 @@ ORYH 需要提供普通用户只能查看和管理本人设备的接口：
 ## 9. Renderer、Host 与浏览器边界
 
 - 系统浏览器拥有 ORYH 账号会话；桌面 Renderer 不嵌入登录 WebView，不共享 Cookie jar。
-- Renderer 只能调用命名的连接、解锁、验证和断开 IPC；不得拿到 access/refresh、Keychain handle 或任意 auth endpoint 代理。
-- Host 对每个窗口使用启动级本地 capability，并绑定窗口、用户解锁状态和当前 `ConnectionId`。
-- 使用 loopback 时必须验证 Host、Origin、Content-Type 和启动级认证，随机端口仅是减少冲突，不是身份认证。
+- Renderer 只能调用命名的连接、解锁、验证和断开 Remote；不得拿到 access/refresh、Keychain handle 或任意 auth endpoint 代理。
+- DSH `client-connection` 让启动 URL 的一次性 token 仅在 `GET /` 交换为 authority-bound HttpOnly 签名 cookie；Gateway Remote 再绑定窗口、用户解锁状态和当前 `ConnectionId`。
+- 使用 loopback 时必须验证 Host、Origin、Content-Type、browser session 和 Remote schema；随机端口仅是减少冲突，不是身份认证。
 - 锁定或窗口销毁时撤销 Renderer capability、订阅和未完成调用。
 - device flow 的浏览器回跳不是必须条件；客户端以安全 poll 为准。未来增加 deep link 时必须验证一次性 state、目标 origin 和发起安装实例。
 

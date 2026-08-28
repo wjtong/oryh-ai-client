@@ -5,7 +5,7 @@
 
 ## 背景
 
-DeepSeek Harness 是预发布的插件式 Agent runtime，提供 Profile、Bundle、out-of-tree plugins、Agent/Session、工具、Skills、模型和 Web Client 扩展。ORYH 客户端需要这些能力，但 ORYH 的身份、业务工具、Skills、UI、安全和发布节奏属于独立产品。
+DeepSeek Harness 是预发布的插件式 Agent runtime，提供 Profile、Bundle、out-of-tree plugins、Agent/Session、工具、Skills、模型和 Web App 客户端插件面。ORYH 客户端需要这些能力，但 ORYH 的身份、业务工具、Skills、UI、安全和发布节奏属于独立产品。
 
 直接在 DSH 官方 clone 或长期产品 fork 中开发会把 ORYH 业务代码与上游核心演进混合，并增加同步、审查和替换成本。完全不保留 fork 能力又会在上游缺少必要扩展点或紧急修复时阻塞产品。
 
@@ -13,7 +13,7 @@ DeepSeek Harness 是预发布的插件式 Agent runtime，提供 Profile、Bundl
 
 1. ORYH AI Client 使用独立仓库作为产品源码唯一归属。
 2. DSH 通过精确版本的已发布包或经过固定 commit 构建的 runtime 被消费。
-3. ORYH 能力实现为 out-of-tree plugins、一个 ORYH Bundle/Profile 和独立桌面组装。
+3. ORYH 能力实现为 out-of-tree plugins、一个 ORYH Bundle/Profile 和独立桌面组装；具体 Web Profile、Connection/Gateway/Remote 集成规则由 [ADR-0007](0007-dsh-web-profile-and-typed-remotes.md) 固化。
 4. 产品代码不导入 DSH 未公开 `src` 路径，不直接修改 agent loop。
 5. 需要上游核心修改时创建 ORYH DSH fork，只维护最小通用补丁；产品业务代码仍不进入 fork。
 6. 每个 fork patch 记录上游 issue/PR、使用原因、兼容范围和删除条件。
@@ -50,7 +50,7 @@ DeepSeek Harness 是预发布的插件式 Agent runtime，提供 Profile、Bundl
 
 拒绝。虽然初期最方便，但长期冲突和耦合不可控，违背 DSH 插件架构的价值。
 
-### 只使用 DSH Python SDK，不扩展 Web Client
+### 只使用 DSH Python SDK，不扩展 Web App
 
 不作为主方案。适合 Hosted Runner adapter 或自动化，但无法满足业务卡片、租户切换和桌面产品体验。
 

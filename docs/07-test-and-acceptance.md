@@ -23,9 +23,9 @@
 | 单元测试 | 纯逻辑、schema、错误映射、卡片投影 | 每次提交 |
 | 插件生命周期测试 | 注册、scope、dispose、热更新 | 每次 PR |
 | 契约测试 | OpenAPI、Skill manifest、错误和版本 | 每次 PR/后端变更 |
-| Keyless Agent snapshot | 工具目录、Session 事件、模型可见内容、卡片 | 每次行为变更 |
-| UI 组件/视觉测试 | 业务卡片、状态、无障碍、响应式 | 每次 UI 变更 |
-| 本地集成测试 | Host、Renderer transport、Keychain adapter、存储 | 每次 PR |
+| DSH 录制 Session snapshot | 工具目录、Session 事件、模型可见内容、卡片和持久化结果 | 每次模型/用户可见行为变更 |
+| DSH Web browser snapshot | Client plugin roster、业务卡片、状态、无障碍与浏览器交互 | 每次 UI/transport 变更 |
+| 本地 Profile 集成 | `dsh --profile oryh-web`、Gateway/Remote、Keychain adapter、存储 | 每次 PR |
 | ORYH 测试环境 E2E | device flow、权限、业务事实和 audit | 合并前/定时 |
 | 真实模型场景 | 模型选择 Skill 与使用工具的实际表现 | 定时、候选发布 |
 | 桌面矩阵 | 安装、升级、崩溃、OS 集成 | 候选发布 |
@@ -80,6 +80,8 @@
 - 所有业务按钮、页面和 AI Tools 可追溯到一个稳定 operation id/version，不各自拼接 API；
 - 所有 mutation 声明幂等/未知结果恢复策略；
 - 禁止生产 Profile 出现 Bash、PowerShell、通用 HTTP、任意 FS、Terminal、LSP 和 self-modification 包；
+- `oryh-web` 的 `dsh --profile oryh-web --dump-config` 与已审查 Profile/Client plugin roster 一致；不得把 `standard` 或 `ptc` preset 带入生产树；
+- Client bundle 仅通过 DSH `dsh.client`/`./client` 声明加载；禁止 ORYH 包导入 DSH 私有 `src` 或暴露另一个业务 HTTP/IPC 面；
 - lockfile、许可证、漏洞、install script 和 SBOM 检查；
 - secret scanner 覆盖源码、构建产物、fixtures 和文档；
 - Markdown 链接和 Mermaid 验证；
@@ -133,7 +135,8 @@
 - `/my/skills/reach` 的 received/withheld 原因与 manifest 对齐，`granted_by_roles` 不触发提权建议；
 - name/version/hash 变化；
 - hash 不匹配、目录穿越、非法类型、超限；
-- 无凭据扫描；
+- 当前 `/my/skill-bundle` 的严格内存 adapter：只接受允许的结构，剥离 `ORYH_API_KEY` 字段，原始 ZIP/Markdown 不落盘；未知 secret 位置或扫描命中立即拒绝；
+- canonical 无凭据 endpoint 的 name/version/hash、条件请求和迁移；
 - 原子更新与 last-known-good；
 - A/B 同名 Skill 分区；
 - Session 重放保留调用时版本；
@@ -187,9 +190,9 @@
 - 权限和路径安全；
 - 备份/恢复不包含 Keychain key 时不能解密。
 
-## 6. Keyless Agent Snapshot
+## 6. DSH 录制 Session Snapshot
 
-使用确定性 mock LLM 和真实组装的 ORYH Profile 记录：
+使用 DSH 的 recorded-session replay 与真实 `oryh-web` Profile 记录；只在模型或网络等非确定性边界使用 mock/replay，其余 Registry、Tool pipeline、Session persistence 与 Remote 组装保持真实：
 
 - Session 初始化事件；
 - 模型可见 persona、tenant context 和 Skill catalog；
@@ -210,6 +213,8 @@ Snapshot 断言重点是结构和事实，不是为了冻结所有自然语言�
 
 Snapshot fixture 中使用 canary token；预期产物必须证明 token 不存在。
 
+每次 snapshot 都通过 `dsh` Profile 入口启动，不能用手写 `ctx.plugin(...)` tree 代替发布组装。对只验证 CLI/进程组装且不需 recorded Session 往返的输出，保留 owner-local expected tests；浏览器路径同时保留 Session 驱动证据与 Web/ARIA snapshot。
+
 ## 7. ORYH 契约测试
 
 ### 7.1 OpenAPI
@@ -228,7 +233,7 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 
 ### 7.2 Skill content
 
-- `/my/skills/manifest` 与内容 endpoint 的 name/version/hash 对齐；
+- `/my/skills/manifest` 与 canonical content endpoint 的 name/version/hash 对齐；在 endpoint 尚未提供前，以固定 current-bundle fixture 验证 Host-only adapter；
 - 权限变化后 eligible 集合变化；
 - capability 与 targeted audience 交集、reach 原因和自定义 Skill 投放；
 - tenant custom Skill 隔离；
@@ -376,6 +381,8 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 - Skill cache、设置和临时目录；
 - 构建和测试产物。
 
+当前 bundle adapter 的测试额外断言：原始 ZIP、带 key 的 Markdown 和解包临时路径均不出现在持久化、Client module boot graph、Remote response、崩溃报告或诊断；只允许受控 Host 内存读取的网络响应短暂含有该 canary。
+
 任一命中都是发布阻断。
 
 ### 10.2 Prompt injection
@@ -395,6 +402,7 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 ### 10.3 本地攻击面
 
 - 恶意网页访问 loopback；
+- 启动 URL token 仅能在 `GET /` 的一次交换中使用；错误 authority、过期 token、错误 cookie、跨站 Origin 与未认证 WebSocket 均被拒绝；
 - 错误 Origin/Host/CORS/preflight；
 - Renderer XSS 试图调用 Host/Keychain；
 - IPC 方法枚举、参数污染和超大消息；
@@ -520,6 +528,7 @@ ORYH OpenAPI snapshot 更新时生成差异报告，分为 additive、behavioral
 - [ ] OpenAPI/Skill 契约无未审查漂移；
 - [ ] mutation 幂等、结果未知、部分成功和 409 恢复；
 - [ ] Session replay 和 card projection snapshot；
+- [ ] `oryh-web` Profile dump、Loader smoke、Remote codec/reconnect baseline 与 Web browser snapshot；
 - [ ] 两租户/多角色矩阵全部通过。
 - [ ] 业务线程显式关系、局部不可见、重建与四类信息投影通过；无推测关系进入结果。
 
