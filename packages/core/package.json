@@ -1,0 +1,22 @@
+{
+  "name": "@oryh/ai-client-core",
+  "version": "0.1.0",
+  "description": "Host-side connection, credential, and deterministic operation core for ORYH AI Client.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  }
+}

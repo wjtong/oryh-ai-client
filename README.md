@@ -2,7 +2,26 @@
 
 ORYH AI Client 是面向 ORYH 用户的“个人企业工作台 + Agent”本地客户端。它以 DeepSeek Harness（DSH）作为 Agent 运行时，通过 ORYH 公共 API 读取和写入业务事实；高频已知操作直接运行，模糊意图、材料理解、规则判断和编排再交给 AI。它是第一方优化客户端和兼容性参考实现，不是使用 ORYH 的强制入口。
 
-本仓库当前处于需求与架构规划阶段，尚未开始产品代码实现。
+本仓库已开始实施。当前实现的是第一个可测试的 Host 侧纵向基础：ORYH device flow、短期 access key 自动刷新、连接/租户隔离、确定性快捷 Operation，以及结果复用。DSH Web Profile、类型化 Remote、浏览器卡片和实际 OS Keychain 仍在后续切片中；当前的内存凭据库只允许用于测试与开发，不是生产凭据存储。
+
+## 当前可运行基础
+
+`@oryh/ai-client-core` 已提供以下能力：
+
+- 调用 ORYH `/api/v1/auth/device/start`、`/token`，浏览器确认后只对调用方返回无秘密的连接摘要；
+- 通过 `/auth/me` 固化当前用户、员工与企业身份，所有后续调用按 `ConnectionId` 绑定；
+- 用 `X-API-Key` 调用 ORYH API；收到明确的 access key 过期响应时，最多执行一次 `/auth/token/refresh` 并原请求重试；
+- 已注册“我的待办”和“项目列表”两个确定性 Operation；同一次结果可本地复用，不会再次生成或调用 API；
+- 禁止一个企业连接复用另一个连接的 Operation result；只有用户明确要求“询问 AI”时，才可将经过裁剪的结果投影为模型上下文。
+
+在仓库根目录运行：
+
+```sh
+pnpm install
+pnpm run verify
+```
+
+这些测试使用伪造的 HTTP Host，不会连接真实 ORYH，也不会需要任何密钥。
 
 ## 产品定位
 

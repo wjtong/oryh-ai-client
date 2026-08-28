@@ -1,0 +1,17 @@
+{
+  "name": "oryh-ai-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ORYH-native AI client foundation and DeepSeek Harness integration packages.",
+  "packageManager": "pnpm@10.18.2",
+  "scripts": {
+    "build": "pnpm --recursive run build",
+    "test": "pnpm --recursive run test",
+    "typecheck": "pnpm --recursive run typecheck",
+    "verify": "pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
