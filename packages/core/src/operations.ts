@@ -1,11 +1,22 @@
 import { operationResultId, type ConnectionId, type OperationResultId } from './brand.js'
 import type { ConnectionRegistry } from './connections.js'
-import { decodeProjects, decodeTodos, type OryhList, type OryhProject, type OryhTodo } from './contracts.js'
+import {
+  decodeExpenseClaims,
+  decodeProjects,
+  decodeTodos,
+  type OryhExpenseClaim,
+  type OryhList,
+  type OryhProject,
+  type OryhTodo,
+} from './contracts.js'
 import { OryhClientError } from './errors.js'
 import type { OryhHttpClient } from './http.js'
 
 /** Operation names intentionally limited to registered ORYH product workflows. */
-export type OperationId = 'my-open-todos' | 'list-projects'
+export type OperationId = 'my-open-todos' | 'my-expense-claims' | 'list-projects'
+
+/** Values returned by the currently registered deterministic ORYH operations. */
+export type OperationValue = OryhTodo | OryhExpenseClaim | OryhProject
 
 /** Safe metadata used to draw operation buttons and explain their server calls. */
 export interface OperationDefinition {
@@ -34,6 +45,13 @@ export const OPERATIONS: readonly OperationDefinition[] = [
     path: '/todos?status=open&include=target',
   },
   {
+    id: 'my-expense-claims',
+    title: '我的费用申请',
+    description: '读取当前登录员工的费用申请及其处理状态。',
+    method: 'GET',
+    path: '/expense-claims?employee_id=<当前员工>',
+  },
+  {
     id: 'list-projects',
     title: '项目列表',
     description: '读取当前企业可见的项目列表。',
@@ -44,7 +62,7 @@ export const OPERATIONS: readonly OperationDefinition[] = [
 
 /** Host-owned executor for allowlisted deterministic ORYH operations. */
 export class OperationExecutor {
-  readonly #results = new Map<OperationResultId, OperationResult<OryhTodo | OryhProject>>()
+  readonly #results = new Map<OperationResultId, OperationResult<OperationValue>>()
   #nextResultId = 1
 
   constructor(
@@ -64,14 +82,18 @@ export class OperationExecutor {
   ): Promise<OperationResult<OryhProject>>
   async execute(
     connectionId: ConnectionId,
+    operationId: 'my-expense-claims',
+  ): Promise<OperationResult<OryhExpenseClaim>>
+  async execute(
+    connectionId: ConnectionId,
     operationId: OperationId,
-  ): Promise<OperationResult<OryhTodo> | OperationResult<OryhProject>> {
-    const connection = this.connections.require(connectionId)
-    let result: OryhList<OryhTodo> | OryhList<OryhProject>
+  ): Promise<OperationResult<OryhTodo> | OperationResult<OryhExpenseClaim> | OperationResult<OryhProject>> {
+    const connection = this.connections.requireVerified(connectionId)
+    let result: OryhList<OperationValue>
     switch (operationId) {
       case 'my-open-todos': {
         if (connection.identity.user.employeeId === null) {
-          throw new OryhClientError('This ORYH user is not linked to an employee.', 'request-failed')
+          throw new OryhClientError('This ORYH user is not linked to an employee.', 'employee-required')
         }
         const query = new URLSearchParams({
           employee_id: connection.identity.user.employeeId,
@@ -79,6 +101,14 @@ export class OperationExecutor {
           include: 'target',
         })
         result = decodeTodos(await this.http.request(connectionId, { path: `/todos?${query.toString()}` }))
+        break
+      }
+      case 'my-expense-claims': {
+        if (connection.identity.user.employeeId === null) {
+          throw new OryhClientError('This ORYH user is not linked to an employee.', 'employee-required')
+        }
+        const query = new URLSearchParams({ employee_id: connection.identity.user.employeeId })
+        result = decodeExpenseClaims(await this.http.request(connectionId, { path: `/expense-claims?${query.toString()}` }))
         break
       }
       case 'list-projects':
@@ -96,11 +126,11 @@ export class OperationExecutor {
     }
     this.#nextResultId += 1
     this.#results.set(execution.id, execution)
-    return execution as OperationResult<OryhTodo> | OperationResult<OryhProject>
+    return execution as OperationResult<OryhTodo> | OperationResult<OryhExpenseClaim> | OperationResult<OryhProject>
   }
 
   /** Read a prior result without issuing a new ORYH API request. */
-  reuse<Value extends OryhTodo | OryhProject>(
+  reuse<Value extends OperationValue>(
     connectionId: ConnectionId,
     resultId: OperationResultId,
   ): OperationResult<Value> {

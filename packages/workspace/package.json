@@ -1,7 +1,7 @@
 {
-  "name": "@oryh/ai-client-core",
+  "name": "@oryh/ai-client-workspace",
   "version": "0.1.0",
-  "description": "Host-side connection, credential, and deterministic operation core for ORYH AI Client.",
+  "description": "Browser-safe ORYH direct-operation workspace state for the AI client.",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -11,12 +11,12 @@
       "default": "./lib/index.js"
     }
   },
-  "dependencies": {
-    "@napi-rs/keyring": "1.3.0"
-  },
   "files": [
     "lib/"
   ],
+  "dependencies": {
+    "@oryh/ai-client-core": "workspace:*"
+  },
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "test": "vitest run",

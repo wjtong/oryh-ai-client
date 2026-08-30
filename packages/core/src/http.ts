@@ -20,6 +20,14 @@ export interface OryhRequest {
   readonly body?: unknown
 }
 
+/** Host-local timings that govern when an interactive credential is refreshed. */
+export interface OryhHttpClientOptions {
+  /** Clock used for the expiry check; injectable so the decision has deterministic coverage. */
+  readonly clock?: () => Date
+  /** Refresh an access key this many milliseconds before its server-provided expiry. */
+  readonly refreshAheadMs?: number
+}
+
 interface ErrorBody {
   readonly detail?: unknown
 }
@@ -54,39 +62,90 @@ function asCredential(value: unknown): CredentialPair {
   if (expiresAt !== null && expiresAt !== undefined && typeof expiresAt !== 'string') {
     throw new OryhClientError('ORYH returned an invalid refresh response.', 'invalid-response')
   }
-  return {
+  const credential = {
     accessKey: fields.api_key,
     refreshToken: fields.refresh_token,
     expiresAt: expiresAt ?? null,
   }
+  if (credential.expiresAt !== null && !Number.isFinite(Date.parse(credential.expiresAt))) {
+    throw new OryhClientError('ORYH returned an invalid refresh response.', 'invalid-response')
+  }
+  return credential
 }
+
+const DEFAULT_REFRESH_AHEAD_MS = 60_000
 
 /** Host-only HTTP adapter that injects credentials, refreshes once, and never returns them. */
 export class OryhHttpClient {
+  readonly #clock: () => Date
+  readonly #refreshAheadMs: number
+  readonly #refreshes = new Map<ConnectionId, Promise<CredentialPair>>()
+
   constructor(
     private readonly connections: ConnectionRegistry,
     private readonly credentials: CredentialVault,
     private readonly fetcher: Fetcher,
-  ) {}
+    options: OryhHttpClientOptions = {},
+  ) {
+    this.#clock = options.clock ?? (() => new Date())
+    this.#refreshAheadMs = refreshAheadMs(options.refreshAheadMs)
+  }
 
   /** Call a versioned ORYH API endpoint inside one existing connection scope. */
   async request(connectionId: ConnectionId, request: OryhRequest): Promise<unknown> {
     const connection = this.connections.require(connectionId)
-    const credential = await this.credentials.read(connectionId)
-    if (credential === undefined) {
-      throw new OryhClientError('The ORYH connection has no credential.', 'authentication-failed')
+    let credential = await this.requireCredential(connectionId)
+    if (shouldRefresh(credential, this.#clock(), this.#refreshAheadMs)) {
+      credential = await this.refreshCredential(connectionId, connection.origin, credential)
     }
     const first = await this.send(connection.origin, request, credential.accessKey)
     const firstBody = await first.json()
     if (first.ok) return firstBody
     if (!expiredKey(first, firstBody)) throw requestError(first, firstBody)
 
-    const refreshed = await this.refresh(connection.origin, credential.refreshToken)
-    await this.credentials.write(connectionId, refreshed)
+    const refreshed = await this.refreshCredential(connectionId, connection.origin, credential)
     const second = await this.send(connection.origin, request, refreshed.accessKey)
     const secondBody = await second.json()
     if (second.ok) return secondBody
     throw requestError(second, secondBody)
+  }
+
+  /** Read one whole credential bundle or fail before a request exposes an absent connection. */
+  private async requireCredential(connectionId: ConnectionId): Promise<CredentialPair> {
+    const credential = await this.credentials.read(connectionId)
+    if (credential === undefined) {
+      throw new OryhClientError('The ORYH connection has no credential.', 'authentication-failed')
+    }
+    return credential
+  }
+
+  /**
+   * Rotate a connection's credential at most once at a time.
+   * A waiter observes the completed keychain write before it can retry, and a
+   * request that already sees another caller's newer bundle never rotates the
+   * stale refresh token a second time.
+   */
+  private async refreshCredential(
+    connectionId: ConnectionId,
+    origin: string,
+    observed: CredentialPair,
+  ): Promise<CredentialPair> {
+    const active = this.#refreshes.get(connectionId)
+    if (active !== undefined) return active
+
+    const refresh = (async () => {
+      const current = await this.requireCredential(connectionId)
+      if (!sameCredential(current, observed)) return current
+      const refreshed = await this.refresh(origin, current.refreshToken)
+      await this.credentials.write(connectionId, refreshed)
+      return refreshed
+    })()
+    this.#refreshes.set(connectionId, refresh)
+    try {
+      return await refresh
+    } finally {
+      if (this.#refreshes.get(connectionId) === refresh) this.#refreshes.delete(connectionId)
+    }
   }
 
   private async send(origin: string, request: OryhRequest, accessKey: string): Promise<FetchResponse> {
@@ -112,6 +171,29 @@ export class OryhHttpClient {
     }
     return asCredential(body)
   }
+}
+
+/** Whether the server-provided access expiry falls within this connection's refresh window. */
+function shouldRefresh(credential: CredentialPair, now: Date, refreshAheadMs: number): boolean {
+  if (credential.expiresAt === null) return false
+  const expiresAt = Date.parse(credential.expiresAt)
+  return Number.isFinite(expiresAt) && expiresAt <= now.getTime() + refreshAheadMs
+}
+
+/** Compare complete credential generations without ever exposing either value to a caller. */
+function sameCredential(left: CredentialPair, right: CredentialPair): boolean {
+  return left.accessKey === right.accessKey
+    && left.refreshToken === right.refreshToken
+    && left.expiresAt === right.expiresAt
+}
+
+/** Normalize one host-owned refresh lead time before network work begins. */
+function refreshAheadMs(value: number | undefined): number {
+  const resolved = value ?? DEFAULT_REFRESH_AHEAD_MS
+  if (!Number.isSafeInteger(resolved) || resolved < 0) {
+    throw new TypeError('ORYH refreshAheadMs must be a non-negative safe integer')
+  }
+  return resolved
 }
 
 function requestError(response: FetchResponse, body: unknown): OryhClientError {

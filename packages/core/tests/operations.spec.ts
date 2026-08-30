@@ -28,10 +28,26 @@ function identity(employeeId: string) {
 }
 
 describe('OperationExecutor', () => {
+  it('refuses business operations from a restored connection until this Host process verifies it', async () => {
+    const connections = new ConnectionRegistry()
+    const connection = connections.add({ origin: 'https://oryh.example', identity: identity('employee-1') })
+    const credentials = new MemoryCredentialVault()
+    await credentials.write(connection.id, { accessKey: 'access-key', refreshToken: 'refresh-token', expiresAt: null })
+    const fetcher = new ScriptedFetcher([])
+    const executor = new OperationExecutor(connections, new OryhHttpClient(connections, credentials, fetcher.fetch))
+
+    await expect(executor.execute(connection.id, 'list-projects')).rejects.toMatchObject({
+      code: 'connection-verification-required',
+    })
+    expect(fetcher.calls).toEqual([])
+  })
+
   it('executes a registered todo operation once and reuses the result locally', async () => {
     const connections = new ConnectionRegistry()
     const first = connections.add({ origin: 'https://oryh.example', identity: identity('employee-1') })
     const second = connections.add({ origin: 'https://oryh.example', identity: identity('employee-2') })
+    connections.markVerified(first.id, identity('employee-1'))
+    connections.markVerified(second.id, identity('employee-2'))
     const credentials = new MemoryCredentialVault()
     await credentials.write(first.id, { accessKey: 'first-key', refreshToken: 'first-refresh', expiresAt: null })
     await credentials.write(second.id, { accessKey: 'second-key', refreshToken: 'second-refresh', expiresAt: null })
@@ -76,5 +92,67 @@ describe('OperationExecutor', () => {
       items: [{ title: 'Review project plan', targetTitle: 'Pilot' }],
     })
     expect(JSON.stringify(context)).not.toContain('first-key')
+  })
+
+  it('executes an employee-bound expense-claim view through a fixed API program', async () => {
+    const connections = new ConnectionRegistry()
+    const connection = connections.add({ origin: 'https://oryh.example', identity: identity('employee-1') })
+    connections.markVerified(connection.id, identity('employee-1'))
+    const credentials = new MemoryCredentialVault()
+    await credentials.write(connection.id, { accessKey: 'access-key', refreshToken: 'refresh-token', expiresAt: null })
+    const fetcher = new ScriptedFetcher([
+      jsonResponse(200, {
+        data: [{
+          id: 'claim-1', employee_id: 'employee-1', title: '客户拜访交通费', claim_date: '2026-08-28',
+          currency: 'CNY', status: 'submitted', submitted_at: '2026-08-28T08:00:00Z',
+        }],
+        meta: { total: 1 },
+      }),
+    ])
+    const executor = new OperationExecutor(
+      connections,
+      new OryhHttpClient(connections, credentials, fetcher.fetch),
+      () => new Date('2026-08-28T00:00:00Z'),
+    )
+
+    const result = await executor.execute(connection.id, 'my-expense-claims')
+
+    expect(result).toMatchObject({
+      operationId: 'my-expense-claims',
+      result: {
+        data: [{ title: '客户拜访交通费', currency: 'CNY', status: 'submitted' }],
+      },
+    })
+    expect(fetcher.calls).toHaveLength(1)
+    expect(fetcher.calls[0]?.input).toBe('https://oryh.example/api/v1/expense-claims?employee_id=employee-1')
+    expect(executor.reuse(connection.id, result.id)).toEqual(result)
+  })
+
+  it('does not issue employee-scoped requests for an account without an employee record', async () => {
+    const connections = new ConnectionRegistry()
+    const connection = connections.add({
+      origin: 'https://oryh.example',
+      identity: {
+        ...identity('employee-1'),
+        user: {
+          ...identity('employee-1').user,
+          employeeId: null,
+        },
+      },
+    })
+    connections.markVerified(connection.id, {
+      ...identity('employee-1'),
+      user: {
+        ...identity('employee-1').user,
+        employeeId: null,
+      },
+    })
+    const credentials = new MemoryCredentialVault()
+    await credentials.write(connection.id, { accessKey: 'access-key', refreshToken: 'refresh-token', expiresAt: null })
+    const fetcher = new ScriptedFetcher([])
+    const executor = new OperationExecutor(connections, new OryhHttpClient(connections, credentials, fetcher.fetch))
+
+    await expect(executor.execute(connection.id, 'my-expense-claims')).rejects.toMatchObject({ code: 'employee-required' })
+    expect(fetcher.calls).toEqual([])
   })
 })

@@ -2,7 +2,7 @@
 
 ORYH AI Client 是面向 ORYH 用户的“个人企业工作台 + Agent”本地客户端。它以 DeepSeek Harness（DSH）作为 Agent 运行时，通过 ORYH 公共 API 读取和写入业务事实；高频已知操作直接运行，模糊意图、材料理解、规则判断和编排再交给 AI。它是第一方优化客户端和兼容性参考实现，不是使用 ORYH 的强制入口。
 
-本仓库已开始实施。当前实现的是第一个可测试的 Host 侧纵向基础：ORYH device flow、短期 access key 自动刷新、连接/租户隔离、确定性快捷 Operation，以及结果复用。DSH Web Profile、类型化 Remote、浏览器卡片和实际 OS Keychain 仍在后续切片中；当前的内存凭据库只允许用于测试与开发，不是生产凭据存储。
+本仓库已开始实施。当前实现包括可测试的 Host 侧纵向基础、无秘密 Remote 契约、工作台状态层，以及一个可直接启动的本地 Web 工作台：ORYH device flow、短期 access key 自动刷新、连接/租户隔离、确定性快捷 Operation、结果复用和已保存操作。当前的内存凭据库只允许用于测试与开发，不是生产凭据存储。
 
 ## 当前可运行基础
 
@@ -10,9 +10,39 @@ ORYH AI Client 是面向 ORYH 用户的“个人企业工作台 + Agent”本地
 
 - 调用 ORYH `/api/v1/auth/device/start`、`/token`，浏览器确认后只对调用方返回无秘密的连接摘要；
 - 通过 `/auth/me` 固化当前用户、员工与企业身份，所有后续调用按 `ConnectionId` 绑定；
-- 用 `X-API-Key` 调用 ORYH API；收到明确的 access key 过期响应时，最多执行一次 `/auth/token/refresh` 并原请求重试；
-- 已注册“我的待办”和“项目列表”两个确定性 Operation；同一次结果可本地复用，不会再次生成或调用 API；
+- 用 `X-API-Key` 调用 ORYH API；收到明确的 access key 过期响应时，最多执行一次 `/auth/token/refresh` 并原请求重试；同一连接的并发刷新会合并，并在 access key 临近服务端到期时间时提前刷新；
+- 已注册“我的待办”“我的费用申请”和“项目列表”三个确定性 Operation；同一次结果可本地复用，不会再次生成或调用 API；
+- `@oryh/ai-client-workspace` 为界面提供“连接选择 → 直接运行 → 复用结果 → 保存操作 → 直接刷新”的状态机；多企业连接必须由用户明确选择，绝不静默切换；
+- `OryhClientRemote` 是仅含浏览器安全数据的异步 BFF 契约。当前的 Host adapter 与未来 DSH Typert Remote 使用同一组方法，device code、access key 和 refresh token 都不在其中；
+- `KeychainCredentialVault` 使用系统原生钥匙串保存短期 access key 与可刷新的 refresh token；`JsonConnectionStore` 只保存无秘密的连接 ID、服务端 origin 和身份摘要。Host 重启时仅恢复钥匙串条目仍存在的连接，且恢复连接必须先以 `/auth/me` 核对同一 stable user/tenant，才允许业务 Operation 执行；
 - 禁止一个企业连接复用另一个连接的 Operation result；只有用户明确要求“询问 AI”时，才可将经过裁剪的结果投影为模型上下文。
+
+`@oryh/ai-client-web` 把这些能力连接成一个本机回环工作台：
+
+- 使用 Fluent UI 提供企业连接、设备短码授权、企业身份、我的待办、我的费用申请、项目列表、结果复用与已保存操作；可明确断开本地企业连接或发起另一个账号的设备授权；
+- 浏览器只调用固定的同源 `/api/client/*` Remote 路由；路由只监听 `127.0.0.1`，拒绝跨源请求，并且不含任意 HTTP 代理能力；
+- Host 使用 `KeychainCredentialVault` 与 `JsonConnectionStore`。access key 和 refresh token 留在系统钥匙串，连接元数据文件不保存凭据；
+- 已保存操作使用单独的无秘密 JSON 记录，在重启后按原企业连接恢复；快捷入口与“直接刷新”走固定 Operation，不运行模型，也不会要求模型重新生成 API 调用代码。
+
+## 启动本地工作台
+
+先启动可访问的 ORYH 服务，例如本仓库开发环境对应的 standalone Compose：
+
+```sh
+cd /Users/wtong/git/calwbiz
+docker compose -f docker-compose.standalone.yml up -d --build
+```
+
+然后构建并启动客户端：
+
+```sh
+cd /Users/wtong/git/oryh-ai-client
+pnpm install
+pnpm run build
+pnpm run start:web
+```
+
+在浏览器打开 `http://127.0.0.1:4173`。首次使用输入 ORYH 根地址，开始设备授权，并在 ORYH 浏览器页面确认设备。要切换账号，可先在“打开 ORYH Console”中退出并登录目标账号，再点“连接其他账号”完成新的设备授权；“断开本地连接”会删除该账号在本机钥匙串中的凭据和该企业的已保存操作，但不会结束 ORYH Console 的浏览器登录。日常启动时，客户端会从系统钥匙串恢复连接，再以 `/auth/me` 核对当前凭据仍属于同一用户与企业；核对通过前不执行业务 Operation。开发时使用 `pnpm run dev:web`；可通过 `ORYH_CLIENT_PORT` 和 `ORYH_CLIENT_DATA_DIR` 指定本地端口和无秘密连接元数据目录。
 
 在仓库根目录运行：
 
@@ -23,11 +53,27 @@ pnpm run verify
 
 这些测试使用伪造的 HTTP Host，不会连接真实 ORYH，也不会需要任何密钥。
 
+## DSH 开发组合
+
+`@oryh/dsh-host` 是一个可安装的 DSH bundle。它只在 `developmentOnly: true` 下启动，并在 DSH Host 进程中提供 ORYH BFF controller；浏览器尚不能直接访问该 controller。
+
+本机以当前 DSH 源码开发时，使用其内置 `web` profile 安装 bundle：
+
+```sh
+cd /Users/wtong/git/deepseek-harness
+pnpm dsh plugin --profile web add /Users/wtong/git/oryh-ai-client/packages/dsh-host
+pnpm dsh --profile web --dump-config
+```
+
+当前 DSH 源码已经能组合该 bundle 与 Web App、Gateway 和客户端插件 roster。暂时不要为源码版本创建自定义 `oryh-web` profile 并安装 `@deepseek-ai/dsh-web-app`：npm 上仍是较早的 RC 依赖闭包，安装会失败。待与本地源码一致的 DSH `0.1.2` 发布包可用后，再将同一 bundle 安装到专属 profile，并用 Typert 自动生成 `OryhClientRemote` 的 Host/浏览器产物。
+
+当前 Web 工作台是独立的 loopback Host 验证形态，不是生产 DSH Profile。以下内容仍未完成，不能作为生产客户端发布：Typert 生成的 Remote、DSH 浏览器卡片/工作台插件、客户端本地锁定/用户 presence、会话与 Agent 对话，以及生产 Profile 的最小权限组合。
+
 ## 产品定位
 
 ORYH AI Client 负责：
 
-- 为“我的待办”、项目列表、最近结果和已保存视图提供无需调用模型的直接入口；
+- 为“我的待办”“我的费用申请”、项目列表、最近结果和已保存视图提供无需调用模型的直接入口；
 - 按当前 capability 和 Skill reach 显示提交、决策、销售、采购、财务、人事和自定义业务工作空间；
 - 把一次已经确定的只读 API 操作保存为可刷新、可固定、可重复运行的业务视图；
 - 把报价到回款、请购到付款、报销到员工应付等显式关系投影成连续业务线程；

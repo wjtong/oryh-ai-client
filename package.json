@@ -6,11 +6,14 @@
   "packageManager": "pnpm@10.18.2",
   "scripts": {
     "build": "pnpm --recursive run build",
+    "dev:web": "pnpm --filter @oryh/ai-client-web run dev",
+    "start:web": "pnpm --filter @oryh/ai-client-web run start",
     "test": "pnpm --recursive run test",
-    "typecheck": "pnpm --recursive run typecheck",
+    "typecheck": "pnpm --filter @oryh/ai-client-core run build && pnpm --recursive run typecheck",
     "verify": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "devDependencies": {
+    "@types/node": "^22.20.1",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }

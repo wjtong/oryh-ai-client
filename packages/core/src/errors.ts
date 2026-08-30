@@ -14,7 +14,12 @@ export class OryhClientError extends Error {
 export type OryhClientErrorCode =
   | 'authentication-failed'
   | 'connection-not-found'
+  | 'connection-identity-mismatch'
+  | 'connection-store-failed'
+  | 'connection-verification-required'
+  | 'credential-store-failed'
   | 'cross-connection-result'
+  | 'employee-required'
   | 'invalid-response'
   | 'operation-not-found'
   | 'refresh-failed'

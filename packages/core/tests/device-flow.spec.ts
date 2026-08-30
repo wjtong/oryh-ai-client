@@ -28,7 +28,7 @@ describe('DeviceFlowConnector', () => {
           status: 'approved',
           api_key: 'issued-access-key',
           refresh_token: 'issued-refresh-token',
-          expires_at: '2026-08-29T00:00:00Z',
+          expires_at: '2099-08-29T00:00:00Z',
         },
         meta: {},
       }),
@@ -69,7 +69,7 @@ describe('DeviceFlowConnector', () => {
     await expect(credentials.read(outcome.connection.id)).resolves.toEqual({
       accessKey: 'issued-access-key',
       refreshToken: 'issued-refresh-token',
-      expiresAt: '2026-08-29T00:00:00Z',
+      expiresAt: '2099-08-29T00:00:00Z',
     })
   })
 })

@@ -1,0 +1,30 @@
+{
+  "name": "@oryh/ai-client-web",
+  "version": "0.1.0",
+  "description": "Local Fluent UI workbench for the ORYH AI Client.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm run build:server && vite build",
+    "build:server": "tsc --project tsconfig.server.json",
+    "dev": "ORYH_WEB_DEV=1 tsx src/server/index.ts",
+    "start": "node lib/server/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --project tsconfig.server.json && tsc --noEmit --project tsconfig.app.json"
+  },
+  "dependencies": {
+    "@fluentui/react-components": "^9.74.7",
+    "@oryh/ai-client-core": "workspace:*",
+    "@oryh/ai-client-workspace": "workspace:*",
+    "@tabler/icons-react": "^3.46.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "tsx": "^4.23.12",
+    "vite": "^8.2.2"
+  }
+}

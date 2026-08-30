@@ -32,6 +32,7 @@ export class DeviceFlowConnector {
     private readonly connections: ConnectionRegistry,
     private readonly credentials: CredentialVault,
     private readonly fetcher: Fetcher,
+    private readonly connected: (connection: ConnectionSummary) => Promise<void> = async () => {},
   ) {}
 
   /** Ask ORYH to create a browser approval request. */
@@ -53,6 +54,7 @@ export class DeviceFlowConnector {
       this.connections,
       this.credentials,
       this.fetcher,
+      this.connected,
     )
   }
 }
@@ -67,6 +69,7 @@ export class DeviceConnectionAttempt {
     private readonly connections: ConnectionRegistry,
     private readonly credentials: CredentialVault,
     private readonly fetcher: Fetcher,
+    private readonly connected: (connection: ConnectionSummary) => Promise<void>,
   ) {
     this.prompt = started.prompt
   }
@@ -100,7 +103,8 @@ export class DeviceConnectionAttempt {
     try {
       const client = new OryhHttpClient(this.connections, this.credentials, this.fetcher)
       const identity = decodeIdentity(await client.request(temporary.id, { path: '/auth/me' }))
-      const connection = this.connections.replaceIdentity(temporary.id, identity)
+      const connection = this.connections.markVerified(temporary.id, identity)
+      await this.connected(connection)
       return { state: 'connected', connection }
     } catch (error) {
       await this.credentials.remove(temporary.id)

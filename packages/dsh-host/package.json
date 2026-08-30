@@ -1,7 +1,7 @@
 {
-  "name": "@oryh/ai-client-core",
+  "name": "@oryh/dsh-host",
   "version": "0.1.0",
-  "description": "Host-side connection, credential, and deterministic operation core for ORYH AI Client.",
+  "description": "Development-only DeepSeek Harness Host bundle for ORYH AI Client.",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -9,14 +9,21 @@
     ".": {
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "lib/",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
     }
   },
   "dependencies": {
-    "@napi-rs/keyring": "1.3.0"
+    "@oryh/ai-client-core": "workspace:*"
   },
-  "files": [
-    "lib/"
-  ],
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "test": "vitest run",

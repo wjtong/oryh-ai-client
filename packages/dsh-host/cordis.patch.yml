@@ -1,0 +1,8 @@
+# Development-only ORYH Host controller. It may be layered over a dsh Web
+# profile; the plugin refuses to start unless the explicit development guard is
+# retained. Production replaces this row with an OS-keychain-backed provider.
+- insert:
+    - id: oryh-client-host
+      name: '@oryh/dsh-host'
+      config:
+        developmentOnly: true
