@@ -63,6 +63,7 @@ export const OPERATIONS: readonly OperationDefinition[] = [
 /** Host-owned executor for allowlisted deterministic ORYH operations. */
 export class OperationExecutor {
   readonly #results = new Map<OperationResultId, OperationResult<OperationValue>>()
+  readonly #generations = new Map<ConnectionId, number>()
   #nextResultId = 1
 
   constructor(
@@ -89,6 +90,7 @@ export class OperationExecutor {
     operationId: OperationId,
   ): Promise<OperationResult<OryhTodo> | OperationResult<OryhExpenseClaim> | OperationResult<OryhProject>> {
     const connection = this.connections.requireVerified(connectionId)
+    const generation = this.#generations.get(connectionId) ?? 0
     let result: OryhList<OperationValue>
     switch (operationId) {
       case 'my-open-todos': {
@@ -117,6 +119,10 @@ export class OperationExecutor {
       default:
         return assertNever(operationId)
     }
+    this.connections.requireVerified(connectionId)
+    if (generation !== (this.#generations.get(connectionId) ?? 0)) {
+      throw new OryhClientError('The connection changed while this operation was running.', 'connection-verification-required')
+    }
     const execution = {
       id: operationResultId(`result-${this.#nextResultId}`),
       operationId,
@@ -129,11 +135,21 @@ export class OperationExecutor {
     return execution as OperationResult<OryhTodo> | OperationResult<OryhExpenseClaim> | OperationResult<OryhProject>
   }
 
+  /** Remove cached data and invalidate pending results for one connection. */
+  clearConnection(connectionId: ConnectionId): void {
+    this.#generations.set(connectionId, (this.#generations.get(connectionId) ?? 0) + 1)
+    for (const [id, result] of this.#results) {
+      if (result.connectionId === connectionId) this.#results.delete(id)
+    }
+  }
+
   /** Read a prior result without issuing a new ORYH API request. */
   reuse<Value extends OperationValue>(
     connectionId: ConnectionId,
     resultId: OperationResultId,
+    expectedOperation?: OperationId,
   ): OperationResult<Value> {
+    this.connections.requireVerified(connectionId)
     const result = this.#results.get(resultId)
     if (result === undefined) {
       throw new OryhClientError('The requested ORYH operation result no longer exists.', 'operation-not-found')
@@ -143,6 +159,9 @@ export class OperationExecutor {
         'An ORYH result cannot be reused across connections.',
         'cross-connection-result',
       )
+    }
+    if (expectedOperation !== undefined && result.operationId !== expectedOperation) {
+      throw new OryhClientError('The result belongs to another operation.', 'operation-not-found')
     }
     return result as OperationResult<Value>
   }

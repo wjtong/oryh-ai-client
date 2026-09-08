@@ -75,6 +75,11 @@ export class ConnectionRegistry {
     return connection
   }
 
+  /** Freeze business access before revalidation or credential removal begins. */
+  revokeVerification(connectionId: ConnectionId): void {
+    this.#verified.delete(connectionId)
+  }
+
   /** Return summaries for settings and connection selection. */
   list(): readonly ConnectionSummary[] {
     return [...this.#connections.values()]

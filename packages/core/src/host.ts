@@ -1,3 +1,6 @@
+import { ExpenseService } from './expenses.js'
+import type { ExpenseStore } from './expense-store.js'
+import type { OryhExpenseRemote } from './expense-contracts.js'
 import type { ConnectionId, OperationResultId } from './brand.js'
 import type { ConnectionStore } from './connection-store.js'
 import { ConnectionRegistry, type ConnectionSummary } from './connections.js'
@@ -33,6 +36,7 @@ export class OryhClientHost {
   readonly #credentials: CredentialVault
   readonly #connectionStore: ConnectionStore | undefined
   readonly #ready: Promise<void>
+  readonly #verifications = new Map<ConnectionId, Promise<ConnectionSummary>>()
 
   constructor(options: OryhClientHostOptions) {
     this.#credentials = options.credentialVault
@@ -46,6 +50,12 @@ export class OryhClientHost {
     )
     this.#operations = new OperationExecutor(this.#connections, this.#http, options.clock)
     this.#ready = this.restoreConnections()
+  }
+
+  /** Build a browser-safe expense workflow over the same verified connection and transport. */
+  createExpenseRemote(store: ExpenseStore): OryhExpenseRemote {
+    return new ExpenseService(store, this.#http, id => this.#connections.requireVerified(id as ConnectionId),
+      id => this.verifyConnection(id as ConnectionId))
   }
 
   /** Start browser-backed device authorization for one ORYH deployment. */
@@ -67,7 +77,21 @@ export class OryhClientHost {
    */
   async verifyConnection(connectionId: ConnectionId): Promise<ConnectionSummary> {
     await this.#ready
+    const active = this.#verifications.get(connectionId)
+    if (active !== undefined) return active
+    const verification = this.verifyIdentity(connectionId)
+    this.#verifications.set(connectionId, verification)
+    try {
+      return await verification
+    } finally {
+      this.#verifications.delete(connectionId)
+    }
+  }
+
+  private async verifyIdentity(connectionId: ConnectionId): Promise<ConnectionSummary> {
     const existing = this.#connections.require(connectionId)
+    this.#connections.revokeVerification(connectionId)
+    this.#operations.clearConnection(connectionId)
     const identity = decodeIdentity(await this.#http.request(connectionId, { path: '/auth/me' }))
     if (identity.user.id !== existing.identity.user.id || identity.tenant.id !== existing.identity.tenant.id) {
       throw new OryhClientError(
@@ -75,6 +99,7 @@ export class OryhClientHost {
         'connection-identity-mismatch',
       )
     }
+    this.#http.assertOpen(connectionId)
     const verified = this.#connections.markVerified(connectionId, identity)
     await this.persistConnections()
     return verified
@@ -101,7 +126,7 @@ export class OryhClientHost {
   /** Reuse a prior todo result without making a new ORYH request. */
   async reuseTodoResult(connectionId: ConnectionId, resultId: OperationResultId): Promise<OperationResult<OryhTodo>> {
     await this.#ready
-    return this.#operations.reuse(connectionId, resultId)
+    return this.#operations.reuse(connectionId, resultId, 'my-open-todos')
   }
 
   /** Reuse a prior expense-claim result without making a new ORYH request. */
@@ -110,19 +135,22 @@ export class OryhClientHost {
     resultId: OperationResultId,
   ): Promise<OperationResult<OryhExpenseClaim>> {
     await this.#ready
-    return this.#operations.reuse(connectionId, resultId)
+    return this.#operations.reuse(connectionId, resultId, 'my-expense-claims')
   }
 
   /** Reuse a prior project result without making a new ORYH request. */
   async reuseProjectResult(connectionId: ConnectionId, resultId: OperationResultId): Promise<OperationResult<OryhProject>> {
     await this.#ready
-    return this.#operations.reuse(connectionId, resultId)
+    return this.#operations.reuse(connectionId, resultId, 'list-projects')
   }
 
   /** Forget all local state and Host credentials for one disconnected enterprise. */
   async disconnect(connectionId: ConnectionId): Promise<void> {
     await this.#ready
     this.#connections.require(connectionId)
+    this.#connections.revokeVerification(connectionId)
+    this.#operations.clearConnection(connectionId)
+    await this.#http.close(connectionId)
     await this.#credentials.remove(connectionId)
     this.#connections.remove(connectionId)
     await this.persistConnections()

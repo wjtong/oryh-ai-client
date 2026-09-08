@@ -1,0 +1,13 @@
+# ORYH is the sole root/layout service provider in this Profile.
+- id: ui-layout
+  disabled: true
+# Root replacement is not atomic in the current renderer. Use build + restart.
+- id: client-hmr
+  disabled: true
+- insert:
+    - id: oryh-client-host
+      name: '@oryh/dsh-host'
+      config:
+        developmentOnly: true
+    - id: oryh-client-ui
+      name: '@oryh/dsh-client'

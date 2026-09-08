@@ -202,8 +202,9 @@ export function decodeTodos(value: unknown): OryhList<OryhTodo> {
       : (() => {
           const target = record(rawTarget, 'todo target')
           return {
-            entityType: string(target.entity_type, 'todo target entity type'),
-            entityId: string(target.entity_id, 'todo target entity id'),
+            // ORYH's target summary carries display context; the todo owns the reference.
+            entityType: string(target.entity_type ?? todo.entity_type, 'todo target entity type'),
+            entityId: string(target.entity_id ?? todo.entity_id, 'todo target entity id'),
             title: optionalString(target.title, 'todo target title'),
             deleted: optionalBoolean(target.deleted, 'todo target deleted'),
           }

@@ -3,17 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "description": "ORYH-native AI client foundation and DeepSeek Harness integration packages.",
-  "packageManager": "pnpm@10.18.2",
+  "packageManager": "pnpm@11.19.0",
   "scripts": {
-    "build": "pnpm --recursive run build",
-    "dev:web": "pnpm --filter @oryh/ai-client-web run dev",
-    "start:web": "pnpm --filter @oryh/ai-client-web run start",
+    "build": "pnpm --filter @oryh/dsh-host... build && pnpm --filter @oryh/ai-client-workspace build && node scripts/generate-dsh-remote.mjs && pnpm --filter @oryh/dsh-client build",
+    "start": "DSH_HOME=\"${DSH_HOME:-$HOME/Library/Application Support/ORYH AI Client/harness}\" dsh --profile oryh-web --port 4173",
+    "profile:install": "node scripts/install-profile.mjs",
     "test": "pnpm --recursive run test",
-    "typecheck": "pnpm --filter @oryh/ai-client-core run build && pnpm --recursive run typecheck",
-    "verify": "pnpm run typecheck && pnpm run test && pnpm run build"
+    "typecheck": "pnpm run build && pnpm --recursive run typecheck",
+    "verify": "pnpm run typecheck && pnpm run test"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh": "link:../deepseek-harness/apps/cli",
+    "@deepseek-ai/dsh-typert-generator": "link:../deepseek-harness/packages/typert/generator",
     "@types/node": "^22.20.1",
+    "esbuild": "0.25.12",
+    "jsdom": "29.1.1",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }

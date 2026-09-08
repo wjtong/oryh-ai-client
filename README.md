@@ -1,73 +1,47 @@
 # ORYH AI Client
 
-ORYH AI Client 是面向 ORYH 用户的“个人企业工作台 + Agent”本地客户端。它以 DeepSeek Harness（DSH）作为 Agent 运行时，通过 ORYH 公共 API 读取和写入业务事实；高频已知操作直接运行，模糊意图、材料理解、规则判断和编排再交给 AI。它是第一方优化客户端和兼容性参考实现，不是使用 ORYH 的强制入口。
+ORYH 客户端通过 DeepSeek Harness 的外部 Host 插件、Client 插件和 `oryh-web` Profile 运行。启动、认证通信、聊天、Session、模型设置和插件生命周期由 Harness 提供；ORYH 插件提供企业连接、业务列表和费用表单。
 
-本仓库已开始实施。当前实现包括可测试的 Host 侧纵向基础、无秘密 Remote 契约、工作台状态层，以及一个可直接启动的本地 Web 工作台：ORYH device flow、短期 access key 自动刷新、连接/租户隔离、确定性快捷 Operation、结果复用和已保存操作。当前的内存凭据库只允许用于测试与开发，不是生产凭据存储。
+## 当前能力与边界
 
-## 当前可运行基础
+- 左侧 Harness 菜单中的「ORYH 业务」打开传统业务工作台，无需先配置模型或创建 Session。
+- 待办、费用申请、项目支持查询、已载入数据的多条件筛选、详情和固定查询入口。
+- 费用支持本地加密草稿、人工校验确认、创建、提交、结果核对；正式写入没有注册为模型工具。
+- 凭据仅保存在 Host 和系统钥匙串，浏览器通过生成的 Typert Remote 调用业务服务。恢复连接后先验证用户与企业，跨企业结果不可复用。
+- 官方聊天界面已复用；聊天填写表单、AI 查询工具与企业绑定 Session **尚未实现**。当前 Profile 的模型工具调用被关闭，不能把原生聊天出现等同于业务 AI 已接通。
 
-`@oryh/ai-client-core` 已提供以下能力：
+三栏由 ORYH 外部根布局插件实现：左侧业务菜单及原生会话／设置，中间根级业务 Slot，右侧官方 conversation/chat/composer。布局要求与插件规范兼容，业务页面不依赖当前 Session。详情见 [插件迁移](docs/14-dsh-plugin-migration.md)。独立 Web Server、`/api/client`、Vite 页面入口和自建聊天壳已退役。
 
-- 调用 ORYH `/api/v1/auth/device/start`、`/token`，浏览器确认后只对调用方返回无秘密的连接摘要；
-- 通过 `/auth/me` 固化当前用户、员工与企业身份，所有后续调用按 `ConnectionId` 绑定；
-- 用 `X-API-Key` 调用 ORYH API；收到明确的 access key 过期响应时，最多执行一次 `/auth/token/refresh` 并原请求重试；同一连接的并发刷新会合并，并在 access key 临近服务端到期时间时提前刷新；
-- 已注册“我的待办”“我的费用申请”和“项目列表”三个确定性 Operation；同一次结果可本地复用，不会再次生成或调用 API；
-- `@oryh/ai-client-workspace` 为界面提供“连接选择 → 直接运行 → 复用结果 → 保存操作 → 直接刷新”的状态机；多企业连接必须由用户明确选择，绝不静默切换；
-- `OryhClientRemote` 是仅含浏览器安全数据的异步 BFF 契约。当前的 Host adapter 与未来 DSH Typert Remote 使用同一组方法，device code、access key 和 refresh token 都不在其中；
-- `KeychainCredentialVault` 使用系统原生钥匙串保存短期 access key 与可刷新的 refresh token；`JsonConnectionStore` 只保存无秘密的连接 ID、服务端 origin 和身份摘要。Host 重启时仅恢复钥匙串条目仍存在的连接，且恢复连接必须先以 `/auth/me` 核对同一 stable user/tenant，才允许业务 Operation 执行；
-- 禁止一个企业连接复用另一个连接的 Operation result；只有用户明确要求“询问 AI”时，才可将经过裁剪的结果投影为模型上下文。
+## 本机开发启动
 
-`@oryh/ai-client-web` 把这些能力连接成一个本机回环工作台：
-
-- 使用 Fluent UI 提供企业连接、设备短码授权、企业身份、我的待办、我的费用申请、项目列表、结果复用与已保存操作；可明确断开本地企业连接或发起另一个账号的设备授权；
-- 浏览器只调用固定的同源 `/api/client/*` Remote 路由；路由只监听 `127.0.0.1`，拒绝跨源请求，并且不含任意 HTTP 代理能力；
-- Host 使用 `KeychainCredentialVault` 与 `JsonConnectionStore`。access key 和 refresh token 留在系统钥匙串，连接元数据文件不保存凭据；
-- 已保存操作使用单独的无秘密 JSON 记录，在重启后按原企业连接恢复；快捷入口与“直接刷新”走固定 Operation，不运行模型，也不会要求模型重新生成 API 调用代码。
-
-## 启动本地工作台
-
-先启动可访问的 ORYH 服务，例如本仓库开发环境对应的 standalone Compose：
-
-```sh
-cd /Users/wtong/git/calwbiz
-docker compose -f docker-compose.standalone.yml up -d --build
-```
-
-然后构建并启动客户端：
-
-```sh
-cd /Users/wtong/git/oryh-ai-client
-pnpm install
-pnpm run build
-pnpm run start:web
-```
-
-在浏览器打开 `http://127.0.0.1:4173`。首次使用输入 ORYH 根地址，开始设备授权，并在 ORYH 浏览器页面确认设备。要切换账号，可先在“打开 ORYH Console”中退出并登录目标账号，再点“连接其他账号”完成新的设备授权；“断开本地连接”会删除该账号在本机钥匙串中的凭据和该企业的已保存操作，但不会结束 ORYH Console 的浏览器登录。日常启动时，客户端会从系统钥匙串恢复连接，再以 `/auth/me` 核对当前凭据仍属于同一用户与企业；核对通过前不执行业务 Operation。开发时使用 `pnpm run dev:web`；可通过 `ORYH_CLIENT_PORT` 和 `ORYH_CLIENT_DATA_DIR` 指定本地端口和无秘密连接元数据目录。
-
-在仓库根目录运行：
+依赖当前机器的同级 Harness 源码，所有 DSH 导入均走公开包导出；`link:` 依赖仅用于本地开发，不是可发布到 npm 的依赖版本锁定。先在 Harness 仓库安装并构建，再在本仓库运行：
 
 ```sh
 pnpm install
 pnpm run verify
+pnpm run profile:install
+pnpm start
 ```
 
-这些测试使用伪造的 HTTP Host，不会连接真实 ORYH，也不会需要任何密钥。
+开发环境使用 Node.js 24 与项目声明的 pnpm 11.19.0。`verify` 构建 Host、生成严格 Remote 产物、构建 Client 插件并运行类型检查与测试。
 
-## DSH 开发组合
+`start` 调用正式 `dsh --profile oryh-web --port 4173`。默认 Harness home 为 `~/Library/Application Support/ORYH AI Client/harness`，可用 `DSH_HOME` 覆盖。启动时由 Harness 自动用授权链接打开默认浏览器，直接显示三栏工作台。若换用其他浏览器或看到认证提示，需在目标浏览器重新打开当前 CLI 输出的完整授权链接；仅访问根地址不能完成首次认证。
 
-`@oryh/dsh-host` 是一个可安装的 DSH bundle。它只在 `developmentOnly: true` 下启动，并在 DSH Host 进程中提供 ORYH BFF controller；浏览器尚不能直接访问该 controller。
+当前 Profile 禁用开发用 `client-hmr`：上游根 Slot 热替换有空窗，可能使渲染器报错。更新代码时先保存草稿、停止服务，再执行 `pnpm build` 和 `pnpm start`；已打开的旧标签页需刷新。
 
-本机以当前 DSH 源码开发时，使用其内置 `web` profile 安装 bundle：
+业务连接通过 ORYH 设备授权完成。已有钥匙串凭据继续使用；无凭据时输入 ORYH 根地址并在 ORYH 授权页面确认。本地 Host 的数据目录可通过 Profile 中 `oryh-client-host` 的 `dataDirectory` 指定绝对路径；同一目录只能由一个 Host 管理。
 
-```sh
-cd /Users/wtong/git/deepseek-harness
-pnpm dsh plugin --profile web add /Users/wtong/git/oryh-ai-client/packages/dsh-host
-pnpm dsh --profile web --dump-config
-```
+## 插件组成
 
-当前 DSH 源码已经能组合该 bundle 与 Web App、Gateway 和客户端插件 roster。暂时不要为源码版本创建自定义 `oryh-web` profile 并安装 `@deepseek-ai/dsh-web-app`：npm 上仍是较早的 RC 依赖闭包，安装会失败。待与本地源码一致的 DSH `0.1.2` 发布包可用后，再将同一 bundle 安装到专属 profile，并用 Typert 自动生成 `OryhClientRemote` 的 Host/浏览器产物。
+| 包 | 职责 |
+|---|---|
+| `@oryh/dsh-bundle` | 为 Profile 插入 Host 和 Client 两个插件 |
+| `@oryh/dsh-host` | Cordis 服务、生成的 `oryh` Remote、单用户开发策略、卸载时请求中止 |
+| `@oryh/dsh-client`（目录 `packages/web`） | 公开 Slots、Harness store/locale/theme、传统业务视图 |
+| `@oryh/ai-client-core` | ORYH API、身份校验、系统凭据、确定性操作和加密草稿 |
+| `@oryh/ai-client-workspace` | 不依赖 UI 框架的企业选择与工作台状态 |
 
-当前 Web 工作台是独立的 loopback Host 验证形态，不是生产 DSH Profile。以下内容仍未完成，不能作为生产客户端发布：Typert 生成的 Remote、DSH 浏览器卡片/工作台插件、客户端本地锁定/用户 presence、会话与 Agent 对话，以及生产 Profile 的最小权限组合。
+Profile 目前明确要求 `developmentOnly: true`。本次验证包括真实 Harness 页面读取测试企业数据、真实 Cordis/Gateway 生命周期与严格参数测试。没有为验收向测试企业写入真实费用单。费用写流程的模拟测试和服务端限制见 [费用流程](docs/12-expense-workflow.md)。
 
 ## 产品定位
 
@@ -129,15 +103,6 @@ ORYH 的核心定位是 agent-native 企业事实与控制层。不同员工仍�
 13. 跨单据业务线程只是由 ORYH 显式关系构建的可重建投影；缺失关系不由 Agent 猜测。
 14. 客户端明确区分 ORYH 事实、ORYH 派生值、Agent 判断和未执行 proposal，并记录实际使用的规则版本。
 
-## 规划依据
+## 源码基线
 
-本规划基于以下本地源码基线：
-
-- ORYH 服务端与 Console：`/Users/wtong/git/calwbiz`
-- DeepSeek Harness：`/Users/wtong/git/deepseek-harness`
-
-本次产品审计对应 ORYH commit `1ea1509`（2026-08-21）：`app/api` 中 326 个员工/租户 API 路由声明、60 个 SQLAlchemy 映射模型、33 个产品 Skills 和 6 个演示租户 Skills。数字用于覆盖审计，不作为未来兼容承诺；详细结论见[产品模型与客户端蓝图](docs/10-oryh-product-model-and-client-blueprint.md)。
-
-本轮 Harness 架构基线对应 DSH `dsh-v0.1.2-alpha.1`（commit `cd5ef81481`，2026-08-28）。客户端将采用其 `dsh --profile` 启动约束、Web App、浏览器 Connection、Typert Gateway/Remote 和可组合 Client 插件面；采用细节见 [ADR-0007](docs/adr/0007-dsh-web-profile-and-typed-remotes.md)。
-
-实现启动前应重新核对两个上游仓库的版本，并把采用的 ORYH OpenAPI 快照和 DSH 精确版本写入本仓库。
+ORYH：`/Users/wtong/git/calwbiz`。Harness：`/Users/wtong/git/deepseek-harness`，`0.1.3-alpha.2` / `c389f96bf3`，外加本次外部 Remote 符号识别兼容补丁。该补丁尚未发布上游；本仓库保留可审查副本，见 [迁移记录](docs/14-dsh-plugin-migration.md)。

@@ -34,38 +34,33 @@ export class OryhWorkspace {
   #activeConnectionId: ConnectionId | undefined
   #pendingConnection: BeginConnectionView | undefined
   #currentResult: OryhOperationResult | undefined
+  #generation = 0
 
   constructor(private readonly remote: OryhClientRemote) {}
 
   /** Refresh connection-independent data and selected connection-specific direct actions. */
   async load(): Promise<OryhWorkspaceSnapshot> {
+    const previousConnection = this.#activeConnectionId
+    const generation = this.resetSelection()
     const [connections, operations] = await Promise.all([
       this.remote.listConnections(),
       this.remote.listOperations(),
     ])
+    this.assertGeneration(generation)
     this.#connections = [...connections]
     this.#operations = [...operations]
-    this.#activeConnectionId = resolveActiveConnection(this.#activeConnectionId, this.#connections)
-    this.#currentResult = undefined
-    if (this.#activeConnectionId === undefined) {
-      this.#savedOperations = []
-      return this.snapshot()
-    }
-    const verified = await this.remote.verifyConnection(this.#activeConnectionId)
-    this.replaceConnection(verified)
-    this.#savedOperations = [...await this.remote.listSavedOperations(this.#activeConnectionId)]
+    const selected = resolveActiveConnection(previousConnection, this.#connections)
+    if (selected !== undefined) await this.activateConnection(selected, generation)
     return this.snapshot()
   }
 
-  /** Select one explicit ORYH enterprise connection without sending an API request. */
+  /** Publish a selected enterprise only after its identity and saved views have loaded. */
   async selectConnection(connectionId: ConnectionId): Promise<OryhWorkspaceSnapshot> {
     if (!this.#connections.some(connection => connection.id === connectionId)) {
       throw new OryhWorkspaceError('The selected ORYH connection is unavailable.', 'connection-not-found')
     }
-    this.#activeConnectionId = connectionId
-    this.#currentResult = undefined
-    this.replaceConnection(await this.remote.verifyConnection(connectionId))
-    this.#savedOperations = [...await this.remote.listSavedOperations(connectionId)]
+    const generation = this.resetSelection()
+    await this.activateConnection(connectionId, generation)
     return this.snapshot()
   }
 
@@ -78,13 +73,19 @@ export class OryhWorkspace {
   /** Poll the current device authorization once and activate its connection on approval. */
   async pollConnection(): Promise<PollConnectionView> {
     const pending = this.requirePendingConnection()
+    const generation = this.#generation
     const outcome = await this.remote.pollConnection(pending.authorizationId)
+    this.assertGeneration(generation)
+    if (this.#pendingConnection !== pending) throw staleRequest()
     if (outcome.state === 'connected') {
       this.#pendingConnection = undefined
-      this.#connections = [...await this.remote.listConnections()]
+      const nextGeneration = this.resetSelection()
+      const connections = await this.remote.listConnections()
+      const savedOperations = await this.remote.listSavedOperations(outcome.connection.id)
+      this.assertGeneration(nextGeneration)
+      this.#connections = [...connections]
+      this.#savedOperations = [...savedOperations]
       this.#activeConnectionId = outcome.connection.id
-      this.#currentResult = undefined
-      this.#savedOperations = [...await this.remote.listSavedOperations(outcome.connection.id)]
     } else if (outcome.state === 'denied' || outcome.state === 'expired') {
       this.#pendingConnection = undefined
     }
@@ -94,15 +95,17 @@ export class OryhWorkspace {
   /** Cancel the visible device authorization and discard its Host-side poll state. */
   async cancelConnection(): Promise<OryhWorkspaceSnapshot> {
     const pending = this.requirePendingConnection()
-    await this.remote.cancelConnection(pending.authorizationId)
     this.#pendingConnection = undefined
+    await this.remote.cancelConnection(pending.authorizationId)
     return this.snapshot()
   }
 
   /** Run one registered direct operation. This is a fixed ORYH API program, not an AI request. */
   async run(operationId: OperationId): Promise<OryhOperationResult> {
     const connectionId = this.requireActiveConnection()
+    const generation = this.#generation
     const result = await this.remote.execute(connectionId, operationId)
+    this.assertGeneration(generation)
     this.assertResultConnection(result, connectionId)
     this.#currentResult = result
     return result
@@ -111,7 +114,9 @@ export class OryhWorkspace {
   /** Display one already-fetched result without sending another ORYH request or model request. */
   async reuse(operationId: OperationId, resultId: OperationResultId): Promise<OryhOperationResult> {
     const connectionId = this.requireActiveConnection()
+    const generation = this.#generation
     const result = await this.remote.reuse(connectionId, operationId, resultId)
+    this.assertGeneration(generation)
     this.assertResultConnection(result, connectionId)
     this.#currentResult = result
     return result
@@ -120,19 +125,25 @@ export class OryhWorkspace {
   /** Save the current verified result's fixed operation as an immediately reusable business action. */
   async saveCurrentResult(label: string): Promise<SavedOperationView> {
     const connectionId = this.requireActiveConnection()
+    const generation = this.#generation
     const result = this.#currentResult
     if (result === undefined || result.connectionId !== connectionId) {
       throw new OryhWorkspaceError('Run or reuse an ORYH result before saving it.', 'result-not-available')
     }
     const saved = await this.remote.saveResult(connectionId, result.operationId, result.id, label)
-    this.#savedOperations = [...await this.remote.listSavedOperations(connectionId)]
+    this.assertGeneration(generation)
+    const savedOperations = await this.remote.listSavedOperations(connectionId)
+    this.assertGeneration(generation)
+    this.#savedOperations = [...savedOperations]
     return saved
   }
 
   /** Refresh one user-saved direct operation without regenerating request code or calling a model. */
   async refreshSavedOperation(savedOperationId: SavedOperationId): Promise<OryhOperationResult> {
     const connectionId = this.requireActiveConnection()
+    const generation = this.#generation
     const result = await this.remote.refreshSavedOperation(connectionId, savedOperationId)
+    this.assertGeneration(generation)
     this.assertResultConnection(result, connectionId)
     this.#currentResult = result
     return result
@@ -141,17 +152,12 @@ export class OryhWorkspace {
   /** Disconnect the selected tenant and clear all selected-tenant views from this workspace. */
   async disconnect(): Promise<OryhWorkspaceSnapshot> {
     const connectionId = this.requireActiveConnection()
+    const generation = this.resetSelection()
     await this.remote.disconnect(connectionId)
+    this.assertGeneration(generation)
     this.#connections = this.#connections.filter(connection => connection.id !== connectionId)
-    this.#activeConnectionId = resolveActiveConnection(undefined, this.#connections)
-    this.#currentResult = undefined
-    if (this.#activeConnectionId === undefined) {
-      this.#savedOperations = []
-      return this.snapshot()
-    }
-    const verified = await this.remote.verifyConnection(this.#activeConnectionId)
-    this.replaceConnection(verified)
-    this.#savedOperations = [...await this.remote.listSavedOperations(this.#activeConnectionId)]
+    const selected = resolveActiveConnection(undefined, this.#connections)
+    if (selected !== undefined) await this.activateConnection(selected, generation)
     return this.snapshot()
   }
 
@@ -165,6 +171,29 @@ export class OryhWorkspace {
       pendingConnection: this.#pendingConnection,
       currentResult: this.#currentResult,
     }
+  }
+
+  private resetSelection(): number {
+    this.#generation += 1
+    this.#activeConnectionId = undefined
+    this.#currentResult = undefined
+    this.#savedOperations = []
+    return this.#generation
+  }
+
+  private assertGeneration(generation: number): void {
+    if (generation !== this.#generation) throw staleRequest()
+  }
+
+  private async activateConnection(connectionId: ConnectionId, generation: number): Promise<void> {
+    const verified = await this.remote.verifyConnection(connectionId)
+    this.assertGeneration(generation)
+    if (verified.id !== connectionId) throw new OryhWorkspaceError('The verified connection does not match the selected enterprise.', 'cross-connection-result')
+    const savedOperations = await this.remote.listSavedOperations(connectionId)
+    this.assertGeneration(generation)
+    this.replaceConnection(verified)
+    this.#savedOperations = [...savedOperations]
+    this.#activeConnectionId = connectionId
   }
 
   private requireActiveConnection(): ConnectionId {
@@ -203,6 +232,7 @@ export class OryhWorkspaceError extends Error {
 
 /** Stable workspace error categories suitable for localized UI messages. */
 export type OryhWorkspaceErrorCode =
+  | 'stale-request'
   | 'authorization-not-found'
   | 'connection-not-found'
   | 'connection-required'
@@ -219,3 +249,7 @@ function resolveActiveConnection(
 
 /** Keep opaque IDs in the public type import set even though UI code never constructs them. */
 export type { DeviceAuthorizationId }
+
+function staleRequest(): OryhWorkspaceError {
+  return new OryhWorkspaceError('The workspace changed while this request was running.', 'stale-request')
+}

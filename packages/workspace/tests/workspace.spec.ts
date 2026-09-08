@@ -157,3 +157,57 @@ describe('OryhWorkspace', () => {
     ])
   })
 })
+
+it.each(['run', 'reuse', 'refresh'] as const)('discards a late %s result even after switching A to B to A', async action => {
+  const remote = remoteFixture()
+  const second = { ...connection, id: connectionId('oryh-2') }
+  remote.listConnections = async () => [connection, second]
+  remote.verifyConnection = async id => id === connection.id ? connection : second
+  let release: (value: OryhOperationResult) => void = () => { throw new Error('Request not started') }
+  const delayed = () => new Promise<OryhOperationResult>(resolve => { release = resolve })
+  remote.execute = delayed
+  remote.reuse = delayed
+  remote.refreshSavedOperation = delayed
+  const workspace = new OryhWorkspace(remote)
+  await workspace.load()
+  await workspace.selectConnection(connection.id)
+  const pending = action === 'run' ? workspace.run('list-projects')
+    : action === 'reuse' ? workspace.reuse('list-projects', operationResultId('result-1'))
+      : workspace.refreshSavedOperation(savedOperationId('saved-operation-1'))
+  const rejected = expect(pending).rejects.toMatchObject({ code: 'stale-request' })
+  await workspace.selectConnection(second.id)
+  await workspace.selectConnection(connection.id)
+  release(projectResult())
+  await rejected
+  expect(workspace.snapshot().currentResult).toBeUndefined()
+})
+
+it('clears the active enterprise and cached views when selection verification fails', async () => {
+  const remote = remoteFixture()
+  const second = { ...connection, id: connectionId('oryh-2') }
+  remote.listConnections = async () => [connection, second]
+  const workspace = new OryhWorkspace(remote)
+  await workspace.load()
+  await workspace.selectConnection(connection.id)
+  await workspace.run('list-projects')
+  remote.verifyConnection = async () => { throw new Error('Verification failed') }
+  await expect(workspace.selectConnection(second.id)).rejects.toThrow('Verification failed')
+  expect(workspace.snapshot()).toMatchObject({ activeConnectionId: undefined, currentResult: undefined, savedOperations: [] })
+  await expect(workspace.run('list-projects')).rejects.toMatchObject({ code: 'connection-required' })
+})
+
+it('does not publish an earlier enterprise selection that finishes last', async () => {
+  const remote = remoteFixture()
+  const second = { ...connection, id: connectionId('oryh-2') }
+  remote.listConnections = async () => [connection, second]
+  let release: (value: typeof connection) => void = () => { throw new Error('Verification not started') }
+  remote.verifyConnection = async id => id === second.id ? second : new Promise(resolve => { release = resolve })
+  const workspace = new OryhWorkspace(remote)
+  await workspace.load()
+  const first = workspace.selectConnection(connection.id)
+  const rejected = expect(first).rejects.toMatchObject({ code: 'stale-request' })
+  await workspace.selectConnection(second.id)
+  release(connection)
+  await rejected
+  expect(workspace.snapshot().activeConnectionId).toBe(second.id)
+})

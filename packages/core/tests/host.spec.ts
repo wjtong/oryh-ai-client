@@ -154,3 +154,85 @@ describe('OryhClientHost', () => {
     await expect(host.verifyConnection(id)).rejects.toMatchObject({ code: 'connection-identity-mismatch' })
   })
 })
+
+function restoredHost(fetcher: import('../src/http.js').Fetcher) {
+  const id = connectionId('oryh-1')
+  const credentials = new MemoryCredentialVault()
+  const identity = {
+    user: { id: 'user-1', email: 'member@example.com', name: null, role: 'member', employeeId: 'employee-1' },
+    tenant: { id: 'tenant-1', slug: 'acme', name: null, environmentId: null },
+  }
+  const store = new MemoryConnectionStore([{ id, origin: 'https://oryh.example', identity, connectedAt: '2026-08-28T00:00:00Z' }])
+  return { id, credentials, store, async create() {
+    await credentials.write(id, { accessKey: 'synthetic-key', refreshToken: 'synthetic-refresh', expiresAt: null })
+    return new OryhClientHost({ credentialVault: credentials, connectionStore: store, fetcher })
+  } }
+}
+
+const verifiedIdentity = {
+  data: { id: 'user-1', email: 'member@example.com', role: 'member', employee_id: 'employee-1',
+    tenant_id: 'tenant-1', tenant: { slug: 'acme' } },
+}
+
+it('freezes a previously verified connection and clears results after identity verification fails', async () => {
+  const fetcher = new ScriptedFetcher([
+    jsonResponse(200, verifiedIdentity),
+    jsonResponse(200, { data: [], meta: { total: 0 } }),
+    jsonResponse(200, { data: { ...verifiedIdentity.data, id: 'different-user' } }),
+  ])
+  const fixture = restoredHost(fetcher.fetch)
+  const host = await fixture.create()
+  await host.verifyConnection(fixture.id)
+  const cached = await host.executeProjects(fixture.id)
+  await expect(host.verifyConnection(fixture.id)).rejects.toMatchObject({ code: 'connection-identity-mismatch' })
+  await expect(host.executeProjects(fixture.id)).rejects.toMatchObject({ code: 'connection-verification-required' })
+  await expect(host.reuseProjectResult(fixture.id, cached.id)).rejects.toMatchObject({ code: 'connection-verification-required' })
+  expect(fetcher.calls).toHaveLength(3)
+})
+
+it('rejects a pending result after disconnect and leaves no reusable cached data', async () => {
+  let release: (value: ReturnType<typeof jsonResponse>) => void = () => { throw new Error('Request not started') }
+  let started: () => void = () => {}
+  const pendingStarted = new Promise<void>(resolve => { started = resolve })
+  let reads = 0
+  const fixture = restoredHost(async input => {
+    if (input.endsWith('/auth/me')) return jsonResponse(200, verifiedIdentity)
+    reads += 1
+    if (reads === 1) return jsonResponse(200, { data: [], meta: { total: 0 } })
+    return new Promise(resolve => { release = resolve; started() })
+  })
+  const host = await fixture.create()
+  await host.verifyConnection(fixture.id)
+  const cached = await host.executeProjects(fixture.id)
+  const pending = host.executeProjects(fixture.id)
+  const rejected = expect(pending).rejects.toMatchObject({ code: 'connection-not-found' })
+  await pendingStarted
+  await host.disconnect(fixture.id)
+  release(jsonResponse(200, { data: [], meta: { total: 0 } }))
+  await rejected
+  await expect(host.reuseProjectResult(fixture.id, cached.id)).rejects.toMatchObject({ code: 'connection-not-found' })
+  await expect(fixture.credentials.read(fixture.id)).resolves.toBeUndefined()
+  await expect(fixture.store.load()).resolves.toEqual([])
+})
+
+it('does not restore credentials when a token rotation finishes during disconnect', async () => {
+  let release: (value: ReturnType<typeof jsonResponse>) => void = () => { throw new Error('Refresh not started') }
+  let started: () => void = () => {}
+  const pendingStarted = new Promise<void>(resolve => { started = resolve })
+  const fixture = restoredHost(async input => {
+    if (input.endsWith('/auth/me')) return jsonResponse(200, verifiedIdentity)
+    if (input.endsWith('/auth/token/refresh')) return new Promise(resolve => { release = resolve; started() })
+    return jsonResponse(401, { detail: 'API key expired' })
+  })
+  const host = await fixture.create()
+  await host.verifyConnection(fixture.id)
+  const pending = host.executeProjects(fixture.id)
+  const rejected = expect(pending).rejects.toMatchObject({ code: 'connection-not-found' })
+  await pendingStarted
+  const disconnect = host.disconnect(fixture.id)
+  await Promise.resolve()
+  release(jsonResponse(200, { data: { api_key: 'rotated', refresh_token: 'rotated-refresh', expires_at: null } }))
+  await disconnect
+  await rejected
+  await expect(fixture.credentials.read(fixture.id)).resolves.toBeUndefined()
+})

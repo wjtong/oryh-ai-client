@@ -63,7 +63,7 @@ describe('OperationExecutor', () => {
           todo_type: null,
           status: 'open',
           due_at: null,
-          target: { entity_type: 'project', entity_id: 'project-1', title: 'Pilot', deleted: false },
+          target: { object_type: 'project', title: 'Pilot', deleted: false },
         }],
         meta: { total: 1 },
       }),
@@ -75,6 +75,7 @@ describe('OperationExecutor', () => {
     const reused = executor.reuse(first.id, result.id)
 
     expect(reused).toEqual(result)
+    expect(result.result.data[0]?.target).toMatchObject({ entityType: 'project', entityId: 'project-1' })
     expect(fetcher.calls).toHaveLength(1)
     expect(fetcher.calls[0]?.input).toContain('employee_id=employee-1')
     expect(fetcher.calls[0]?.input).toContain('status=open')
@@ -155,4 +156,32 @@ describe('OperationExecutor', () => {
     await expect(executor.execute(connection.id, 'my-expense-claims')).rejects.toMatchObject({ code: 'employee-required' })
     expect(fetcher.calls).toEqual([])
   })
+})
+
+it('discards cached and pending results when a connection is invalidated', async () => {
+  const connections = new ConnectionRegistry()
+  const connection = connections.add({ origin: 'https://oryh.example', identity: identity('employee-1') })
+  connections.markVerified(connection.id, connection.identity)
+  const credentials = new MemoryCredentialVault()
+  await credentials.write(connection.id, { accessKey: 'test', refreshToken: 'test', expiresAt: null })
+  const response = jsonResponse(200, { data: [], meta: { total: 0 } })
+  let release: (value: typeof response) => void = () => { throw new Error('Request not started') }
+  let started: () => void = () => {}
+  const pendingStarted = new Promise<void>(resolve => { started = resolve })
+  let calls = 0
+  const executor = new OperationExecutor(connections, new OryhHttpClient(connections, credentials, async () => {
+    calls += 1
+    return calls === 1 ? response : new Promise(resolve => { release = resolve; started() })
+  }))
+  const cached = await executor.execute(connection.id, 'list-projects')
+  expect(() => executor.reuse(connection.id, cached.id, 'my-open-todos')).toThrow('another operation')
+  const pending = executor.execute(connection.id, 'list-projects')
+  const rejected = expect(pending).rejects.toMatchObject({ code: 'connection-verification-required' })
+  await pendingStarted
+  executor.clearConnection(connection.id)
+  release(response)
+  await rejected
+  expect(() => executor.reuse(connection.id, cached.id)).toThrow('no longer exists')
+  connections.remove(connection.id)
+  expect(() => executor.reuse(connection.id, cached.id)).toThrow('connection no longer exists')
 })

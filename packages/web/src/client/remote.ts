@@ -1,118 +1,51 @@
-import type {
-  BeginConnectionView,
-  ConnectionId,
-  ConnectionSummary,
-  DeviceAuthorizationId,
-  OperationDefinition,
-  OperationId,
-  OperationResultId,
-  OryhClientRemote,
-  OryhOperationResult,
-  PollConnectionView,
-  SavedOperationId,
-  SavedOperationView,
-} from '@oryh/ai-client-core'
+import { createContext, useContext } from 'react'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
+import type {} from '@oryh/dsh-host/remote'
+import type { OryhClientRemote, OryhExpenseRemote, ConnectionId } from '@oryh/ai-client-core/types'
 
-/** Browser transport for the local Host's narrow, same-origin Remote routes. */
-export class LocalOryhRemote implements OryhClientRemote {
-  async beginConnection(origin: string, clientName: string): Promise<BeginConnectionView> {
-    return this.request('/api/client/connections', { method: 'POST', body: { origin, clientName } })
-  }
-
-  async pollConnection(authorizationId: DeviceAuthorizationId): Promise<PollConnectionView> {
-    return this.request(`/api/client/authorizations/${authorizationId}/poll`, { method: 'POST' })
-  }
-
-  async cancelConnection(authorizationId: DeviceAuthorizationId): Promise<void> {
-    await this.request(`/api/client/authorizations/${authorizationId}`, { method: 'DELETE' })
-  }
-
-  async listConnections(): Promise<readonly ConnectionSummary[]> {
-    return this.request('/api/client/connections')
-  }
-
-  async verifyConnection(connectionId: ConnectionId): Promise<ConnectionSummary> {
-    return this.request(`/api/client/connections/${connectionId}/verify`)
-  }
-
-  async listOperations(): Promise<readonly OperationDefinition[]> {
-    return this.request('/api/client/operations')
-  }
-
-  async execute(connectionId: ConnectionId, operationId: OperationId): Promise<OryhOperationResult> {
-    return this.request(`/api/client/operations/${operationId}`, { method: 'POST', body: { connectionId } })
-  }
-
-  async reuse(
-    connectionId: ConnectionId,
-    operationId: OperationId,
-    resultId: OperationResultId,
-  ): Promise<OryhOperationResult> {
-    return this.request(`/api/client/results/${resultId}/reuse`, { method: 'POST', body: { connectionId, operationId } })
-  }
-
-  async saveResult(
-    connectionId: ConnectionId,
-    operationId: OperationId,
-    resultId: OperationResultId,
-    label: string,
-  ): Promise<SavedOperationView> {
-    return this.request(`/api/client/results/${resultId}/save`, { method: 'POST', body: { connectionId, operationId, label } })
-  }
-
-  async listSavedOperations(connectionId: ConnectionId): Promise<readonly SavedOperationView[]> {
-    return this.request(`/api/client/connections/${connectionId}/saved-operations`)
-  }
-
-  async refreshSavedOperation(connectionId: ConnectionId, savedOperationId: SavedOperationId): Promise<OryhOperationResult> {
-    return this.request(`/api/client/saved-operations/${savedOperationId}/refresh`, { method: 'POST', body: { connectionId } })
-  }
-
-  async disconnect(connectionId: ConnectionId): Promise<void> {
-    await this.request(`/api/client/connections/${connectionId}`, { method: 'DELETE' })
-  }
-
-  private async request<Result>(path: string, options: RequestOptions = {}): Promise<Result> {
-    const init: RequestInit = {
-      method: options.method ?? 'GET',
-      credentials: 'same-origin',
-    }
-    if (options.body !== undefined) {
-      init.headers = { 'Content-Type': 'application/json' }
-      init.body = JSON.stringify(options.body)
-    }
-    const response = await fetch(path, init)
-    const body: unknown = await response.json()
-    if (!response.ok) throw responseError(body)
-    if (body === null || typeof body !== 'object' || Array.isArray(body) || !('data' in body)) {
-      throw new LocalRemoteError('invalid-response', 'ORYH 本地客户端返回了无效响应。')
-    }
-    return (body as { data: Result }).data
-  }
+export type BusinessRemote = OryhClientRemote & OryhExpenseRemote
+export const RemoteContext = createContext<BusinessRemote | undefined>(undefined)
+export function useOryhRemote(): BusinessRemote {
+  const remote = useContext(RemoteContext)
+  if (!remote) throw new Error('ORYH Remote is not mounted')
+  return remote
 }
-
-interface RequestOptions {
-  readonly method?: 'GET' | 'POST' | 'DELETE'
-  readonly body?: Record<string, unknown>
-}
-
-/** Error presentation safe for rendering in the local workbench. */
 export class LocalRemoteError extends Error {
-  constructor(readonly code: string, message: string) {
-    super(message)
-    this.name = 'LocalRemoteError'
-  }
+  constructor(readonly code: string, message: string) { super(message); this.name = 'OryhRemoteError' }
 }
-
-function responseError(value: unknown): LocalRemoteError {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value) && 'error' in value) {
-    const error = value.error
-    if (error !== null && typeof error === 'object' && !Array.isArray(error)) {
-      const fields = error as Record<string, unknown>
-      if (typeof fields.code === 'string' && typeof fields.message === 'string') {
-        return new LocalRemoteError(fields.code, fields.message)
-      }
-    }
+async function unwrap<T>(call: Promise<{ ok: true; value: T } | { ok: false; error: { code: string; message: string; details?: object } }>): Promise<T> {
+  const result = await call
+  if (!result.ok) {
+    const details = result.error.details
+    const code = result.error.code === 'oryh/business' && details && 'code' in details && typeof details.code === 'string' ? details.code : result.error.code
+    throw new LocalRemoteError(code, result.error.message)
   }
-  return new LocalRemoteError('request-failed', 'ORYH 本地客户端未能完成请求。')
+  return result.value
+}
+/** The only browser transport is the generated, authenticated Harness Remote. */
+export function createOryhRemote(remote: ClientRemote): BusinessRemote {
+  const api = remote.oryh
+  const connection = (connectionId: string) => ({ connectionId: connectionId as ConnectionId })
+  return {
+    listConnections: () => unwrap(api.listConnections()),
+    listOperations: () => unwrap(api.listOperations()),
+    beginConnection: (origin, clientName) => unwrap(api.beginConnection({ origin, clientName })),
+    pollConnection: authorizationId => unwrap(api.pollConnection({ authorizationId })),
+    cancelConnection: authorizationId => unwrap(api.cancelConnection({ authorizationId })),
+    verifyConnection: connectionId => unwrap(api.verifyConnection({ connectionId })),
+    disconnect: connectionId => unwrap(api.disconnect({ connectionId })),
+    execute: (connectionId, operationId) => unwrap(api.execute({ connectionId, operationId })),
+    reuse: (connectionId, operationId, resultId) => unwrap(api.reuse({ connectionId, operationId, resultId })),
+    saveResult: (connectionId, operationId, resultId, label) => unwrap(api.saveResult({ connectionId, operationId, resultId, label })),
+    listSavedOperations: connectionId => unwrap(api.listSavedOperations({ connectionId })),
+    refreshSavedOperation: (connectionId, savedOperationId) => unwrap(api.refreshSavedOperation({ connectionId, savedOperationId })),
+    expenseList: id => unwrap(api.expenseList(connection(id))),
+    expenseOptions: id => unwrap(api.expenseOptions(connection(id))),
+    expenseSave: (id, input) => unwrap(api.expenseSave({ ...connection(id), ...input })),
+    expensePrepare: (cid, id, revision) => unwrap(api.expensePrepare({ ...connection(cid), id, revision })),
+    expenseConfirm: (cid, id, revision, token) => unwrap(api.expenseConfirm({ ...connection(cid), id, revision, token })),
+    expenseReconcile: (cid, id, revision) => unwrap(api.expenseReconcile({ ...connection(cid), id, revision })),
+    expenseUpload: (id, input) => unwrap(api.expenseUpload({ ...connection(id), ...input })),
+    expenseDelete: (cid, id, revision) => unwrap(api.expenseArchive({ ...connection(cid), id, revision })),
+  }
 }

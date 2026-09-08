@@ -12,6 +12,7 @@ export class OryhClientError extends Error {
 
 /** Stable categories used by the UI and Host integration. */
 export type OryhClientErrorCode =
+  | 'expense-conflict'
   | 'authentication-failed'
   | 'connection-not-found'
   | 'connection-identity-mismatch'

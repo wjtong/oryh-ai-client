@@ -1,6 +1,8 @@
+declare const ORYH_ID: unique symbol
+
 /** Create an opaque identifier that cannot be mixed with another identifier type. */
 export type Brand<Value, Name extends string> = Value & {
-  readonly __brand: Name
+  readonly [ORYH_ID]: Name
 }
 
 /** Identifier for one locally configured ORYH connection. */

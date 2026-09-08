@@ -1,47 +1,42 @@
-/**
- * Development-only DeepSeek Harness Host entry for the ORYH AI Client BFF.
- * No DeepSeek Harness package is imported here: Cordis discovers the standard
- * `apply(ctx, config)` entry and supplies its service registry at runtime.
- */
+/** ORYH business services contributed through the DSH Cordis Host plugin lifecycle. */
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-agent'
+import { OryhRemote } from './remote.js'
+export * from './remote.js'
+import { createLocalOryhRuntime } from '@oryh/ai-client-core'
 
-import {
-  MemoryCredentialVault,
-  OryhClientController,
-  OryhClientHost,
-  type Fetcher,
-} from '@oryh/ai-client-core'
-
-/** Minimal Cordis service-registration surface used by this isolated bundle. */
-export interface CordisHostContext {
-  provide(name: string, value: unknown): () => void
-}
-
-/** Deployment guard preventing a temporary in-memory credential store from becoming a production default. */
+/** Single-user development composition; tenant-bound AI tools are not enabled. */
 export interface Config {
-  /** Must remain true until an OS-keychain CredentialVault adapter is supplied. */
   readonly developmentOnly: boolean
+  /** Absolute application data path; omitted uses the standard ORYH application directory. */
+  readonly dataDirectory?: string
 }
 
-/** Cordis loader identifier. */
+export const Config: z<Config> = z.object({
+  developmentOnly: z.boolean().required(),
+  dataDirectory: z.string(),
+})
+
 export const name = 'oryh-client-host'
+export const inject = ['typert', 'tools']
 
 /**
- * Construct and provide the single ORYH BFF controller for a DSH Host process.
- * @param ctx - Cordis Host context receiving the controller service.
- * @param config - explicit development-only guard.
+ * Register Host-only business services backed by OS credentials and persistent stores.
+ * No HTTP listener, browser transport, model loop, or unrestricted tool is installed.
+ * The Remote is browser-only. Model tools remain disabled until tenant-bound Sessions are implemented.
  */
-export function apply(ctx: CordisHostContext, config: Config): void {
+export function apply(ctx: Context, config: Config): void {
   if (config.developmentOnly !== true) {
-    throw new Error(
-      'oryh-client-host: production startup requires an OS-keychain CredentialVault adapter; refusing the in-memory development store',
-    )
+    throw new Error('oryh-client-host: requires developmentOnly: true; tenant-bound AI tools are not enabled')
   }
-  if (typeof globalThis.fetch !== 'function') {
-    throw new Error('oryh-client-host: this DSH Host runtime does not provide fetch')
-  }
-  const host = new OryhClientHost({
-    credentialVault: new MemoryCredentialVault(),
-    fetcher: globalThis.fetch as Fetcher,
-  })
-  ctx.provide('oryhClient', new OryhClientController(host))
+  const runtime = createLocalOryhRuntime(config.dataDirectory)
+  ctx.provide('oryhClient', runtime.controller)
+  ctx.provide('oryhExpenses', runtime.expenses)
+  ctx.provide('oryhAbort', runtime.abort)
+  ctx.plugin(OryhRemote)
+  // Until tenant-bound business tools exist, every Agent is conversation-only.
+  ctx.on('agent/created', ({ agent }) => { ctx.effect(() => agent.ctx.tools.restrict({ allow: [] }), 'oryh conversation-only policy') })
+  ctx.on('tools/pre-execute', async () => ({ kind: 'deny', reason: 'ORYH Profile has no model-callable business capabilities configured.' }))
 }

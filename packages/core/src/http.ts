@@ -18,6 +18,8 @@ export interface OryhRequest {
   readonly path: `/${string}`
   readonly method?: 'GET' | 'POST'
   readonly body?: unknown
+  /** Disable replay for business writes whose outcome must be reconciled explicitly. */
+  readonly retryExpired?: boolean
 }
 
 /** Host-local timings that govern when an interactive credential is refreshed. */
@@ -77,6 +79,8 @@ const DEFAULT_REFRESH_AHEAD_MS = 60_000
 
 /** Host-only HTTP adapter that injects credentials, refreshes once, and never returns them. */
 export class OryhHttpClient {
+  readonly #closed = new Set<ConnectionId>()
+  readonly #requests = new Map<ConnectionId, AbortController>()
   readonly #clock: () => Date
   readonly #refreshAheadMs: number
   readonly #refreshes = new Map<ConnectionId, Promise<CredentialPair>>()
@@ -93,21 +97,54 @@ export class OryhHttpClient {
 
   /** Call a versioned ORYH API endpoint inside one existing connection scope. */
   async request(connectionId: ConnectionId, request: OryhRequest): Promise<unknown> {
+    this.assertOpen(connectionId)
     const connection = this.connections.require(connectionId)
     let credential = await this.requireCredential(connectionId)
     if (shouldRefresh(credential, this.#clock(), this.#refreshAheadMs)) {
       credential = await this.refreshCredential(connectionId, connection.origin, credential)
     }
-    const first = await this.send(connection.origin, request, credential.accessKey)
+    this.assertOpen(connectionId)
+    const first = await this.send(connectionId, connection.origin, request, credential.accessKey)
     const firstBody = await first.json()
+    this.assertOpen(connectionId)
     if (first.ok) return firstBody
-    if (!expiredKey(first, firstBody)) throw requestError(first, firstBody)
+    if (!expiredKey(first, firstBody) || request.retryExpired === false) throw requestError(first, firstBody)
 
     const refreshed = await this.refreshCredential(connectionId, connection.origin, credential)
-    const second = await this.send(connection.origin, request, refreshed.accessKey)
+    this.assertOpen(connectionId)
+    const second = await this.send(connectionId, connection.origin, request, refreshed.accessKey)
     const secondBody = await second.json()
+    this.assertOpen(connectionId)
     if (second.ok) return secondBody
     throw requestError(second, secondBody)
+  }
+
+  /** Wait for an existing refresh to stop before deleting its credential entry. */
+  async close(connectionId: ConnectionId): Promise<void> {
+    this.#closed.add(connectionId)
+    this.#requests.get(connectionId)?.abort()
+    this.#requests.delete(connectionId)
+    await this.#refreshes.get(connectionId)?.catch(() => {
+      // A disconnected connection may cause its pending rotation to fail.
+    })
+  }
+
+  /** Reject disconnected requests, including a late identity verification. */
+  assertOpen(connectionId: ConnectionId): void {
+    this.connections.require(connectionId)
+    if (this.#closed.has(connectionId)) {
+      throw new OryhClientError('The ORYH connection is closed.', 'connection-not-found')
+    }
+  }
+
+  private requestSignal(connectionId: ConnectionId): AbortSignal {
+    this.assertOpen(connectionId)
+    let controller = this.#requests.get(connectionId)
+    if (controller === undefined) {
+      controller = new AbortController()
+      this.#requests.set(connectionId, controller)
+    }
+    return AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
   }
 
   /** Read one whole credential bundle or fail before a request exposes an absent connection. */
@@ -136,7 +173,8 @@ export class OryhHttpClient {
     const refresh = (async () => {
       const current = await this.requireCredential(connectionId)
       if (!sameCredential(current, observed)) return current
-      const refreshed = await this.refresh(origin, current.refreshToken)
+      const refreshed = await this.refresh(connectionId, origin, current.refreshToken)
+      this.assertOpen(connectionId)
       await this.credentials.write(connectionId, refreshed)
       return refreshed
     })()
@@ -148,9 +186,11 @@ export class OryhHttpClient {
     }
   }
 
-  private async send(origin: string, request: OryhRequest, accessKey: string): Promise<FetchResponse> {
+  private async send(connectionId: ConnectionId, origin: string, request: OryhRequest, accessKey: string): Promise<FetchResponse> {
     return this.fetcher(apiPath(origin, request.path), {
+      signal: this.requestSignal(connectionId),
       method: request.method ?? 'GET',
+      redirect: 'error',
       headers: {
         'X-API-Key': accessKey,
         ...request.body === undefined ? {} : { 'Content-Type': 'application/json' },
@@ -159,9 +199,11 @@ export class OryhHttpClient {
     })
   }
 
-  private async refresh(origin: string, refreshToken: string): Promise<CredentialPair> {
+  private async refresh(connectionId: ConnectionId, origin: string, refreshToken: string): Promise<CredentialPair> {
     const response = await this.fetcher(apiPath(origin, '/auth/token/refresh'), {
+      signal: this.requestSignal(connectionId),
       method: 'POST',
+      redirect: 'error',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken }),
     })

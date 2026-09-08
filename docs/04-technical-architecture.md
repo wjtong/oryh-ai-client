@@ -1,5 +1,8 @@
 # ORYH AI Client 技术架构
 
+当前实现以 [DSH 插件迁移](14-dsh-plugin-migration.md) 为准：已退役独立预览，通过 ORYH 根布局插件实现左菜单、中业务、右原生聊天；本页 AI 业务协作部分仍属于目标设计。
+
+
 ## 1. 架构目标
 
 ORYH AI Client 使用 DSH 提供的 Agent loop、模型适配、Session 事件、工具/Skill 注册、Profile、Web App、浏览器 Connection、Typert Gateway/Remote 和 Client plugin 生命周期，但把 ORYH 产品能力保留为独立的外部插件与 Profile。

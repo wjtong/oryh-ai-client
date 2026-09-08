@@ -40,6 +40,7 @@ export class DeviceFlowConnector {
     const normalizedOrigin = normalizeOrigin(origin)
     const response = await this.fetcher(`${normalizedOrigin}/api/v1/auth/device/start`, {
       method: 'POST',
+      redirect: 'error',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ client_name: clientName }),
     })
@@ -78,6 +79,7 @@ export class DeviceConnectionAttempt {
   async pollOnce(): Promise<DevicePollOutcome> {
     const response = await this.fetcher(`${this.origin}/api/v1/auth/device/token`, {
       method: 'POST',
+      redirect: 'error',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ device_code: this.started.deviceCode }),
     })
