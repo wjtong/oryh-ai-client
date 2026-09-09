@@ -19,3 +19,35 @@ import type {} from '@deepseek-ai/dsh-typert-protocol'
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap { 'oryh/business': { code: string } }
 }
+
+export type { TimesheetHeader, TimesheetTodo, TimesheetOptions, TimesheetDetail, TimesheetIntent } from '@oryh/ai-client-core/types'
+export interface TimesheetDetailRequest extends ConnectionRequest { headerId: string; todoId?: string }
+export interface TimesheetActionRequest extends ConnectionRequest { action: import('@oryh/ai-client-core/types').TimesheetAction }
+
+export interface TodoDetailRequest extends ConnectionRequest { todoId: string }
+export interface ChatClearRequest { sessionId: string }
+export interface ChatSelection { sessionId: string; connectionId: ConnectionId; todoId?: string; timesheetPage?: string; manager?: boolean; homeOnly?: boolean; navigationId?: string; visibleTodos?: {id:string;title:string}[]; listRevision?:string }
+export interface ChatContextView { document?:import('@oryh/ai-client-core/types').TodoDocument; ready: boolean; title: string; message: string }
+export type { TodoDocument } from '@oryh/ai-client-core/types'
+
+export interface TimesheetChatState {
+  sessionId: string; connectionId: ConnectionId; pageKey: string; revision: number
+  manager: boolean; headerId?: string; todoId?: string
+  localEdits?: string
+  navigationId?: string
+  fields?: import('@oryh/ai-client-core/types').TimesheetFields
+}
+export interface TimesheetChatPoll { sessionId: string; connectionId: ConnectionId; pageKey: string }
+export interface TimesheetChatProposal {
+  id: string; revision: number; action: import('@oryh/ai-client-core/types').TimesheetAction
+}
+
+export interface ChatHomeRequest { sessionId:string; connectionId:ConnectionId }
+export interface ChatNavigation { id:string; expiresAt:number; target?:'todo'|'project'; listRevision?:string; headerId?:string; todoId?:string; manager?:boolean }
+
+export interface ChatPageRequest extends ChatHomeRequest { viewId:string; revision:number; page:'my-open-todos'|'my-expense-claims'|'list-projects'|'timesheets'|'timesheet-approvals'|'settings'; context?:{key:string;title:string;detail:string;scope:string} }
+
+export type {ProjectFields,ProjectIntent,ProjectOptions} from '@oryh/ai-client-core/types'
+export interface ProjectPrepareRequest extends ConnectionRequest {fields:import('@oryh/ai-client-core/types').ProjectFields}
+export interface ProjectChatState extends ChatHomeRequest {pageKey:string;revision:number;navigationId?:string;fields:import('@oryh/ai-client-core/types').ProjectFields;busy:boolean}
+export interface ProjectChatProposal {id:string;revision:number;fields:import('@oryh/ai-client-core/types').ProjectFields}

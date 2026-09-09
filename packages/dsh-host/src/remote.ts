@@ -1,3 +1,13 @@
+import type {OryhProjectRemote,ProjectIntent,ProjectOptions} from '@oryh/ai-client-core/types'
+import type {ProjectPrepareRequest,ProjectChatState,ProjectChatProposal} from './types.js'
+import type { ChatPageRequest, ChatHomeRequest, ChatNavigation } from './types.js'
+import type { TimesheetChatState, TimesheetChatPoll, TimesheetChatProposal } from './types.js'
+import type { BusinessChat } from './business-chat.js'
+import type { TodoDetailService, TodoDocument } from '@oryh/ai-client-core'
+import type { ChatSelection, ChatContextView } from './types.js'
+import type { TodoDetailRequest, ChatClearRequest } from './types.js'
+import type { OryhTimesheetRemote, TimesheetHeader, TimesheetTodo, TimesheetOptions, TimesheetDetail, TimesheetIntent } from '@oryh/ai-client-core/types'
+import type { TimesheetDetailRequest, TimesheetActionRequest } from './types.js'
 import { OryhClientRemoteAdapter, OryhClientError } from '@oryh/ai-client-core'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -11,8 +21,12 @@ import type { ConnectRequest, ConnectionRequest, AuthorizationRequest, Operation
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
+    oryhProjects:OryhProjectRemote
+    oryhChat: BusinessChat
+    oryhTodoDetails: TodoDetailService
     oryhAbort: () => void
     oryhClient: OryhClientController
+    oryhTimesheets: OryhTimesheetRemote
     oryhExpenses: OryhExpenseRemote
     oryhRemote: OryhRemote
   }
@@ -20,7 +34,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Browser-only typed business API; no member is registered as an Agent tool. */
 export class OryhRemote extends TypertRemoteService {
-  static inject = ['typert', 'oryhClient', 'oryhExpenses', 'oryhAbort']
+  static inject = ['typert', 'oryhClient', 'oryhExpenses', 'oryhTimesheets', 'oryhProjects', 'oryhTodoDetails', 'oryhChat', 'oryhAbort']
   private readonly api: OryhClientRemoteAdapter
   private closed = false
   private readonly active = new Set<Promise<unknown>>()
@@ -54,6 +68,30 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('expenseReconcile') expenseReconcile(request: DraftRequest): Promise<ExpenseDraft> { return this.call(() => this.ctx.oryhExpenses.expenseReconcile(request.connectionId, request.id, request.revision)) }
   @Remote('expenseUpload') expenseUpload(request: UploadRequest): Promise<AttachmentReceipt> { return this.call(() => this.ctx.oryhExpenses.expenseUpload(request.connectionId, request)) }
   @Remote('expenseArchive') expenseArchive(request: DraftRequest): Promise<void> { return this.call(() => this.ctx.oryhExpenses.expenseDelete(request.connectionId, request.id, request.revision)) }
+  @Remote('timesheetList') timesheetList(request: ConnectionRequest): Promise<TimesheetHeader[]> { return this.call(() => this.ctx.oryhTimesheets.timesheetList(request.connectionId)) }
+  @Remote('timesheetQueue') timesheetQueue(request: ConnectionRequest): Promise<TimesheetTodo[]> { return this.call(() => this.ctx.oryhTimesheets.timesheetQueue(request.connectionId)) }
+  @Remote('timesheetOptions') timesheetOptions(request: ConnectionRequest): Promise<TimesheetOptions> { return this.call(() => this.ctx.oryhTimesheets.timesheetOptions(request.connectionId)) }
+  @Remote('timesheetDetail') timesheetDetail(request: TimesheetDetailRequest): Promise<TimesheetDetail> { return this.call(() => this.ctx.oryhTimesheets.timesheetDetail(request.connectionId, request.headerId, request.todoId)) }
+  @Remote('timesheetHistory') timesheetHistory(request: ConnectionRequest): Promise<TimesheetIntent[]> { return this.call(() => this.ctx.oryhTimesheets.timesheetHistory(request.connectionId)) }
+  @Remote('timesheetPrepare') timesheetPrepare(request: TimesheetActionRequest): Promise<TimesheetIntent> { return this.call(() => this.ctx.oryhTimesheets.timesheetPrepare(request.connectionId, request.action)) }
+  @Remote('timesheetConfirm') timesheetConfirm(request: ConfirmDraftRequest): Promise<TimesheetIntent> { return this.call(() => this.ctx.oryhTimesheets.timesheetConfirm(request.connectionId, request.id, request.revision, request.token)) }
+  @Remote('timesheetReconcile') timesheetReconcile(request: DraftRequest): Promise<TimesheetIntent> { return this.call(() => this.ctx.oryhTimesheets.timesheetReconcile(request.connectionId, request.id, request.revision)) }
+  @Remote('todoDetail') todoDetail(request: TodoDetailRequest): Promise<TodoDocument> { return this.call(() => this.ctx.oryhTodoDetails.read(request.connectionId, request.todoId)) }
+  @Remote('chatSelect') chatSelect(request: ChatSelection): Promise<ChatContextView> { return this.call(() => this.ctx.oryhChat.select(request)) }
+  @Remote('chatClear') chatClear(request: ChatClearRequest): Promise<void> { return this.call(() => this.ctx.oryhChat.clear(request.sessionId)) }
+  @Remote('timesheetChatSync') timesheetChatSync(request: TimesheetChatState): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.sync(request)) }
+  @Remote('timesheetChatPoll') timesheetChatPoll(request: TimesheetChatPoll): Promise<TimesheetChatProposal | undefined> { return this.call(() => this.ctx.oryhChat.timesheet.poll(request)) }
+  @Remote('projectOptions') projectOptions(r:ConnectionRequest):Promise<ProjectOptions>{return this.call(()=>this.ctx.oryhProjects.projectOptions(r.connectionId))}
+  @Remote('projectPrepare') projectPrepare(r:ProjectPrepareRequest):Promise<ProjectIntent>{return this.call(()=>this.ctx.oryhProjects.projectPrepare(r.connectionId,r.fields))}
+  @Remote('projectConfirm') projectConfirm(r:ConfirmDraftRequest):Promise<ProjectIntent>{return this.call(()=>this.ctx.oryhProjects.projectConfirm(r.connectionId,r.id,r.revision,r.token))}
+  @Remote('projectHistory') projectHistory(r:ConnectionRequest):Promise<ProjectIntent[]>{return this.call(()=>this.ctx.oryhProjects.projectHistory(r.connectionId))}
+  @Remote('projectReconcile') projectReconcile(r:DraftRequest):Promise<ProjectIntent>{return this.call(()=>this.ctx.oryhProjects.projectReconcile(r.connectionId,r.id,r.revision))}
+  @Remote('projectChatSync') projectChatSync(r:ProjectChatState):Promise<void>{return this.call(()=>this.ctx.oryhChat.project.sync(r))}
+  @Remote('projectChatPoll') projectChatPoll(r:ChatHomeRequest):Promise<ProjectChatProposal|undefined>{return this.call(()=>this.ctx.oryhChat.project.poll(r))}
+  @Remote('projectChatClear') projectChatClear(r:ChatClearRequest):Promise<void>{return this.call(()=>this.ctx.oryhChat.project.clear(r.sessionId))}
+  @Remote('chatPageSync') chatPageSync(request:ChatPageRequest):Promise<void>{return this.call(()=>this.ctx.oryhChat.pageSync(request))}
+  @Remote('chatHomePoll') chatHomePoll(request:ChatHomeRequest):Promise<ChatNavigation|undefined>{return this.call(()=>this.ctx.oryhChat.homePoll(request))}
+  @Remote('chatHomeClear') chatHomeClear(request:ChatClearRequest):Promise<void>{return this.call(()=>this.ctx.oryhChat.homeClear(request.sessionId))}
   private async call<T>(action: () => T | Promise<T>): Promise<T> {
     if (this.closed) throw new RemoteError('oryh/business', 'ORYH 插件已卸载。', { code: 'request-failed' })
     const pending = Promise.resolve().then(action)

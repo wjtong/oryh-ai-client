@@ -1,7 +1,9 @@
 import { defineStore } from '@deepseek-ai/dsh-client-store'
 import type { OperationId } from '@oryh/ai-client-core/types'
-export type BusinessView = OperationId | 'settings'
+export type BusinessView = OperationId | 'settings' | 'timesheets' | 'timesheet-approvals'
+export interface FrameIdentity { company: string; email: string }
 export interface FrameState {
+  identity?: FrameIdentity | undefined
   page: BusinessView
   narrowExpanded: boolean
   collapsed: boolean
@@ -15,8 +17,9 @@ export interface FrameState {
 /** Transient root state; deliberately independent of the selected Session. */
 export function createFrameStore() {
   return defineStore({
-    init: (): FrameState => ({ page: 'my-open-todos', narrowExpanded: false, collapsed: false, focus: 'business', chatVisible: true, viewport: 1280, rightbarShown: false, rightbarTrack: false, rightbarFullscreen: false }),
+    init: (): FrameState => ({ page: 'my-open-todos', narrowExpanded: false, collapsed: false, focus: 'chat', chatVisible: true, viewport: 1280, rightbarShown: false, rightbarTrack: false, rightbarFullscreen: false }),
     actions: {
+      setIdentity: (d, identity: FrameIdentity | undefined) => { d.identity = identity },
       navigate: (d, page: BusinessView) => { d.page = page; d.focus = 'business'; d.narrowExpanded = false },
       toggleSidebar: d => { if (d.viewport < 1100) d.narrowExpanded = !d.narrowExpanded; else d.collapsed = !d.collapsed },
       showBusiness: d => { d.focus = 'business' },

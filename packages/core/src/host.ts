@@ -1,3 +1,7 @@
+import {ProjectService,type ProjectStore} from './projects.js'
+import { TodoDetailService } from './todo-detail.js'
+import { TimesheetService } from './timesheets.js'
+import type { TimesheetStore } from './timesheet-store.js'
 import { ExpenseService } from './expenses.js'
 import type { ExpenseStore } from './expense-store.js'
 import type { OryhExpenseRemote } from './expense-contracts.js'
@@ -57,6 +61,10 @@ export class OryhClientHost {
     return new ExpenseService(store, this.#http, id => this.#connections.requireVerified(id as ConnectionId),
       id => this.verifyConnection(id as ConnectionId))
   }
+
+  createProjectRemote(store:ProjectStore){return new ProjectService(store,this.#http,id=>this.#connections.requireVerified(id as ConnectionId),id=>this.verifyConnection(id as ConnectionId))}
+  createTodoDetailRemote() { return new TodoDetailService(this.#http, id => this.#connections.requireVerified(id as ConnectionId), async id => { await this.#ready; await this.#verifications.get(id as ConnectionId); return this.#connections.requireVerified(id as ConnectionId) }) }
+  createTimesheetRemote(store: TimesheetStore) { return new TimesheetService(store, this.#http, id => this.#connections.requireVerified(id as ConnectionId), id => this.verifyConnection(id as ConnectionId)) }
 
   /** Start browser-backed device authorization for one ORYH deployment. */
   async beginDeviceConnection(origin: string, clientName: string): Promise<DeviceConnectionAttempt> {

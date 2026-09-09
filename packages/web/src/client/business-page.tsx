@@ -1,3 +1,4 @@
+import { TodoChat } from './todo-chat.js';
 import { useBusinessText } from './locale.js';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Badge, Button, Field, Input, MessageBar, MessageBarBody, Select, Spinner } from '@fluentui/react-components';
@@ -6,12 +7,13 @@ import type { ConnectionSummary, OperationId, OryhOperationResult, SavedOperatio
 import { useOryhRemote } from './remote.js';
 import { businessRows, emptyFilter, filterRows, statusLabel, type ViewFilter } from './business-data.js';
 import type { PageContext } from './workbench.js';
-export function BusinessPage({ connection, operationId, active, onContext, onNewExpense }: {
+export function BusinessPage({ connection, operationId, active, onContext, onNewExpense, onNewProject }: {
     connection: ConnectionSummary;
     operationId: OperationId;
     active: boolean;
     onContext: (value: PageContext) => void;
     onNewExpense: (() => void) | undefined;
+    onNewProject?:()=>void;
 }): ReactNode {
     const t = useBusinessText();
     const remote = useOryhRemote();
@@ -21,21 +23,23 @@ export function BusinessPage({ connection, operationId, active, onContext, onNew
     const [filter, setFilter] = useState<ViewFilter>(emptyFilter);
     const [page, setPage] = useState(1);
     const [selectedId, setSelectedId] = useState<string>();
+    const [todoNavigationId,setTodoNavigationId]=useState<string>();
     const [saved, setSaved] = useState<readonly SavedOperationView[]>([]);
     const [label, setLabel] = useState('');
     const [saveMessage, setSaveMessage] = useState('');
     const root = useRef<HTMLDivElement>(null);
     const listScroll = useRef(0);
-    function openRecord(id: string) {
-        const main = root.current?.closest('main');
+    function openRecord(id: string, navigationId?:string) {
+        setTodoNavigationId(navigationId);
+        const main = root.current?.closest<HTMLElement>('.oryh-business-seat');
         listScroll.current = main?.scrollTop ?? 0;
         setSelectedId(id);
         requestAnimationFrame(() => { if (main)
-            main.scrollTop = 0; root.current?.querySelector<HTMLButtonElement>('.record-detail button')?.focus(); });
+            main.scrollTop = 0; root.current?.querySelector<HTMLButtonElement>('.business-page-header button')?.focus(); });
     }
     function returnToList() {
         setSelectedId(undefined);
-        requestAnimationFrame(() => { const main = root.current?.closest('main'); if (main)
+        requestAnimationFrame(() => { const main = root.current?.closest<HTMLElement>('.oryh-business-seat'); if (main)
             main.scrollTop = listScroll.current; const target = root.current?.querySelector<HTMLButtonElement>(`button[data-row-id="${CSS.escape(selectedId ?? '')}"]`); target?.focus({ preventScroll: true }); });
     }
     const loaded = useRef(false);
@@ -122,19 +126,23 @@ export function BusinessPage({ connection, operationId, active, onContext, onNew
         }
     }
     return <div ref={root} className="business-page">
+    <header className="business-page-header">
+      {selected ? <><Button appearance="subtle" icon={<IconArrowLeft size={17}/>} onClick={returnToList}>{t("text49")}</Button><div className="record-heading"><h1>{selected.title}</h1><Badge appearance="tint">{statusLabel(selected.status, t)}</Badge></div></> : <div className="list-actions"><div><h1>{title}</h1><span className="muted">{result ? t("text54", { value0: rows.length }) : t("text55")}</span></div><div className="toolbar"><Button disabled={busy} icon={<IconRefresh size={17}/>} onClick={() => void load()}>{t("text56")}</Button>{onNewProject&&<Button appearance="primary" onClick={onNewProject}>新建项目</Button>}{onNewExpense && <Button appearance="primary" icon={<IconPlus size={17}/>} onClick={onNewExpense}>{t("text57")}</Button>}</div></div>}
+    </header>
     {error && <MessageBar intent="error"><MessageBarBody>{error} {result && t("text47")}</MessageBarBody><Button disabled={busy} onClick={() => void load()}>{t("text48")}</Button></MessageBar>}
-    {selected ? <section className="surface record-detail"><Button appearance="subtle" icon={<IconArrowLeft size={17}/>} onClick={returnToList}>{t("text49")}</Button><div className="record-heading"><h2>{selected.title}</h2><Badge appearance="tint">{statusLabel(selected.status, t)}</Badge></div><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl><p className="muted">{t("text51")}</p><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></section>
+    {active && operationId === 'my-open-todos' && <TodoChat connectionId={connection.id} visibleTodos={busy||invalidDates?[]:filtered.slice((currentPage-1)*12,currentPage*12).map(r=>({id:r.id,title:r.title}))} listContext={JSON.stringify({currentPage,filter,busy})} onOpen={openRecord} {...(todoNavigationId?{navigationId:todoNavigationId}:{})} {...(selected?.id ? { todoId: selected.id } : {})}/>}
+    {selected ? <section className="surface record-detail">{operationId === 'my-open-todos' ? <details><summary>待办摘要与原系统入口</summary><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></details> : <><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl><p className="muted">{t("text51")}</p><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></>}</section>
             : <>
       {selectedId && !selected && <MessageBar><MessageBarBody>{t("text53")}</MessageBarBody></MessageBar>}
-      <div className="list-actions"><div><h2>{title}</h2><span className="muted">{result ? t("text54", { value0: rows.length }) : t("text55")}</span></div><div className="toolbar"><Button disabled={busy} icon={<IconRefresh size={17}/>} onClick={() => void load()}>{t("text56")}</Button>{onNewExpense && <Button appearance="primary" icon={<IconPlus size={17}/>} onClick={onNewExpense}>{t("text57")}</Button>}</div></div>
       <section className="surface table-surface" aria-label={title}>
         <div className="query-toolbar"><Field label={t("text58")}><Input contentBefore={<IconSearch size={16}/>} placeholder={t("text59")} value={filter.text} onChange={(_, data) => update({ text: data.value })}/></Field>
           <Field label={t("text60")}><Select value={filter.status} onChange={event => update({ status: event.target.value })}><option value="">{t("text61")}</option>{[...new Set([...rows.map(row => row.status), ...(filter.status ? [filter.status] : [])])].map(status => <option key={status} value={status}>{statusLabel(status, t)}</option>)}</Select></Field>
+        </div><details className="advanced-filters"><summary>更多筛选与排序{(filter.from || filter.to || !filter.descending) ? " · 已设置" : ""}</summary><div className="advanced-filter-fields">
           <Field label={t("text62", { value0: dateLabel })}><Input type="date" value={filter.from} onChange={(_, data) => update({ from: data.value })}/></Field>
           <Field label={t("text63")}><Input type="date" value={filter.to} onChange={(_, data) => update({ to: data.value })}/></Field>
           <Field label={t("text64")}><Select value={filter.descending ? 'desc' : 'asc'} onChange={event => update({ descending: event.target.value === 'desc' })}><option value="desc">{t("text65")}</option><option value="asc">{t("text66")}</option></Select></Field>
-        </div>
-        <div className="filter-summary"><span>{conditions || t("text67")}</span>{conditions && <Button appearance="subtle" size="small" onClick={() => { setFilter(emptyFilter); setPage(1); }}>{t("text68")}</Button>}</div>
+        </div></details>
+        {conditions && <div className="filter-summary"><span>{conditions || t("text67")}</span>{conditions && <Button appearance="subtle" size="small" onClick={() => { setFilter(emptyFilter); setPage(1); }}>{t("text68")}</Button>}</div>}
         {invalidDates && <MessageBar intent="error"><MessageBarBody>{t("text69")}</MessageBarBody></MessageBar>}
         {busy && <div className="list-loading" role="status"><Spinner size="tiny"/>{t("text70")}</div>}
         {!result && !busy ? <div className="empty-state"><h3>{t("text71")}</h3><p>{t("text72")}</p></div> : result && <>

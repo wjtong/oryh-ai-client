@@ -5,11 +5,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { BoundActions, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { useLayoutEffect, useRef } from 'react'
 import { IconChecklist, IconReceipt, IconFolder, IconSettings, IconLayoutSidebarLeftCollapse, IconMessage } from '@tabler/icons-react'
-import { createFrameStore, type BusinessView } from './layout-store.js'
+import { createFrameStore, type BusinessView, type FrameIdentity } from './layout-store.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    'oryh.business': { kind: 'single'; scope: 'root'; owner: { page: BusinessView } }
+    'oryh.business': { kind: 'single'; scope: 'root'; owner: { page: BusinessView; navigate: (page:BusinessView)=>void; onIdentity: (identity:FrameIdentity|undefined)=>void } }
   }
 }
 type FrameActions = BoundActions<ReturnType<typeof createFrameStore>>
@@ -57,6 +57,8 @@ function Frame({ useStore, actions, renderSlot, SessionProvider, t }: FrameProps
   const pages = [
     ['my-open-todos', 'text8', IconChecklist],
     ['my-expense-claims', 'text10', IconReceipt],
+    ['timesheets', 'tsMine', IconChecklist],
+    ['timesheet-approvals', 'tsApprovals', IconChecklist],
     ['list-projects', 'text12', IconFolder],
     ['settings', 'text15', IconSettings],
   ] as const
@@ -71,15 +73,14 @@ function Frame({ useStore, actions, renderSlot, SessionProvider, t }: FrameProps
     </aside>
     <div className="oryh-frame-toolbar">
       <button className="oryh-collapse" aria-label={t('toggleMenu')} onClick={actions.toggleSidebar}><IconLayoutSidebarLeftCollapse size={18}/></button>
-      <span>{t('title')}</span>
+      <div className="oryh-global-heading"><span className="oryh-global-title">{t('title')}</span>{state.identity&&<div className="oryh-global-identity"><strong title={state.identity.company}>{state.identity.company}</strong><span title={state.identity.email}>{state.identity.email}</span></div>}</div>
       <div className="oryh-mobile-switch"><button aria-pressed={state.focus === 'business'} onClick={actions.showBusiness}>{t('businessView')}</button><button aria-pressed={state.focus === 'chat'} onClick={actions.showChat}>{t('assistant')}</button></div>
       <button className="oryh-chat-toggle" aria-pressed={state.chatVisible} onClick={actions.toggleChat}><IconMessage size={17}/>{state.chatVisible ? t('hideChat') : t('showChat')}</button>
     </div>
-    <section className="oryh-business-seat" aria-label={t('businessView')}>{renderSlot('oryh.business', { page: state.page })}</section>
+    <section className="oryh-business-seat" aria-label={t('businessView')}>{renderSlot('oryh.business', { page: state.page, navigate: actions.navigate, onIdentity: actions.setIdentity })}</section>
     <section className="oryh-chat-seat" aria-label={t('assistant')}>
       <header><strong>{t('assistant')}</strong><span>{t('nativeChat')}</span></header>
       <div className="oryh-chat-content">{renderSlot('conversation', {})}</div>
-      <p className="oryh-chat-note">{t('chatBoundary')}</p>
     </section>
     <div className="oryh-artifact-seat"><SessionProvider>{renderSlot('rightbar', { width: Math.min(640, state.viewport), viewportWidth: state.viewport, canShow: state.viewport >= 700 })}</SessionProvider></div>
     <div className="oryh-shell-overlay" data-shell-overlay>{renderSlot('shell.overlay', {})}</div>

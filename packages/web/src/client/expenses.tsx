@@ -142,8 +142,16 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
         if (alive.current)
             patchLine(index, { attachment });
     }
-    return <section className="expense-panel">
-    <div className="list-actions">
+    const panel = useRef<HTMLElement>(null);
+    const listPosition = useRef(0);
+    useEffect(() => {
+        const seat = panel.current?.closest<HTMLElement>('.oryh-business-seat');
+        if (!seat) return;
+        if (editor) { listPosition.current = seat.scrollTop; seat.scrollTop = 0; }
+        else seat.scrollTop = listPosition.current;
+    }, [editor]);
+    return <section ref={panel} className="expense-panel">
+    <div className="list-actions business-page-header">
       <div><h2>{editor ? t("text113") : t("text22")}</h2><span className="muted">{editor ? t("text114") : t("text115")}</span></div>
       <div className="toolbar">
         {editor && <Button disabled={busy} onClick={() => leave(() => { setEditor(false); setDirty(false); dirtyRef.current = false; onDirtyChange(false); })}>{t("text116")}</Button>}

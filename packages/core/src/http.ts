@@ -16,7 +16,7 @@ export type Fetcher = (input: string, init?: RequestInit) => Promise<FetchRespon
 /** A request constrained to ORYH's versioned API paths. */
 export interface OryhRequest {
   readonly path: `/${string}`
-  readonly method?: 'GET' | 'POST'
+  readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   readonly body?: unknown
   /** Disable replay for business writes whose outcome must be reconciled explicitly. */
   readonly retryExpired?: boolean
@@ -105,18 +105,18 @@ export class OryhHttpClient {
     }
     this.assertOpen(connectionId)
     const first = await this.send(connectionId, connection.origin, request, credential.accessKey)
-    const firstBody = await first.json()
+    const firstBody = first.status === 204 ? {} : await first.json()
     this.assertOpen(connectionId)
     if (first.ok) return firstBody
-    if (!expiredKey(first, firstBody) || request.retryExpired === false) throw requestError(first, firstBody)
+    if (!expiredKey(first, firstBody) || request.retryExpired === false) throw requestError(first, firstBody, request.path)
 
     const refreshed = await this.refreshCredential(connectionId, connection.origin, credential)
     this.assertOpen(connectionId)
     const second = await this.send(connectionId, connection.origin, request, refreshed.accessKey)
-    const secondBody = await second.json()
+    const secondBody = second.status === 204 ? {} : await second.json()
     this.assertOpen(connectionId)
     if (second.ok) return secondBody
-    throw requestError(second, secondBody)
+    throw requestError(second, secondBody, request.path)
   }
 
   /** Wait for an existing refresh to stop before deleting its credential entry. */
@@ -238,7 +238,18 @@ function refreshAheadMs(value: number | undefined): number {
   return resolved
 }
 
-function requestError(response: FetchResponse, body: unknown): OryhClientError {
+function requestError(response: FetchResponse, body: unknown, path?: string): OryhClientError {
+  // Recognize only this endpoint's documented conflict shapes. Never echo server detail.
+  if (response.status === 409 && path?.split('?')[0] === '/timesheet-headers') {
+    const detail = errorDetail(body) ?? ''
+    const id = '[0-9a-fA-F-]{36}', date = '[0-9]{4}-[0-9]{2}-[0-9]{2}'
+    if (new RegExp(`^timesheet header ${id} already covers period ${date}\\.\\.${date} for employee ${id}$`).test(detail)) {
+      return new OryhClientError('您在这个起止日期范围内已有工时单，不能重复新建。请到“我的工时”查看现有单据；如需补充工时，请修改现有单据的明细。当前填写内容仍保留。', 'timesheet-conflict', 409)
+    }
+    if (new RegExp(`^deleted timesheet header ${id} still holds period ${date}\\.\\.${date} for employee ${id}; restore it instead of recreating$`).test(detail)) {
+      return new OryhClientError('这个起止日期范围内已有被删除的工时单，仍占用该期间。请联系管理员恢复原单据后继续处理。当前填写内容仍保留。', 'timesheet-conflict', 409)
+    }
+  }
   return new OryhClientError(
     // Server detail may be useful to a person but is untrusted response data;
     // never promote it into a broadly logged local error where a proxy or

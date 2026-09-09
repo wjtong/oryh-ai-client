@@ -1,9 +1,16 @@
+import type {ProjectChatState,ProjectChatProposal} from '@oryh/dsh-host/types'
+import type {OryhProjectRemote} from '@oryh/ai-client-core/types'
+import type { ChatPageRequest, ChatHomeRequest, ChatNavigation } from '@oryh/dsh-host/types'
+import type { TimesheetChatState, TimesheetChatPoll, TimesheetChatProposal } from '@oryh/dsh-host/types'
+import type { ChatSelection, ChatContextView } from '@oryh/dsh-host/types'
+import type { TodoDocument } from '@oryh/ai-client-core/types'
 import { createContext, useContext } from 'react'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 import type {} from '@oryh/dsh-host/remote'
-import type { OryhClientRemote, OryhExpenseRemote, ConnectionId } from '@oryh/ai-client-core/types'
+import type { OryhClientRemote, OryhExpenseRemote, OryhTimesheetRemote, ConnectionId } from '@oryh/ai-client-core/types'
 
-export type BusinessRemote = OryhClientRemote & OryhExpenseRemote
+interface BusinessChatRemote { projectChatSync(request:ProjectChatState):Promise<void>;projectChatPoll(request:ChatHomeRequest):Promise<ProjectChatProposal|undefined>;projectChatClear(sessionId:string):Promise<void>; chatPageSync(request:ChatPageRequest):Promise<void>; chatHomePoll(request:ChatHomeRequest):Promise<ChatNavigation|undefined>; chatHomeClear(sessionId:string):Promise<void>; timesheetChatSync(request:TimesheetChatState):Promise<void>; timesheetChatPoll(request:TimesheetChatPoll):Promise<TimesheetChatProposal|undefined>; todoDetail(connectionId: string, todoId: string): Promise<TodoDocument>; chatSelect(request: ChatSelection): Promise<ChatContextView>; chatClear(sessionId: string): Promise<void> }
+export type BusinessRemote = BusinessChatRemote & OryhProjectRemote & OryhClientRemote & OryhExpenseRemote & OryhTimesheetRemote
 export const RemoteContext = createContext<BusinessRemote | undefined>(undefined)
 export function useOryhRemote(): BusinessRemote {
   const remote = useContext(RemoteContext)
@@ -27,6 +34,22 @@ export function createOryhRemote(remote: ClientRemote): BusinessRemote {
   const api = remote.oryh
   const connection = (connectionId: string) => ({ connectionId: connectionId as ConnectionId })
   return {
+    projectOptions:id=>unwrap(api.projectOptions(connection(id))),
+    projectPrepare:(id,fields)=>unwrap(api.projectPrepare({...connection(id),fields})),
+    projectConfirm:(id,key,revision,token)=>unwrap(api.projectConfirm({...connection(id),id:key,revision,token})),
+    projectHistory:id=>unwrap(api.projectHistory(connection(id))),
+    projectReconcile:(id,key,revision)=>unwrap(api.projectReconcile({...connection(id),id:key,revision})),
+    projectChatSync:r=>unwrap(api.projectChatSync(r)),
+    projectChatPoll:r=>unwrap(api.projectChatPoll(r)),
+    projectChatClear:sessionId=>unwrap(api.projectChatClear({sessionId})),
+    chatPageSync: request => unwrap(api.chatPageSync(request)),
+    chatHomePoll: request => unwrap(api.chatHomePoll(request)),
+    chatHomeClear: sessionId => unwrap(api.chatHomeClear({sessionId})),
+    timesheetChatSync: request => unwrap(api.timesheetChatSync(request)),
+    timesheetChatPoll: request => unwrap(api.timesheetChatPoll(request)),
+    todoDetail: (id, todoId) => unwrap(api.todoDetail({ ...connection(id), todoId })),
+    chatSelect: request => unwrap(api.chatSelect(request)),
+    chatClear: sessionId => unwrap(api.chatClear({ sessionId })),
     listConnections: () => unwrap(api.listConnections()),
     listOperations: () => unwrap(api.listOperations()),
     beginConnection: (origin, clientName) => unwrap(api.beginConnection({ origin, clientName })),
@@ -39,6 +62,14 @@ export function createOryhRemote(remote: ClientRemote): BusinessRemote {
     saveResult: (connectionId, operationId, resultId, label) => unwrap(api.saveResult({ connectionId, operationId, resultId, label })),
     listSavedOperations: connectionId => unwrap(api.listSavedOperations({ connectionId })),
     refreshSavedOperation: (connectionId, savedOperationId) => unwrap(api.refreshSavedOperation({ connectionId, savedOperationId })),
+    timesheetList: id => unwrap(api.timesheetList(connection(id))),
+    timesheetQueue: id => unwrap(api.timesheetQueue(connection(id))),
+    timesheetOptions: id => unwrap(api.timesheetOptions(connection(id))),
+    timesheetDetail: (id, headerId, todoId) => unwrap(api.timesheetDetail({ ...connection(id), headerId, ...(todoId ? { todoId } : {}) })),
+    timesheetHistory: id => unwrap(api.timesheetHistory(connection(id))),
+    timesheetPrepare: (id, action) => unwrap(api.timesheetPrepare({ ...connection(id), action })),
+    timesheetConfirm: (cid, id, revision, token) => unwrap(api.timesheetConfirm({ ...connection(cid), id, revision, token })),
+    timesheetReconcile: (cid, id, revision) => unwrap(api.timesheetReconcile({ ...connection(cid), id, revision })),
     expenseList: id => unwrap(api.expenseList(connection(id))),
     expenseOptions: id => unwrap(api.expenseOptions(connection(id))),
     expenseSave: (id, input) => unwrap(api.expenseSave({ ...connection(id), ...input })),

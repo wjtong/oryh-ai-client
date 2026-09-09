@@ -1,3 +1,5 @@
+import { BusinessNavigationContext } from './chat-navigation.js'
+import { BusinessSessionContext } from './todo-chat.js'
 /** ORYH business views mounted into public Harness slots. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-gateway/client'
@@ -14,6 +16,7 @@ import { createOryhRemote, RemoteContext } from './remote.js'
 import style from './styles.css'
 import { registerFrame } from './layout.js'
 import { presentTheme } from './theme.js'
+import { registerSettingsEntry } from './settings-entry.js'
 
 import { LocaleContext, dictionaries, type OryhKey } from './locale.js'
 declare module '@deepseek-ai/dsh-client-ui-slots' { interface LocaleNamespaceMap { oryh: OryhKey } }
@@ -31,6 +34,7 @@ export async function apply(ctx: Context): Promise<void> {
   }, 'oryh scoped styles')
   presentTheme(ctx)
   registerFrame(ctx)
+  registerSettingsEntry(ctx)
   await ctx.remote.$mount(TYPERT_REMOTE)
   await ctx.inject(['remote.oryh'], registerUi)
 }
@@ -41,11 +45,12 @@ function registerUi(ctx: Context): void {
   const getTheme = () => ctx.theme.getTheme()
   ctx.slots.inject('oryh.business', () => ctx.slots.register({
     name: 'oryh.business', locale: 'oryh',
-  }, function BusinessView({ t, page }) {
+  }, function BusinessView({ t, page, navigate, onIdentity, useSessions }) {
+    const sessionId = useSessions(state => state.current)
     const theme = useSyncExternalStore(subscribeTheme, getTheme)
     const [portal, setPortal] = useState<HTMLDivElement | null>(null)
     return <div className="oryh-business-root" data-theme={theme.active.colorScheme}>
-      <PortalMountNodeProvider value={portal ?? undefined}><RemoteContext.Provider value={remote}><LocaleContext.Provider value={t}><App dark={theme.active.colorScheme === 'dark'} page={page}/></LocaleContext.Provider></RemoteContext.Provider></PortalMountNodeProvider>
+      <PortalMountNodeProvider value={portal ?? undefined}><RemoteContext.Provider value={remote}><LocaleContext.Provider value={t}><BusinessSessionContext.Provider value={sessionId}><BusinessNavigationContext.Provider value={navigate}><App dark={theme.active.colorScheme === 'dark'} page={page} onIdentity={onIdentity}/></BusinessNavigationContext.Provider></BusinessSessionContext.Provider></LocaleContext.Provider></RemoteContext.Provider></PortalMountNodeProvider>
       <div ref={setPortal} className="oryh-business-portals"/>
     </div>
   }))

@@ -38,6 +38,12 @@ importers:
 
   packages/dsh-bundle:
     dependencies:
+      '@deepseek-ai/dsh-client-ui-directory-picker-browse':
+        specifier: link:../../../deepseek-harness/packages/client/ui-directory-picker-browse
+        version: link:../../../deepseek-harness/packages/client/ui-directory-picker-browse
+      '@deepseek-ai/dsh-host-directory-picker-browse':
+        specifier: link:../../../deepseek-harness/packages/host/directory-picker-browse
+        version: link:../../../deepseek-harness/packages/host/directory-picker-browse
       '@oryh/dsh-client':
         specifier: workspace:*
         version: link:../web
@@ -53,6 +59,12 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: link:../../../deepseek-harness/packages/core/agent
         version: link:../../../deepseek-harness/packages/core/agent
+      '@deepseek-ai/dsh-session':
+        specifier: link:../../../deepseek-harness/packages/core/session
+        version: link:../../../deepseek-harness/packages/core/session
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: link:../../../deepseek-harness/packages/core/system-prompt
+        version: link:../../../deepseek-harness/packages/core/system-prompt
       '@deepseek-ai/dsh-tools':
         specifier: link:../../../deepseek-harness/packages/core/tools
         version: link:../../../deepseek-harness/packages/core/tools
@@ -99,6 +111,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-session':
         specifier: link:../../../deepseek-harness/packages/client/ui-session
         version: link:../../../deepseek-harness/packages/client/ui-session
+      '@deepseek-ai/dsh-client-ui-settings':
+        specifier: link:../../../deepseek-harness/packages/client/ui-settings
+        version: link:../../../deepseek-harness/packages/client/ui-settings
       '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: link:../../../deepseek-harness/packages/client/ui-sidebar
         version: link:../../../deepseek-harness/packages/client/ui-sidebar

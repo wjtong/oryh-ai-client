@@ -1,3 +1,5 @@
+import type {ProjectRecord} from './projects.js'
+import { EncryptedRevisionStore, EncryptedTimesheetStore } from './timesheet-store.js'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { EncryptedExpenseStore } from './expense-store.js'
@@ -29,6 +31,9 @@ export function createLocalOryhRuntime(dataDirectory = defaultOryhDataDirectory(
     controller,
     abort: () => lifetime.abort(),
     remote: new OryhClientRemoteAdapter(controller),
+    todoDetails: host.createTodoDetailRemote(),
+    projects:host.createProjectRemote(new EncryptedRevisionStore<ProjectRecord>(join(dataDirectory,'projects'),undefined,'ORYH AI Client Project Encryption')),
+    timesheets: host.createTimesheetRemote(new EncryptedTimesheetStore(join(dataDirectory, 'timesheets'))),
     expenses: host.createExpenseRemote(new EncryptedExpenseStore(join(dataDirectory, 'expenses'))),
   }
 }

@@ -26,6 +26,9 @@
       "@oryh/dsh-host/types": [
         "./packages/dsh-host/src/types.ts"
       ]
-    }
+    },
+    "types": [
+      "node"
+    ]
   }
 }

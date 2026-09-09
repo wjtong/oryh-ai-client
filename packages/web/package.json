@@ -26,7 +26,8 @@
     "@oryh/dsh-host": "workspace:*",
     "zod": "^4.4.3",
     "@deepseek-ai/dsh-client-ui-theme": "link:../../../deepseek-harness/packages/client/ui-theme",
-    "@deepseek-ai/dsh-client-ui-session": "link:../../../deepseek-harness/packages/client/ui-session"
+    "@deepseek-ai/dsh-client-ui-session": "link:../../../deepseek-harness/packages/client/ui-session",
+    "@deepseek-ai/dsh-client-ui-settings": "link:../../../deepseek-harness/packages/client/ui-settings"
   },
   "devDependencies": {
     "@types/react": "~18.3.1",

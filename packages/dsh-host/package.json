@@ -37,7 +37,9 @@
     "zod": "^4.4.3",
     "@deepseek-ai/dsh-tools": "link:../../../deepseek-harness/packages/core/tools",
     "@deepseek-ai/dsh-agent": "link:../../../deepseek-harness/packages/core/agent",
-    "@deepseek-ai/schemastery": "link:../../../deepseek-harness/vendor/schemastery"
+    "@deepseek-ai/schemastery": "link:../../../deepseek-harness/vendor/schemastery",
+    "@deepseek-ai/dsh-session": "link:../../../deepseek-harness/packages/core/session",
+    "@deepseek-ai/dsh-system-prompt": "link:../../../deepseek-harness/packages/core/system-prompt"
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",

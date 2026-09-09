@@ -1,3 +1,5 @@
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import Tools from '@deepseek-ai/dsh-tools'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,18 +18,25 @@ describe('ORYH external Host plugin', () => {
     try {
       await ctx.plugin(TypertRegistry)
       await ctx.plugin(Gateway)
-      ctx.provide('tools', {})
+      await ctx.plugin(SystemPrompt, {})
+      await ctx.plugin(Tools, {})
+      ctx.provide('agents', { list: () => [], get: () => undefined } as never)
       ctx.get('typert').register(TYPERT)
       const fiber = ctx.plugin(plugin, { developmentOnly: true, dataDirectory })
       await fiber
       const removeRestriction = vi.fn()
       const restrict = vi.fn(() => removeRestriction)
-      ctx.emit('agent/created', { agent: { ctx: { tools: { restrict } } } } as never)
-      expect(restrict).toHaveBeenCalledWith({ allow: [] })
+      ctx.emit('agent/created', { agent: { id: 'agent', ctx: { tools: { restrict, presentAs: () => () => {} }, systemPrompt: { context: () => () => {} } } } } as never)
+      expect(restrict).toHaveBeenCalledWith({ allow: ['oryh_current_todo_details', 'oryh_timesheet_read', 'oryh_timesheet_propose', 'oryh_open_timesheet','oryh_find_timesheets','oryh_visible_todos','oryh_open_todo','oryh_current_page','oryh_open_project','oryh_project_read','oryh_project_fill'] })
       expect(await ctx.waterfall('tools/pre-execute', {} as never, async () => ({ kind: 'allow' }))).toMatchObject({ kind: 'deny' })
       const invoke = (method: string, args: Record<string, unknown> = {}) => ctx.get('typertGateway').invoke({ namespace: 'oryh', method, args })
       expect(await invoke('listConnections')).toEqual([])
+      await expect(invoke('todoDetail', { request: { connectionId: 'unknown', todoId: 't' } })).rejects.toMatchObject({ code: 'oryh/business' })
+      await expect(invoke('chatSelect', { request: { connectionId: 'unknown', sessionId: 42 } })).rejects.toMatchObject({ code: 'gateway/input-invalid' })
       expect(await invoke('listOperations')).toHaveLength(3)
+      await expect(invoke('timesheetList', { request: { connectionId: 'unknown' } })).rejects.toMatchObject({ code: 'oryh/business', details: { code: 'connection-not-found' } })
+      await expect(invoke('timesheetPrepare', { request: { connectionId: 'unknown', action: { kind: 'approve', decision: 'delete', comment: 'invalid' } } })).rejects.toMatchObject({ code: 'gateway/input-invalid' })
+      await expect(invoke('timesheetConfirm', { request: { connectionId: 'unknown', id: 'i', revision: 1 } })).rejects.toMatchObject({ code: 'gateway/input-invalid' })
       await expect(invoke('expenseList', { request: { connectionId: 'unknown' } })).rejects.toMatchObject({ code: 'oryh/business', details: { code: 'connection-not-found' } })
       await expect(invoke('expenseList', { request: { connectionId: 17 } })).rejects.toMatchObject({ code: 'gateway/input-invalid' })
       await expect(invoke('listConnections', { extra: 'not accepted' })).rejects.toThrow()
@@ -45,6 +54,9 @@ describe('ORYH external Host plugin', () => {
       expect(await ctx.waterfall('tools/pre-execute', {} as never, async () => ({ kind: 'allow' }))).toEqual({ kind: 'allow' })
       expect(ctx.get('oryhClient')).toBeUndefined()
       expect(ctx.get('oryhExpenses')).toBeUndefined()
+      expect(ctx.get('oryhTimesheets')).toBeUndefined()
+      expect(ctx.get('oryhChat')).toBeUndefined()
+      expect(ctx.get('oryhTodoDetails')).toBeUndefined()
       await expect(invoke('listConnections')).rejects.toThrow()
     } finally { vi.restoreAllMocks(); await ctx.fiber.dispose(); await rm(dataDirectory, { recursive: true, force: true }) }
   })

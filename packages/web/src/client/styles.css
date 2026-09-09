@@ -13,6 +13,8 @@ a { color: var(--accent); }
 .page-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 26px; }
 .page-heading p { color: var(--muted); margin: 0; font-size: 12px; }
 .surface { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 22px; min-width: 0; }
+.oryh-ts-save-feedback { margin-block: 12px; }
+.oryh-timesheets [role="alert"], .oryh-timesheet-review [role="alert"] { padding: 12px; border-inline-start: 3px solid var(--accent); background: var(--accent-soft); overflow-wrap: anywhere; }
 .business-page, .expense-panel { display: grid; gap: 16px; }
 .list-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .list-actions h2 { margin: 0; font-size: 16px; }
@@ -144,7 +146,6 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 .oryh-chat-seat > header { padding:14px 18px; display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:12px; }
 .oryh-chat-seat > header > span { opacity:.5; font-size:10px; }
 .oryh-chat-content { flex:1; position:relative; min-height:0; min-width:0; display:flex; flex-direction:column; }
-.oryh-chat-note { flex:none; margin:0; padding:10px 16px; border-top:1px solid var(--oryh-line); opacity:.6; font-size:10px; line-height:1.5; }
 .oryh-artifact-seat { position:absolute; inset:48px 0 0; pointer-events:none; z-index:15; }
 .oryh-artifact-seat > * { pointer-events:auto; }
 .oryh-shell-overlay { position:absolute; inset:0; pointer-events:none; z-index:20; }
@@ -169,3 +170,141 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
  .oryh-frame[data-chat="false"][data-compact="false"] { grid-template-columns:56px minmax(0,1fr); }
 }
 @media (max-width:850px) { .oryh-frame[data-compact="false"] { grid-template-columns:56px minmax(0,1fr); } }
+
+.oryh-settings-label { display:inline-flex; align-items:center; gap:10px; }
+.oryh-visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+
+.oryh-timesheets, .oryh-timesheet-review { font-size: 14px; }
+.oryh-timesheets .surface { margin-block: 16px; padding: 16px; }
+.oryh-timesheets fieldset { border: 1px solid #a0a0a055; border-radius: 6px; margin-block: 14px; padding: 16px; min-width: 0; }
+.oryh-timesheets label { display: flex; flex-direction: column; gap: 6px; margin-block: 8px; }
+.oryh-ts-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; }
+.oryh-timesheets input, .oryh-timesheets select, .oryh-timesheets textarea { box-sizing: border-box; min-width: 0; font: inherit; color: inherit; background: transparent; border: 1px solid #a0a0a080; border-radius: 4px; padding: 8px; }
+.oryh-timesheets select option { color: #222; background: #fff; }
+.oryh-timesheets textarea { min-height: 72px; resize: vertical; }
+.oryh-timesheets pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.oryh-timesheets table, .oryh-timesheet-review table { width: 100%; border-collapse: collapse; }
+.oryh-timesheets th, .oryh-timesheets td, .oryh-timesheet-review th, .oryh-timesheet-review td { padding: 10px; border-bottom: 1px solid #a0a0a040; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.oryh-timesheet-review { max-width: min(900px, 94vw); width: 900px; }
+.oryh-timesheet-review .table-scroll { overflow-x: auto; }
+
+.oryh-todo-chat details { margin-block: 12px; }
+.oryh-todo-chat dd { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Business view hierarchy stays inside the external ORYH slot. */
+@scope (.oryh-business-root) {
+  .oryh-business-header { padding:12px 20px; gap:4px 12px; border-bottom:1px solid var(--line); font-size:11px; color:var(--muted); }
+  .oryh-business-header strong { color:var(--text); }
+  .business-content { padding:12px 20px 28px; }
+  .breadcrumb { margin-bottom:8px; }
+  .page-heading { margin-bottom:14px; }
+  .business-page { gap:12px; }
+  .business-page-header { position:sticky; top:0; z-index:3; background:var(--bg); padding:10px 0 12px; border-bottom:1px solid var(--line); }
+  .business-page-header h1 { font-size:20px; line-height:1.4; margin:0; overflow-wrap:anywhere; }
+  .list-actions { gap:8px; }
+  .list-actions > div:first-child { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .record-heading { margin:8px 0 0; gap:8px; }
+  .record-heading h1 { flex:1; }
+  .record-heading .fui-Badge { flex:none; margin-top:4px; }
+  .query-toolbar { grid-template-columns:minmax(0,1fr) minmax(100px,.5fr); gap:10px; padding:12px; }
+  .query-toolbar > :first-child { grid-column:auto; }
+  .advanced-filters { padding:0 12px 10px; color:var(--muted); font-size:12px; }
+  .advanced-filter-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; padding-top:10px; }
+  .advanced-filter-fields .fui-Input, .advanced-filter-fields .fui-Select { width:100%; min-width:0; }
+  .filter-summary { padding:6px 12px; min-height:0; }
+  td { padding:12px; }
+  th { padding:10px 12px; }
+  .view-tabs { margin-bottom:12px; padding-bottom:8px; }
+  .chat-context-status { display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--muted); font-size:12px; }
+  .chat-context-status p { margin:0; }
+  .chat-context-status button { flex:none; }
+  .oryh-todo-chat { display:grid; gap:12px; }
+  .oryh-todo-chat details { margin:0; border-top:1px solid var(--line); padding:12px 0; }
+  .oryh-todo-chat summary { font-size:13px; font-weight:600; }
+  .document-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr)); gap:12px 20px; margin:12px 0 0; font-size:13px; }
+  .document-fields > div { min-width:0; }
+  .document-fields dt { font-size:11px; margin-bottom:3px; }
+  .oryh-todo-chat .document-metadata { border:0; padding:10px 0 0; color:var(--muted); }
+  .document-metadata summary { font-weight:400; font-size:11px; }
+  .oryh-timesheets .table-surface { padding:0; }
+  .oryh-timesheets > .business-page-header { display:flex; align-items:flex-start; gap:8px; flex-direction:column; margin-bottom:12px; }
+  .oryh-timesheets > .business-page-header .muted { font-size:12px; }
+  @media(max-width:600px) { .business-content { padding:10px 12px 24px; } .oryh-business-header { padding:10px 12px; } }
+}
+
+@scope (.oryh-business-root) { .business-page tbody td:nth-child(3) { min-width:140px; } }
+
+@scope (.oryh-business-root) { .oryh-timesheet-chat { margin:10px 0; } .oryh-timesheet-chat .surface { border-color:var(--accent); } }
+
+/* Chat is the primary work surface; business forms remain the same public slot. */
+.oryh-frame { grid-template-columns:208px minmax(360px,1fr) minmax(360px,42%); }
+.oryh-frame[data-compact="true"] { grid-template-columns:56px minmax(360px,1fr) minmax(360px,42%); }
+.oryh-chat-seat { grid-column:2; border-left:0; border-right:1px solid var(--oryh-line); }
+.oryh-business-seat { grid-column:3; }
+.oryh-frame[data-chat="false"] .oryh-business-seat { grid-column:2; }
+@media (min-width:851px) and (max-width:1099px) {
+ .oryh-frame[data-compact="false"] { grid-template-columns:56px minmax(360px,1fr) minmax(320px,42%); }
+}
+@media(max-width:850px) {
+ .oryh-frame, .oryh-frame[data-compact="true"], .oryh-frame[data-compact="false"] { grid-template-columns:56px minmax(0,1fr); }
+ .oryh-chat-seat, .oryh-business-seat { grid-column:2; }
+}
+
+.oryh-frame[data-chat="false"] { grid-template-columns:208px minmax(0,1fr); }
+.oryh-frame[data-chat="false"][data-compact="true"] { grid-template-columns:56px minmax(0,1fr); }
+@media(max-width:1099px) { .oryh-frame[data-chat="false"][data-compact="false"] { grid-template-columns:56px minmax(0,1fr); } }
+
+/* Project editor belongs to the ORYH business slot. */
+@scope (.oryh-business-root) {
+ .oryh-projects { container-type:inline-size; }
+ .project-page-header { display:grid; gap:12px; margin-bottom:20px; padding-top:4px; padding-bottom:16px; }
+ .project-page-header > button { justify-self:start; margin-left:-8px; color:var(--muted); font-size:12px; }
+ .project-title-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+ .project-title-row h1 { font-size:23px; font-weight:650; letter-spacing:-.4px; }
+ .project-draft-status { font-size:11px; color:var(--muted); border:1px solid var(--line); padding:2px 8px; border-radius:4px; }
+ .project-form { background:var(--surface); border:1px solid var(--line); border-radius:8px; overflow:clip; }
+ .project-form > fieldset { border:0; padding:0; margin:0; min-width:0; }
+ .project-form-section { padding:22px; }
+ .project-form-section + .project-form-section { border-top:1px solid var(--line); }
+ .project-section-heading { display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin-bottom:18px; }
+ .project-section-heading h2 { font-size:14px; margin:0; font-weight:650; }
+ .project-section-heading > span { font-size:11px; color:var(--muted); }
+ .project-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 16px; }
+ .project-field { display:flex; flex-direction:column; gap:7px; min-width:0; font-size:12px; font-weight:500; }
+ .project-field-wide { grid-column:1 / -1; }
+ .project-required { color:var(--accent); }
+ .project-field input { box-sizing:border-box; width:100%; min-width:0; height:40px; padding:9px 11px; font:inherit; font-size:13px; font-weight:400; color:var(--text); background:var(--surface); border:1px solid var(--line); border-radius:5px; transition:border-color .15s,box-shadow .15s; }
+ .project-field input:hover { border-color:var(--muted); }
+ .project-field input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-color:var(--accent); }
+ .project-field input::placeholder { color:var(--muted); opacity:.8; }
+ .project-field input:disabled { opacity:.65; background:var(--hover); }
+ .project-field small { color:var(--muted); font-size:11px; font-weight:400; line-height:1.5; }
+ .project-date-fields input { font-variant-numeric:tabular-nums; }
+ .project-initial-status { padding:0 22px 22px; display:flex; align-items:center; gap:16px; color:var(--muted); font-size:12px; }
+ .project-initial-status strong { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:500; color:var(--accent); }
+ .project-initial-status i { width:6px; height:6px; border-radius:50%; background:currentColor; }
+ .project-form-actions { position:sticky; bottom:0; z-index:2; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 22px; border-top:1px solid var(--line); background:var(--hover); }
+ .project-form-actions > span { font-size:11px; color:var(--muted); }
+ .project-form-actions > button { min-height:36px; padding-inline:20px; }
+ .project-form-error { margin:0 22px 16px; border-left:3px solid var(--accent); padding:10px 12px; background:var(--accent-soft); font-size:12px; overflow-wrap:anywhere; }
+ @container (max-width:400px) { .project-fields:not(.project-date-fields) { grid-template-columns:minmax(0,1fr); } .project-form-section { padding:18px 16px; } .project-form-actions { padding:14px 16px; } .project-initial-status { padding-inline:16px; } }
+ @container (max-width:310px) { .project-date-fields { grid-template-columns:minmax(0,1fr); } }
+}
+.oryh-project-review dl { margin:20px 0; }
+.oryh-project-review dl > div { display:grid; grid-template-columns:88px minmax(0,1fr); gap:16px; padding:12px 0; border-bottom:1px solid #8883; }
+.oryh-project-review dt { opacity:.65; font-size:12px; }
+.oryh-project-review dd { margin:0; overflow-wrap:anywhere; font-size:14px; }
+
+.oryh-global-heading { display:flex; align-items:center; gap:20px; min-width:0; flex:1; }
+.oryh-global-title { white-space:nowrap; font-weight:500; }
+.oryh-global-identity { display:flex; align-items:center; gap:12px; min-width:0; padding-left:20px; border-left:1px solid var(--oryh-line); font-size:11px; }
+.oryh-global-identity strong, .oryh-global-identity span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.oryh-global-identity strong { font-weight:500; }
+.oryh-global-identity span { opacity:.6; }
+@media (max-width:850px) {
+ .oryh-frame-toolbar { padding-inline:12px; gap:8px; }
+ .oryh-global-heading { flex-direction:column; align-items:flex-start; gap:2px; }
+ .oryh-global-title { font-size:11px; }
+ .oryh-global-identity { padding:0; border:0; max-width:100%; gap:8px; font-size:10px; }
+ .oryh-mobile-switch { flex-shrink:0; }
+}

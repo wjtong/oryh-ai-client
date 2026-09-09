@@ -8,7 +8,7 @@ ORYH 客户端通过 DeepSeek Harness 的外部 Host 插件、Client 插件和 `
 - 待办、费用申请、项目支持查询、已载入数据的多条件筛选、详情和固定查询入口。
 - 费用支持本地加密草稿、人工校验确认、创建、提交、结果核对；正式写入没有注册为模型工具。
 - 凭据仅保存在 Host 和系统钥匙串，浏览器通过生成的 Typert Remote 调用业务服务。恢复连接后先验证用户与企业，跨企业结果不可复用。
-- 官方聊天界面已复用；聊天填写表单、AI 查询工具与企业绑定 Session **尚未实现**。当前 Profile 的模型工具调用被关闭，不能把原生聊天出现等同于业务 AI 已接通。
+- 官方聊天界面已复用；已支持当前待办及关联单据的只读 AI 查询，Session 固定绑定企业和员工。Chat 已支持工时查询、填写表单及修改/提交/审批建议；Chat 可直接打开右侧工时表单并自动更新未保存字段，保存与正式操作仍由用户核对确认，未开放直接写入工具。
 
 三栏由 ORYH 外部根布局插件实现：左侧业务菜单及原生会话／设置，中间根级业务 Slot，右侧官方 conversation/chat/composer。布局要求与插件规范兼容，业务页面不依赖当前 Session。详情见 [插件迁移](docs/14-dsh-plugin-migration.md)。独立 Web Server、`/api/client`、Vite 页面入口和自建聊天壳已退役。
 
@@ -106,3 +106,7 @@ ORYH 的核心定位是 agent-native 企业事实与控制层。不同员工仍�
 ## 源码基线
 
 ORYH：`/Users/wtong/git/calwbiz`。Harness：`/Users/wtong/git/deepseek-harness`，`0.1.3-alpha.2` / `c389f96bf3`，外加本次外部 Remote 符号识别兼容补丁。该补丁尚未发布上游；本仓库保留可审查副本，见 [迁移记录](docs/14-dsh-plugin-migration.md)。
+
+模型与聊天配置见 [配置模型并开始聊天](docs/15-model-configuration.md)。左下角「模型与设置」复用原生 Models 页面，支持 Base URL、API key、协议和模型目录。
+
+工时录入、修改、提交与经理审批的操作和边界见 [工时工作流](docs/16-timesheet-workflow.md)。

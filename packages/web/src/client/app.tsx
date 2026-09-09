@@ -1,4 +1,4 @@
-import type { BusinessView } from './layout-store.js';
+import type { BusinessView, FrameIdentity } from './layout-store.js';
 import { useBusinessText } from './locale.js';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Badge, Button, Caption1, Card, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, FluentProvider, Input, MessageBar, MessageBarBody, Select, Spinner, Text, Title1, Title2, webDarkTheme, webLightTheme } from '@fluentui/react-components';
@@ -11,7 +11,7 @@ import { Workbench } from './workbench.js';
 const authStyles = { intro: 'connect-intro', card: 'auth-card', connectForm: 'connect-form', approval: 'approval', cardTitle: 'card-title', code: 'device-code', inlineStatus: 'inline-status', resultToolbar: 'toolbar' };
 type AuthStyles = typeof authStyles;
 type BusyAction = 'load' | 'connect' | 'disconnect' | 'run' | undefined;
-export function App({ dark, page }: { dark: boolean; page: BusinessView }): ReactNode {
+export function App({ dark, page, onIdentity }: { dark: boolean; page: BusinessView; onIdentity: (identity:FrameIdentity|undefined)=>void }): ReactNode {
     const t = useBusinessText();
     const copy = useBusinessCopy();
     const styles = authStyles;
@@ -28,6 +28,12 @@ export function App({ dark, page }: { dark: boolean; page: BusinessView }): Reac
     const activeConnection = snapshot.activeConnectionId === undefined
         ? undefined
         : snapshot.connections.find(connection => connection.id === snapshot.activeConnectionId);
+    const company = activeConnection ? tenantName(activeConnection) : undefined;
+    const email = activeConnection?.identity.user.email;
+    useEffect(() => {
+        onIdentity(company && email ? { company, email } : undefined);
+        return () => onIdentity(undefined);
+    }, [company, email, onIdentity]);
     const apply = useCallback(async (action: () => Promise<void>, nextBusy: BusyAction) => {
         const generation = ++actionGeneration.current;
         setBusy(nextBusy);

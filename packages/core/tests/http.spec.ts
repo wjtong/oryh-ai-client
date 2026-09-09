@@ -141,3 +141,24 @@ describe('OryhHttpClient', () => {
     expect(refreshCalls).toBe(1)
   })
 })
+
+describe('safe timesheet conflict explanations', () => {
+  const id='88809fbe-02a1-4327-97fb-d2550bf75467'
+  const existing=`timesheet header ${id} already covers period 2026-08-31..2026-09-04 for employee ${id}`
+  it.each([
+    [existing, '/timesheet-headers?validate_only=true', '已有工时单'],
+    [`deleted timesheet header ${id} still holds period 2026-08-31..2026-09-04 for employee ${id}; restore it instead of recreating`, '/timesheet-headers', '恢复原单据'],
+    [existing+' secret-access-key', '/timesheet-headers', 'status 409'],
+    [existing, '/projects', 'status 409'],
+    ['secret-access-key', '/timesheet-headers', 'status 409'],
+  ])('maps only known conflict shapes without echoing response data', async(detail,path,message)=>{
+    const connections=new ConnectionRegistry(), credentials=new MemoryCredentialVault()
+    const c=connections.add({origin:'https://oryh.example',identity:identity()})
+    await credentials.write(c.id,{accessKey:'secret-access-key',refreshToken:'secret-refresh',expiresAt:null})
+    const client=new OryhHttpClient(connections,credentials,async()=>jsonResponse(409,{detail}))
+    const error=await client.request(c.id,{path:path as `/${string}`,method:'POST',retryExpired:false}).catch(e=>e)
+    expect(error.message).toContain(message)
+    expect(error.message).not.toContain('secret-access-key')
+    expect(error.message).not.toContain(id)
+  })
+})
