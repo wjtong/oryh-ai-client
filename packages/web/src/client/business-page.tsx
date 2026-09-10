@@ -65,8 +65,8 @@ export function BusinessPage({ connection, operationId, active, onContext, onNew
     } }, [active]);
     useEffect(() => {
         contextCallback.current({ key: `${operationId}:${selected?.id ?? 'list'}`, title: selected?.title ?? title,
-            detail: selected ? t("text38") : conditions || t("text39"), scope: result ? `${scope}${error ? t("text40") : ''}` : t("text41") });
-    }, [selected?.id, selected?.title, title, conditions, scope, operationId, result, error]);
+            detail: selected ? t("text38") : conditions || t("text39"), scope: result ? `${scope}${error ? t("text40") : ''}` : t("text41"), content: JSON.stringify({loading:busy,error,filter,page:currentPage,pages,selected:selected??null,visibleRows:busy||invalidDates?[]:filtered.slice((currentPage-1)*12,currentPage*12)}) });
+    }, [selected?.id, selected?.title, title, conditions, scope, operationId, result, error, busy, filter, currentPage, pages, filtered]);
     async function load(savedId?: SavedOperationView['id']) {
         if (running.current)
             return;

@@ -149,3 +149,43 @@ describe('root page context',()=>{
   }finally{await f.close()}
  })
 })
+
+describe('live page background and navigation',()=>{
+ it('includes the latest list snapshot and requires the navigation acknowledgement',async()=>{
+  const f=await setup();try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'list-projects',context:{key:'list',title:'项目',detail:'筛选',scope:'当前页',content:'项目甲'}})
+   expect(f.chat.currentPage('s').context?.content).toBe('项目甲')
+   const pending=f.chat.navigate('s','my-expense-claims',new AbortController().signal)
+   const command=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+   expect(command.target).toBe('page')
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'my-expense-claims',navigationId:command.id,context:{key:'expenses',title:'费用',detail:'',scope:'',content:'费用乙'}})
+   expect(JSON.parse(await pending).context.content).toBe('费用乙')
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'list-projects'})
+   expect(f.chat.currentPage('s').page).toBe('my-expense-claims')
+  }finally{await f.close()}
+ })
+ it('publishes current project fields without confirmation credentials and clears them on leaving',async()=>{
+  const f=await setup();try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'list-projects'})
+   const fields={project_name:'人工输入',project_code:'',client:'',start_date:'',end_date:''}
+   f.chat.project.sync({sessionId:'s',connectionId,pageKey:'p',revision:1,fields,busy:false})
+   expect(f.chat.currentPage('s').visible).toMatchObject({fields,unsaved:true})
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'settings'})
+   expect(f.chat.currentPage('s').visible).toBeUndefined()
+  }finally{await f.close()}
+ })
+})
+
+it('accepts manual page selection during a turn only when the root page matches',async()=>{
+ const f=await setup();try{
+  await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos'})
+  f.agent.status='running'
+  expect((await f.chat.select({sessionId:'s',connectionId,todoId:'todo'})).ready).toBe(true)
+  expect(f.chat.currentPage('s').visible).toMatchObject({document:{todoId:'todo'}})
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'list-projects'})
+  await expect(f.chat.select({sessionId:'s',connectionId,todoId:'todo'})).rejects.toThrow(/旧页面/)
+ }finally{await f.close()}
+})

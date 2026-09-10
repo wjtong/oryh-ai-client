@@ -15,6 +15,7 @@ export interface PageContext {
     detail: string;
     scope: string;
     key: string;
+    content?: string;
 }
 export function Workbench({ page, connection, operations, onDirtyChange, settings, notices }: {
     page: BusinessView;
@@ -53,8 +54,9 @@ export function Workbench({ page, connection, operations, onDirtyChange, setting
     useEffect(() => { const seat = main.current?.closest<HTMLElement>('.oryh-business-seat'); if (seat) seat.scrollTop = 0; }, [page, expenseTab]);
     const [pageContexts,setPageContexts]=useState<Record<string,PageContext>>({});
     function report(id: string, value: PageContext) { setPageContexts(current=>JSON.stringify(current[id])===JSON.stringify(value)?current:{...current,[id]:value}); }
+    const chatContext=page==='my-expense-claims'&&expenseTab==='drafts'?pageContexts['expense-draft']:pageContexts[page];
     return <div className="oryh-business">
-    <ChatNavigation page={page} {...(pageContexts[page]?{context:pageContexts[page]}:{})} connectionId={connection.id} onOpen={command=>{setNavigation(command);if(command.target==='project'){setVisited(current=>current.includes('list-projects')?current:[...current,'list-projects']);navigate('list-projects')}else if(command.manager){setApprovalVisited(true);navigate('timesheet-approvals')}else{setTimesheetVisited(true);navigate('timesheets')}}}/>
+    <ChatNavigation page={page} {...(chatContext?{context:chatContext}:{})} connectionId={connection.id} onOpen={command=>{if(command.target==='page'&&command.page){setNavigation(undefined);navigate(command.page);return}setNavigation(command);if(command.target==='project'){setVisited(current=>current.includes('list-projects')?current:[...current,'list-projects']);navigate('list-projects')}else if(command.manager){setApprovalVisited(true);navigate('timesheet-approvals')}else{setTimesheetVisited(true);navigate('timesheets')}}}/>
     <main ref={main} className="business-content">
       {notices}
       <div className="breadcrumb">{t("text16")}<IconChevronRight size={13}/> {page === 'settings' ? t('text17') : page === 'timesheets' ? t('tsMine') : page === 'timesheet-approvals' ? t('tsApprovals') : pages[page].title}</div>

@@ -9,7 +9,8 @@ export const BusinessNavigationContext=createContext<(page:BusinessView)=>void>(
 export function ChatNavigation({connectionId,onOpen,page,context}:{page:BusinessView;context?:ChatPageRequest['context'];connectionId:ConnectionId;onOpen:(command:Navigation)=>void}){
   const api=useOryhRemote(),sessionId=useContext(BusinessSessionContext),callback=useRef(onOpen)
   const [viewId]=useState(()=>crypto.randomUUID()),homeReady=useRef<Promise<unknown>>(Promise.resolve()),version=useRef({json:'',revision:0})
-  const json=JSON.stringify({page,context})
+  const [navigationId,setNavigationId]=useState<string>()
+  const json=JSON.stringify({page,context,navigationId})
   if(version.current.json!==json)version.current={json,revision:version.current.revision+1}
   const revision=version.current.revision
   callback.current=onOpen
@@ -17,7 +18,7 @@ export function ChatNavigation({connectionId,onOpen,page,context}:{page:Business
     if(!sessionId)return
     let live=true,seen='',timer:ReturnType<typeof setTimeout>|undefined
     async function poll(){
-      try{const n=await api.chatHomePoll({sessionId:sessionId!,connectionId});if(live&&n&&n.id!==seen){seen=n.id;if(n.target!=='todo')callback.current(n)}}catch{return}
+      try{const n=await api.chatHomePoll({sessionId:sessionId!,connectionId});if(live&&n&&n.id!==seen){seen=n.id;if(n.target!=='todo'){callback.current(n);if(n.target==='page')setNavigationId(n.id)}}}catch{}
       if(live)timer=setTimeout(()=>void poll(),600)
     }
     function bindHome(){homeReady.current=api.chatSelect({sessionId:sessionId!,connectionId,homeOnly:true});void homeReady.current.then(()=>{if(live)void poll()}).catch(()=>{if(live)timer=setTimeout(bindHome,500)})}
@@ -27,7 +28,7 @@ export function ChatNavigation({connectionId,onOpen,page,context}:{page:Business
   useLayoutEffect(()=>{
     if(!sessionId)return
     let live=true,timer:ReturnType<typeof setTimeout>|undefined
-    async function sync(){try{if(live)await api.chatPageSync({sessionId:sessionId!,connectionId,viewId,revision,page,...(context?{context}:{})})}catch{if(live)timer=setTimeout(()=>void sync(),500)}}
+    async function sync(){try{if(live)await api.chatPageSync({sessionId:sessionId!,connectionId,viewId,revision,page,...(navigationId?{navigationId}:{}),...(context?{context}:{})})}catch{if(live)timer=setTimeout(()=>void sync(),500)}}
     void sync()
     return()=>{live=false;if(timer)clearTimeout(timer)}
   },[api,sessionId,connectionId,viewId,revision])

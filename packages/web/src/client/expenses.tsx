@@ -68,8 +68,8 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
         return () => window.removeEventListener('beforeunload', listener);
     }, [dirty]);
     useEffect(() => {
-        contextCallback.current?.({ key: editor ? `expense:${selected?.id ?? `new-${draftSession}`}` : 'expense-drafts', title: editor ? fields.title || t("text57") : t("text104"), detail: editor ? `${selected ? names[selected.state] : t("text105")}${dirty ? t("text106") : ''}` : t("text107"), scope: editor ? t("text108", { value0: fields.items.length }) : t("text109") });
-    }, [editor, selected?.id, selected?.state, fields.title, fields.items.length, dirty, draftSession]);
+        contextCallback.current?.({ key: editor ? `expense:${selected?.id ?? `new-${draftSession}`}` : 'expense-drafts', title: editor ? fields.title || t("text57") : t("text104"), detail: editor ? `${selected ? names[selected.state] : t("text105")}${dirty ? t("text106") : ''}` : t("text107"), scope: editor ? t("text108", { value0: fields.items.length }) : t("text109"), content:JSON.stringify({editor,fields:editor?fields:undefined,busy,dirty,state:selected?.state}) });
+    }, [editor, selected?.id, selected?.state, fields, busy, dirty, draftSession]);
     useEffect(() => {
         if (newRequest > lastNewRequest.current && !busy) {
             lastNewRequest.current = newRequest;
