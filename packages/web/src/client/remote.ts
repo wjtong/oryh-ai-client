@@ -1,3 +1,4 @@
+import type {OryhRecordRemote} from '@oryh/ai-client-core/types'
 import type {ProjectChatState,ProjectChatProposal} from '@oryh/dsh-host/types'
 import type {OryhProjectRemote} from '@oryh/ai-client-core/types'
 import type { ChatPageRequest, ChatHomeRequest, ChatNavigation } from '@oryh/dsh-host/types'
@@ -10,7 +11,7 @@ import type {} from '@oryh/dsh-host/remote'
 import type { OryhClientRemote, OryhExpenseRemote, OryhTimesheetRemote, ConnectionId } from '@oryh/ai-client-core/types'
 
 interface BusinessChatRemote { projectChatSync(request:ProjectChatState):Promise<void>;projectChatPoll(request:ChatHomeRequest):Promise<ProjectChatProposal|undefined>;projectChatClear(sessionId:string):Promise<void>; chatPageSync(request:ChatPageRequest):Promise<void>; chatHomePoll(request:ChatHomeRequest):Promise<ChatNavigation|undefined>; chatHomeClear(sessionId:string):Promise<void>; timesheetChatSync(request:TimesheetChatState):Promise<void>; timesheetChatPoll(request:TimesheetChatPoll):Promise<TimesheetChatProposal|undefined>; todoDetail(connectionId: string, todoId: string): Promise<TodoDocument>; chatSelect(request: ChatSelection): Promise<ChatContextView>; chatClear(sessionId: string): Promise<void> }
-export type BusinessRemote = BusinessChatRemote & OryhProjectRemote & OryhClientRemote & OryhExpenseRemote & OryhTimesheetRemote
+export type BusinessRemote = BusinessChatRemote & OryhRecordRemote & OryhProjectRemote & OryhClientRemote & OryhExpenseRemote & OryhTimesheetRemote
 export const RemoteContext = createContext<BusinessRemote | undefined>(undefined)
 export function useOryhRemote(): BusinessRemote {
   const remote = useContext(RemoteContext)
@@ -34,6 +35,8 @@ export function createOryhRemote(remote: ClientRemote): BusinessRemote {
   const api = remote.oryh
   const connection = (connectionId: string) => ({ connectionId: connectionId as ConnectionId })
   return {
+    productSearch:q=>unwrap(api.productSearch(q)),
+    recordList:q=>unwrap(api.recordList(q)),
     projectOptions:id=>unwrap(api.projectOptions(connection(id))),
     projectPrepare:(id,fields)=>unwrap(api.projectPrepare({...connection(id),fields})),
     projectConfirm:(id,key,revision,token)=>unwrap(api.projectConfirm({...connection(id),id:key,revision,token})),

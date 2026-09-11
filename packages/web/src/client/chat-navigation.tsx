@@ -18,7 +18,7 @@ export function ChatNavigation({connectionId,onOpen,page,context}:{page:Business
     if(!sessionId)return
     let live=true,seen='',timer:ReturnType<typeof setTimeout>|undefined
     async function poll(){
-      try{const n=await api.chatHomePoll({sessionId:sessionId!,connectionId});if(live&&n&&n.id!==seen){seen=n.id;if(n.target!=='todo'){callback.current(n);if(n.target==='page')setNavigationId(n.id)}}}catch{}
+      try{const n=await api.chatHomePoll({sessionId:sessionId!,connectionId});if(live&&n&&n.id!==seen){seen=n.id;if(n.target!=='todo'){callback.current(n);if(n.target==='page'||n.target==='columns'||n.target==='filters')setNavigationId(n.id)}}}catch{}
       if(live)timer=setTimeout(()=>void poll(),600)
     }
     function bindHome(){homeReady.current=api.chatSelect({sessionId:sessionId!,connectionId,homeOnly:true});void homeReady.current.then(()=>{if(live)void poll()}).catch(()=>{if(live)timer=setTimeout(bindHome,500)})}

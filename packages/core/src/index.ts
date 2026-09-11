@@ -24,3 +24,6 @@ export * from './todo-detail.js'
 
 export * from './project-contracts.js'
 export * from './projects.js'
+
+export * from './record-contracts.js'
+export * from './records.js'

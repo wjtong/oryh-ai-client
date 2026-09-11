@@ -1,3 +1,6 @@
+import {ProjectTable,projectColumnLabels,defaultProjectColumns} from './project-columns.js';
+import type {ProjectColumn} from '@oryh/dsh-host/types';
+import type {OryhProject} from '@oryh/ai-client-core/types';
 import { TodoChat } from './todo-chat.js';
 import { useBusinessText } from './locale.js';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -7,7 +10,9 @@ import type { ConnectionSummary, OperationId, OryhOperationResult, SavedOperatio
 import { useOryhRemote } from './remote.js';
 import { businessRows, emptyFilter, filterRows, statusLabel, type ViewFilter } from './business-data.js';
 import type { PageContext } from './workbench.js';
-export function BusinessPage({ connection, operationId, active, onContext, onNewExpense, onNewProject }: {
+export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectColumns,connection, operationId, active, onContext, onNewExpense, onNewProject }: {
+    projectColumns?:ProjectColumn[];
+    onProjectColumns?:(columns:ProjectColumn[])=>void;
     connection: ConnectionSummary;
     operationId: OperationId;
     active: boolean;
@@ -65,8 +70,8 @@ export function BusinessPage({ connection, operationId, active, onContext, onNew
     } }, [active]);
     useEffect(() => {
         contextCallback.current({ key: `${operationId}:${selected?.id ?? 'list'}`, title: selected?.title ?? title,
-            detail: selected ? t("text38") : conditions || t("text39"), scope: result ? `${scope}${error ? t("text40") : ''}` : t("text41"), content: JSON.stringify({loading:busy,error,filter,page:currentPage,pages,selected:selected??null,visibleRows:busy||invalidDates?[]:filtered.slice((currentPage-1)*12,currentPage*12)}) });
-    }, [selected?.id, selected?.title, title, conditions, scope, operationId, result, error, busy, filter, currentPage, pages, filtered]);
+            detail: selected ? t("text38") : conditions || t("text39"), scope: result ? `${scope}${error ? t("text40") : ''}` : t("text41"), ...(operationId==='list-projects'?{columns:projectColumns}:{}), content: JSON.stringify({loading:busy,error,filter,page:currentPage,pages,selected:selected??null,visibleRows:busy||invalidDates?[]:filtered.slice((currentPage-1)*12,currentPage*12)}) });
+    }, [selected?.id, selected?.title, title, conditions, scope, operationId, result, error, busy, filter, currentPage, pages, filtered, projectColumns]);
     async function load(savedId?: SavedOperationView['id']) {
         if (running.current)
             return;
@@ -142,11 +147,12 @@ export function BusinessPage({ connection, operationId, active, onContext, onNew
           <Field label={t("text63")}><Input type="date" value={filter.to} onChange={(_, data) => update({ to: data.value })}/></Field>
           <Field label={t("text64")}><Select value={filter.descending ? 'desc' : 'asc'} onChange={event => update({ descending: event.target.value === 'desc' })}><option value="desc">{t("text65")}</option><option value="asc">{t("text66")}</option></Select></Field>
         </div></details>
+        {operationId==='list-projects'&&onProjectColumns&&<details className="advanced-filters"><summary>显示列</summary><div className="project-column-options">{(Object.keys(projectColumnLabels) as ProjectColumn[]).map(c=><label key={c}><input type="checkbox" checked={projectColumns.includes(c)} disabled={c==='name'} onChange={e=>onProjectColumns(e.target.checked?[...projectColumns,c]:projectColumns.filter(k=>k!==c))}/>{projectColumnLabels[c]}</label>)}<Button appearance="subtle" size="small" onClick={()=>onProjectColumns([...defaultProjectColumns])}>恢复默认列</Button></div></details>}
         {conditions && <div className="filter-summary"><span>{conditions || t("text67")}</span>{conditions && <Button appearance="subtle" size="small" onClick={() => { setFilter(emptyFilter); setPage(1); }}>{t("text68")}</Button>}</div>}
         {invalidDates && <MessageBar intent="error"><MessageBarBody>{t("text69")}</MessageBarBody></MessageBar>}
         {busy && <div className="list-loading" role="status"><Spinner size="tiny"/>{t("text70")}</div>}
         {!result && !busy ? <div className="empty-state"><h3>{t("text71")}</h3><p>{t("text72")}</p></div> : result && <>
-          <div className="table-scroll"><table><caption className="sr-only">{title}{t("text73")}</caption><thead><tr><th scope="col">{operationId === 'list-projects' ? t("text74") : t("text75")}</th><th scope="col">{t("text60")}</th><th scope="col">{operationId === 'list-projects' ? t("text76") : operationId === 'my-expense-claims' ? t("text77") : t("text78")}</th><th scope="col">{dateLabel}</th><th scope="col"><span className="sr-only">{t("text79")}</span></th></tr></thead><tbody>{!invalidDates && filtered.slice((currentPage - 1) * 12, currentPage * 12).map(row => <tr key={row.id}><td><button className="record-link" data-row-id={row.id} onClick={event => openRecord(row.id)}>{row.title}</button></td><td><span className={`record-status status-${row.status === 'open' || row.status === 'submitted' ? 'pending' : 'neutral'}`}>{statusLabel(row.status, t)}</span></td><td>{row.secondary || '—'}</td><td className="numeric">{row.date || '—'}</td><td><Button appearance="subtle" size="small" aria-label={t("text80", { value0: row.title })} icon={<IconChevronRight size={16}/>} onClick={event => openRecord(row.id)}/></td></tr>)}</tbody></table></div>
+          {operationId==='list-projects'?<ProjectTable columns={projectColumns} projects={invalidDates?[]:filtered.slice((currentPage-1)*12,currentPage*12).map(row=>(result.result.data as OryhProject[]).find(p=>p.id===row.id)!)} onOpen={openRecord}/>:<div className="table-scroll"><table><caption className="sr-only">{title}{t("text73")}</caption><thead><tr><th scope="col">{t("text75")}</th><th scope="col">{t("text60")}</th><th scope="col">{operationId === 'my-expense-claims' ? t("text77") : t("text78")}</th><th scope="col">{dateLabel}</th><th scope="col"><span className="sr-only">{t("text79")}</span></th></tr></thead><tbody>{!invalidDates && filtered.slice((currentPage - 1) * 12, currentPage * 12).map(row => <tr key={row.id}><td><button className="record-link" data-row-id={row.id} onClick={event => openRecord(row.id)}>{row.title}</button></td><td><span className={`record-status status-${row.status === 'open' || row.status === 'submitted' ? 'pending' : 'neutral'}`}>{statusLabel(row.status, t)}</span></td><td>{row.secondary || '—'}</td><td className="numeric">{row.date || '—'}</td><td><Button appearance="subtle" size="small" aria-label={t("text80", { value0: row.title })} icon={<IconChevronRight size={16}/>} onClick={event => openRecord(row.id)}/></td></tr>)}</tbody></table></div>}
           {(filtered.length === 0 || invalidDates) && <div className="empty-state"><h3>{conditions ? t("text81") : t("text82")}</h3><p>{conditions ? t("text83") : t("text84")}</p></div>}
           <footer className="table-footer"><span>{t("text85")}{invalidDates ? 0 : filtered.length}{t("text86")}</span><div className="pagination"><Button size="small" aria-label={t("text87")} disabled={currentPage <= 1} icon={<IconChevronLeft size={16}/>} onClick={() => setPage(currentPage - 1)}/><span>{currentPage} / {pages}</span><Button size="small" aria-label={t("text88")} disabled={currentPage >= pages} icon={<IconChevronRight size={16}/>} onClick={() => setPage(currentPage + 1)}/></div></footer>
         </>}

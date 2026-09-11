@@ -1,3 +1,4 @@
+import type {OryhRecordRemote,RecordQuery,RecordPage,ProductSearch,ProductOptions} from '@oryh/ai-client-core/types'
 import type {OryhProjectRemote,ProjectIntent,ProjectOptions} from '@oryh/ai-client-core/types'
 import type {ProjectPrepareRequest,ProjectChatState,ProjectChatProposal} from './types.js'
 import type { ChatPageRequest, ChatHomeRequest, ChatNavigation } from './types.js'
@@ -21,6 +22,7 @@ import type { ConnectRequest, ConnectionRequest, AuthorizationRequest, Operation
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
+    oryhRecords:OryhRecordRemote
     oryhProjects:OryhProjectRemote
     oryhChat: BusinessChat
     oryhTodoDetails: TodoDetailService
@@ -34,7 +36,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Browser-only typed business API; no member is registered as an Agent tool. */
 export class OryhRemote extends TypertRemoteService {
-  static inject = ['typert', 'oryhClient', 'oryhExpenses', 'oryhTimesheets', 'oryhProjects', 'oryhTodoDetails', 'oryhChat', 'oryhAbort']
+  static inject = ['typert', 'oryhClient', 'oryhExpenses', 'oryhTimesheets', 'oryhProjects', 'oryhRecords', 'oryhTodoDetails', 'oryhChat', 'oryhAbort']
   private readonly api: OryhClientRemoteAdapter
   private closed = false
   private readonly active = new Set<Promise<unknown>>()
@@ -81,6 +83,8 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('chatClear') chatClear(request: ChatClearRequest): Promise<void> { return this.call(() => this.ctx.oryhChat.clear(request.sessionId)) }
   @Remote('timesheetChatSync') timesheetChatSync(request: TimesheetChatState): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.sync(request)) }
   @Remote('timesheetChatPoll') timesheetChatPoll(request: TimesheetChatPoll): Promise<TimesheetChatProposal | undefined> { return this.call(() => this.ctx.oryhChat.timesheet.poll(request)) }
+  @Remote('productSearch') productSearch(r:ProductSearch):Promise<ProductOptions>{return this.call(()=>this.ctx.oryhRecords.productSearch(r))}
+  @Remote('recordList') recordList(r:RecordQuery):Promise<RecordPage>{return this.call(()=>this.ctx.oryhRecords.recordList(r))}
   @Remote('projectOptions') projectOptions(r:ConnectionRequest):Promise<ProjectOptions>{return this.call(()=>this.ctx.oryhProjects.projectOptions(r.connectionId))}
   @Remote('projectPrepare') projectPrepare(r:ProjectPrepareRequest):Promise<ProjectIntent>{return this.call(()=>this.ctx.oryhProjects.projectPrepare(r.connectionId,r.fields))}
   @Remote('projectConfirm') projectConfirm(r:ConfirmDraftRequest):Promise<ProjectIntent>{return this.call(()=>this.ctx.oryhProjects.projectConfirm(r.connectionId,r.id,r.revision,r.token))}

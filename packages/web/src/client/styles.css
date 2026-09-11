@@ -116,9 +116,9 @@ dd { margin: 0; overflow-wrap: anywhere; }
 }
 
 /* The external root owns geometry only; native slot internals keep their styles. */
-.oryh-frame { --oryh-ground:var(--dsw-alias-bg-base,#fff); --oryh-line:var(--dsw-alias-border-l1,#e2e6eb); position:relative; display:grid; grid-template-columns:208px minmax(0,1fr) minmax(360px,34%); grid-template-rows:48px minmax(0,1fr); height:100dvh; width:100%; overflow:hidden; background:var(--oryh-ground); color:var(--dsw-alias-label-primary,#26313c); }
-.oryh-frame[data-compact="true"] { grid-template-columns:56px minmax(0,1fr) minmax(360px,34%); }
-.oryh-navigation { grid-row:1/-1; min-height:0; min-width:0; display:flex; flex-direction:column; border-right:1px solid var(--oryh-line); background:var(--dsw-alias-bg-l1,#f5f6f8); }
+.oryh-frame { --oryh-ground:var(--dsw-alias-bg-base,#fff); --oryh-line:var(--dsw-alias-border-l1,#e2e6eb); position:relative; display:grid; grid-template-columns:208px minmax(0,1fr) var(--oryh-chat-width,360px); grid-template-rows:48px minmax(0,1fr); height:100dvh; width:100%; overflow:hidden; background:var(--oryh-ground); color:var(--dsw-alias-label-primary,#26313c); }
+.oryh-frame[data-compact="true"] { grid-template-columns:56px minmax(0,1fr) var(--oryh-chat-width,360px); }
+.oryh-navigation { grid-row:1/-1; min-height:0; min-width:0; display:flex; flex-direction:column; border-right:1px solid var(--oryh-line); background:var(--dsw-alias-bg-layer-1,var(--oryh-ground)); }
 .oryh-brand { display:flex; align-items:center; gap:11px; padding:22px 16px; height:84px; }
 .oryh-brand > span { display:grid; place-items:center; border-radius:8px; background:#246b63; color:#fff; width:28px; height:28px; flex:none; font-size:19px; font-weight:650; }
 .oryh-brand strong { font-size:17px; letter-spacing:1px; }
@@ -138,7 +138,7 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 .oryh-frame-toolbar > span { opacity:.65; }
 .oryh-frame-toolbar button { display:flex; gap:6px; align-items:center; background:transparent; border:1px solid transparent; color:inherit; padding:6px; font:inherit; border-radius:5px; cursor:pointer; }
 .oryh-frame-toolbar button:hover { background:#8882; }
-.oryh-chat-toggle { margin-left:auto; }
+.oryh-chat-controls { margin-left:auto; display:flex; align-items:center; gap:8px; }
 .oryh-mobile-switch { display:none; }
 .oryh-business-seat { grid-column:2; grid-row:2; min-height:0; min-width:0; overflow:auto; background:var(--oryh-ground); }
 .oryh-business-root { min-height:100%; }
@@ -157,7 +157,7 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
  .oryh-frame, .oryh-frame[data-compact="true"], .oryh-frame[data-chat="false"] { grid-template-columns:56px minmax(0,1fr); }
  .oryh-mobile-switch { display:flex; margin-left:auto; }
  .oryh-mobile-switch button[aria-pressed="true"] { background:#8882; }
- .oryh-frame-toolbar > span, .oryh-chat-toggle, .oryh-collapse { display:none !important; }
+ .oryh-frame-toolbar > span, .oryh-chat-controls { display:none !important; }
  .oryh-chat-seat { grid-column:2; border-left:0; }
  .oryh-frame[data-focus="business"] .oryh-chat-seat { display:none; }
  .oryh-frame[data-focus="chat"] .oryh-chat-seat { display:flex; }
@@ -166,7 +166,7 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 
 @media (max-width:1099px) {
  .oryh-frame[data-compact="false"] .oryh-navigation { position:absolute; inset:0 auto 0 0; width:208px; z-index:30; box-shadow:6px 0 24px #0002; }
- .oryh-frame[data-compact="false"] { grid-template-columns:56px minmax(0,1fr) minmax(360px,34%); }
+ .oryh-frame[data-compact="false"] { grid-template-columns:56px minmax(0,1fr) var(--oryh-chat-width,360px); }
  .oryh-frame[data-chat="false"][data-compact="false"] { grid-template-columns:56px minmax(0,1fr); }
 }
 @media (max-width:850px) { .oryh-frame[data-compact="false"] { grid-template-columns:56px minmax(0,1fr); } }
@@ -236,24 +236,6 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 
 @scope (.oryh-business-root) { .oryh-timesheet-chat { margin:10px 0; } .oryh-timesheet-chat .surface { border-color:var(--accent); } }
 
-/* Chat is the primary work surface; business forms remain the same public slot. */
-.oryh-frame { grid-template-columns:208px minmax(360px,1fr) minmax(360px,42%); }
-.oryh-frame[data-compact="true"] { grid-template-columns:56px minmax(360px,1fr) minmax(360px,42%); }
-.oryh-chat-seat { grid-column:2; border-left:0; border-right:1px solid var(--oryh-line); }
-.oryh-business-seat { grid-column:3; }
-.oryh-frame[data-chat="false"] .oryh-business-seat { grid-column:2; }
-@media (min-width:851px) and (max-width:1099px) {
- .oryh-frame[data-compact="false"] { grid-template-columns:56px minmax(360px,1fr) minmax(320px,42%); }
-}
-@media(max-width:850px) {
- .oryh-frame, .oryh-frame[data-compact="true"], .oryh-frame[data-compact="false"] { grid-template-columns:56px minmax(0,1fr); }
- .oryh-chat-seat, .oryh-business-seat { grid-column:2; }
-}
-
-.oryh-frame[data-chat="false"] { grid-template-columns:208px minmax(0,1fr); }
-.oryh-frame[data-chat="false"][data-compact="true"] { grid-template-columns:56px minmax(0,1fr); }
-@media(max-width:1099px) { .oryh-frame[data-chat="false"][data-compact="false"] { grid-template-columns:56px minmax(0,1fr); } }
-
 /* Project editor belongs to the ORYH business slot. */
 @scope (.oryh-business-root) {
  .oryh-projects { container-type:inline-size; }
@@ -308,3 +290,37 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
  .oryh-global-identity { padding:0; border:0; max-width:100%; gap:8px; font-size:10px; }
  .oryh-mobile-switch { flex-shrink:0; }
 }
+@scope (.oryh-business-root) {
+ .record-search { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; }
+ .record-search .fui-Field { flex:1 1 200px; min-width:0; }
+ .record-empty { padding:20px; color:var(--muted); }
+ .oryh-records .data-caption { margin:0; }
+ .oryh-records .business-page-header > button { margin-top:8px; }
+}
+@scope (.oryh-business-root) {
+ .project-column-options { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding-top:12px; }
+ .project-column-options label { display:flex; align-items:center; gap:5px; }
+ .table-scroll time { white-space:nowrap; font-variant-numeric:tabular-nums; }
+}
+.product-picker-control { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:34px; padding-left:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; }
+.product-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.product-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:5px; font-size:12px; }
+.product-chip button { border:0; background:none; color:inherit; cursor:pointer; font-size:16px; }
+.product-picker-dialog { width:min(640px,calc(100vw - 32px)); }
+.product-picker-search,.product-picker-selection,.product-picker-pagination { display:flex; align-items:center; gap:10px; margin:12px 0; }
+.product-picker-search .fui-Input { flex:1; }
+.product-picker-selection { justify-content:space-between; }
+.product-picker-results { max-height:340px; overflow:auto; }
+.product-picker-row { display:flex; align-items:center; gap:12px; padding:12px 4px; border-bottom:1px solid var(--dsw-alias-border-l2); cursor:pointer; }
+.product-picker-row span { display:grid; gap:4px; }
+.product-picker-row small { opacity:.65; }
+.product-picker-pagination { justify-content:flex-end; font-size:12px; }
+.product-picker-pagination > span:first-child { margin-right:auto; }
+
+.oryh-frame-toolbar button:focus-visible,.oryh-menu button:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
+
+.oryh-chat-resizer { position:absolute; top:48px; bottom:0; right:calc(var(--oryh-chat-width) - 4px); width:9px; z-index:5; cursor:col-resize; touch-action:none; }
+.oryh-chat-resizer::after { content:""; position:absolute; left:4px; top:0; bottom:0; width:2px; background:transparent; }
+.oryh-chat-resizer:hover::after,.oryh-chat-resizer:focus-visible::after,.oryh-frame[data-resizing="true"] .oryh-chat-resizer::after { background:var(--dsw-alias-label-primary,#497c88); }
+.oryh-frame[data-resizing="true"] { user-select:none; cursor:col-resize; }
+@media(max-width:850px) { .oryh-chat-resizer { display:none; } }

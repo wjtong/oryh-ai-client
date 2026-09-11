@@ -8,7 +8,7 @@ import {BusinessSessionContext} from './todo-chat.js'
 import {useOryhRemote} from './remote.js'
 const blank=():ProjectFields=>({project_name:'',project_code:'',client:'',start_date:'',end_date:''})
 const labels:Record<keyof ProjectFields,string>={project_name:'项目名称',project_code:'项目编码',client:'客户',start_date:'开始日期',end_date:'结束日期'}
-export function ProjectPanel({connection,active,navigation,onDirtyChange,onContext}:{connection:ConnectionSummary;active:boolean;navigation?:ChatNavigation;onDirtyChange:(v:boolean)=>void;onContext:(v:PageContext)=>void}){
+export function ProjectPanel({columns,onColumns,connection,active,navigation,onDirtyChange,onContext}:{columns?:import('@oryh/dsh-host/types').ProjectColumn[];onColumns?:(v:import('@oryh/dsh-host/types').ProjectColumn[])=>void;connection:ConnectionSummary;active:boolean;navigation?:ChatNavigation;onDirtyChange:(v:boolean)=>void;onContext:(v:PageContext)=>void}){
  const api=useOryhRemote(),sessionId=useContext(BusinessSessionContext),alive=useRef(true)
  const [editor,setEditor]=useState(false),[fields,setFields]=useState(blank),[busy,setBusy]=useState(false),[error,setError]=useState(''),[canCreate,setCanCreate]=useState(false),[loaded,setLoaded]=useState(false),[review,setReview]=useState<ProjectIntent>(),[history,setHistory]=useState<ProjectIntent[]>([]),[message,setMessage]=useState(''),[reload,setReload]=useState(0),[opened,setOpened]=useState<string>()
  const [pageKey]=useState(()=>crypto.randomUUID()),version=useRef({json:'',revision:0}),seen=useRef(''),handled=useRef(''),callback=useRef(onContext)
@@ -33,7 +33,7 @@ export function ProjectPanel({connection,active,navigation,onDirtyChange,onConte
  useEffect(()=>()=>{if(sessionId)void api.projectChatClear(sessionId).catch(()=>{})},[api,sessionId,active,editor])
  const open=()=>{if(canCreate){setEditor(true);setFields(blank());setReview(undefined);setError('')}else setError('当前账号没有创建项目的主数据管理权限。')}
  return <section className="oryh-projects" aria-busy={busy}>
-  {!loaded&&<p role="status">正在读取项目权限…</p>}{!editor&&loaded&&<BusinessPage key={reload} connection={connection} operationId="list-projects" active={active} onContext={v=>{if(!editor)callback.current(v)}} onNewExpense={undefined} onNewProject={open}/>}
+  {!loaded&&<p role="status">正在读取项目权限…</p>}{!editor&&loaded&&<BusinessPage {...(columns?{projectColumns:columns}:{})} {...(onColumns?{onProjectColumns:onColumns}:{})} key={reload} connection={connection} operationId="list-projects" active={active} onContext={v=>{if(!editor)callback.current(v)}} onNewExpense={undefined} onNewProject={open}/>}
   {message&&<p role="status">{message}</p>}
   {editor&&<>
    <header className="business-page-header project-page-header">

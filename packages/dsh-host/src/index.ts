@@ -38,6 +38,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.provide('oryhClient', runtime.controller)
   ctx.provide('oryhExpenses', runtime.expenses)
   ctx.provide('oryhTimesheets', runtime.timesheets)
+  ctx.provide('oryhRecords',runtime.records)
   ctx.provide('oryhProjects',runtime.projects)
   ctx.provide('oryhAbort', runtime.abort)
   ctx.plugin(OryhRemote)

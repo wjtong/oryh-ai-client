@@ -13,6 +13,10 @@
     "./types": {
       "types": "./lib/types.d.ts",
       "default": "./lib/types.js"
+    },
+    "./views": {
+      "types": "./lib/record-views.d.ts",
+      "default": "./lib/record-views.js"
     }
   },
   "dependencies": {

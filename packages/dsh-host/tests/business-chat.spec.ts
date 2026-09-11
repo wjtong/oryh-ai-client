@@ -15,7 +15,7 @@ async function setup(api?:import('@oryh/ai-client-core/types').OryhTimesheetRemo
  const controller={verifyConnection:async()=>identity,listConnections:async()=>[identity]} as unknown as OryhClientController
  const details={read:()=>read()} as unknown as TodoDetailService
  const create=()=>new BusinessChat(ctx,controller,details,directory,api)
- return {chat:create(),create,identity,agent,setRead:(fn:typeof read)=>{read=fn},close:()=>rm(directory,{recursive:true,force:true})}
+ return {ctx,chat:create(),create,identity,agent,setRead:(fn:typeof read)=>{read=fn},close:()=>rm(directory,{recursive:true,force:true})}
 }
 describe('session business binding',()=>{
  it('persists enterprise and employee binding across plugin restart, and requires an explicit target',async()=>{
@@ -187,5 +187,71 @@ it('accepts manual page selection during a turn only when the root page matches'
   expect(f.chat.currentPage('s').visible).toMatchObject({document:{todoId:'todo'}})
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'list-projects'})
   await expect(f.chat.select({sessionId:'s',connectionId,todoId:'todo'})).rejects.toThrow(/旧页面/)
+ }finally{await f.close()}
+})
+
+it('changes project columns only after matching page acknowledgement',async()=>{
+ const f=await setup();try{
+  await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+  const context={key:'list-projects:list',title:'项目',detail:'',scope:'',columns:['name','status'] as import('../src/types.js').ProjectColumn[]}
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'list-projects',context})
+  await expect(f.chat.configureProjectColumns('s',['name','password'],new AbortController().signal)).rejects.toThrow(/列配置/)
+  const pending=f.chat.configureProjectColumns('s',['name','createdAt'],new AbortController().signal)
+  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'list-projects',navigationId:n.id,context:{...context,columns:['name','createdAt']}})
+  expect(await pending).toContain('显示列已更新')
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:3,page:'timesheets'})
+  await expect(f.chat.configureProjectColumns('s',['name'],new AbortController().signal)).rejects.toThrow(/项目列表/)
+ }finally{await f.close()}
+})
+
+for(const kind of ['sales-orders','inventory-items','inventory-item-details','shipments'] as const){
+ it(`updates ${kind} columns through acknowledged plugin navigation`,async()=>{
+  const f=await setup();try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   const context={key:`${kind}:list`,title:kind,detail:'',scope:'',columns:['id']}
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:kind,context})
+   for(const columns of [[],['password'],['__proto__'],['id','id']])await expect(f.chat.configureRecordColumns('s',columns,new AbortController().signal)).rejects.toThrow(/列配置/)
+   const pending=f.chat.configureRecordColumns('s',['id'],new AbortController().signal)
+   const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+   expect(n).toMatchObject({target:'columns',page:kind,columns:['id']})
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:kind,navigationId:n.id,context})
+   expect(await pending).toContain('显示列已更新')
+   const cancelled=f.chat.configureRecordColumns('s',['id'],new AbortController().signal)
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:3,page:'timesheets'})
+   await expect(cancelled).rejects.toThrow(/页面已变化/)
+   await expect(f.chat.configureRecordColumns('s',['id'],new AbortController().signal)).rejects.toThrow(/列表/)
+  }finally{await f.close()}
+ })
+}
+it('adds the inventory query field only after acknowledgement and validates fields',async()=>{
+ const f=await setup();try{
+  await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+  const context={key:'inventory-item-details:list',title:'库存流水',detail:'',scope:'',queryFields:[] as string[]}
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'inventory-item-details',context})
+  await expect(f.chat.configureInventoryFilters('s',['password'],undefined,new AbortController().signal)).rejects.toThrow(/配置无效/)
+  const pending=f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal)
+  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+  expect(n).toMatchObject({target:'filters',queryFields:['product_code']})
+  expect(n).not.toHaveProperty('productCode')
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'inventory-item-details',navigationId:n.id,context:{...context,queryFields:['product_code']}})
+  expect(await pending).toContain('查询栏已更新')
+ }finally{await f.close()}
+})
+
+it('hydrates multi-product selections before sending them to the page',async()=>{
+ const f=await setup();try{
+  const products=[{id:'a',name:'Product A',code:'A'},{id:'b',name:'Product B',code:'B'}]
+  f.ctx.oryhRecords={productSearch:async()=>({rows:products,total:2,pages:1})} as never
+  await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+  const context={key:'inventory-item-details:list',title:'库存流水',detail:'',scope:''}
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'inventory-item-details',context})
+  await expect(f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal,['a','a'])).rejects.toThrow(/选择无效/)
+  const pending=f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal,['a','b'])
+  await new Promise(r=>setTimeout(r,0))
+  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+  expect(n.products).toEqual(products)
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'inventory-item-details',navigationId:n.id,context:{...context,queryFields:['product_code'],productIds:['a','b']}})
+  expect(await pending).toContain('查询栏已更新')
  }finally{await f.close()}
 })

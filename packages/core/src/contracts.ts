@@ -25,6 +25,8 @@ export interface OryhIdentity {
 
 /** A project list item from `/projects`. */
 export interface OryhProject {
+  readonly createdAt?: string | null
+  readonly updatedAt?: string | null
   readonly id: string
   readonly code: string | null
   readonly name: string
@@ -172,6 +174,8 @@ export function decodeProjects(value: unknown): OryhList<OryhProject> {
       status: string(project.status, 'project status'),
       startDate: optionalString(project.start_date, 'project start date'),
       endDate: optionalString(project.end_date, 'project end date'),
+      createdAt: optionalString(project.created_at, 'project creation time'),
+      updatedAt: optionalString(project.updated_at, 'project update time'),
     }
   })
 }

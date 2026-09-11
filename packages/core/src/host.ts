@@ -1,3 +1,4 @@
+import {RecordService} from './records.js'
 import {ProjectService,type ProjectStore} from './projects.js'
 import { TodoDetailService } from './todo-detail.js'
 import { TimesheetService } from './timesheets.js'
@@ -62,6 +63,7 @@ export class OryhClientHost {
       id => this.verifyConnection(id as ConnectionId))
   }
 
+  createRecordRemote(){return new RecordService(this.#http,id=>this.verifyConnection(id as ConnectionId),id=>this.#connections.requireVerified(id as ConnectionId))}
   createProjectRemote(store:ProjectStore){return new ProjectService(store,this.#http,id=>this.#connections.requireVerified(id as ConnectionId),id=>this.verifyConnection(id as ConnectionId))}
   createTodoDetailRemote() { return new TodoDetailService(this.#http, id => this.#connections.requireVerified(id as ConnectionId), async id => { await this.#ready; await this.#verifications.get(id as ConnectionId); return this.#connections.requireVerified(id as ConnectionId) }) }
   createTimesheetRemote(store: TimesheetStore) { return new TimesheetService(store, this.#http, id => this.#connections.requireVerified(id as ConnectionId), id => this.verifyConnection(id as ConnectionId)) }

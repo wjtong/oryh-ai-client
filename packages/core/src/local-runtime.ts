@@ -29,6 +29,7 @@ export function createLocalOryhRuntime(dataDirectory = defaultOryhDataDirectory(
   })
   return {
     controller,
+    records:host.createRecordRemote(),
     abort: () => lifetime.abort(),
     remote: new OryhClientRemoteAdapter(controller),
     todoDetails: host.createTodoDetailRemote(),
