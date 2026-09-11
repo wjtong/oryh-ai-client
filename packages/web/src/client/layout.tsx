@@ -74,7 +74,7 @@ function Frame({ useStore, actions, renderSlot, SessionProvider, t }: FrameProps
     <aside className="oryh-navigation" aria-label={t('businessNavigation')}>
       <div className="oryh-brand"><span>O</span>{!compact && <strong>ORYH <small>{t('workbench')}</small></strong>}</div>
       <nav className="oryh-menu" aria-label={t('text14')}>
-        {pages.map(([page, label, Icon]) => <button key={page} title={t(label)} aria-label={t(label)} aria-current={state.page === page ? 'page' : undefined} onClick={() => actions.navigate(page)}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>)}
+        {pages.filter(([page])=>page==='settings'||state.identity?.allowedPages?.includes(page)).map(([page, label, Icon]) => <button key={page} title={t(label)} aria-label={t(label)} aria-current={state.page === page ? 'page' : undefined} onClick={() => actions.navigate(page)}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>)}
       </nav>
       <div className="oryh-native-heading">{compact ? 'DS' : t('sessionsSettings')}</div>
       <div className="oryh-native-sidebar">{renderSlot('sidebar', { collapsed: compact, width: sidebarWidth })}</div>

@@ -1,3 +1,4 @@
+import {hasPermission} from './access.js'
 import {randomUUID} from 'node:crypto'
 import {connectionId} from './brand.js'
 import {OryhClientError} from './errors.js'
@@ -18,7 +19,7 @@ export class ProjectService implements OryhProjectRemote {
  constructor(private store:ProjectStore,private http:OryhHttpClient,private connection:(id:string)=>ConnectionSummary,private verify:(id:string)=>Promise<ConnectionSummary>){}
  private scope(id:string){const c=this.connection(id);return JSON.stringify([c.origin,c.identity.tenant.id,c.identity.user.id])}
  private guard(id:string,scope:string){if(this.scope(id)!==scope)throw fail('企业或用户身份已改变。')}
- async projectOptions(id:string){await this.verify(id);const scope=this.scope(id);const me=object(object(await this.http.request(connectionId(id),{path:'/auth/me'})).data);this.guard(id,scope);const p=me.permissions;return {canCreate:Array.isArray(p)&&(p.includes('master_data.manage')||p.includes('users.manage'))}}
+ async projectOptions(id:string){await this.verify(id);const scope=this.scope(id);const me=object(object(await this.http.request(connectionId(id),{path:'/auth/me'})).data);this.guard(id,scope);const p=me.permissions;return {canCreate:Array.isArray(p)&&['master_data.manage','users.manage'].some(v=>hasPermission({...this.connection(id).identity,permissions:p.filter((x):x is string=>typeof x==='string')},v))}}
  private async authorize(id:string){if(!(await this.projectOptions(id)).canCreate)throw fail('当前账号没有创建项目的主数据管理权限。')}
  private async all(id:string){const scope=this.scope(id),result:Record<string,unknown>[]=[];for(let page=1;page<=1000;page++){const body=object(await this.http.request(connectionId(id),{path:`/projects?page=${page}&size=100`}));this.guard(id,scope);if(!Array.isArray(body.data))throw fail('项目列表响应无效。');result.push(...body.data.map(object));if(page>=Number(object(body.meta??{}).pages??1))return result}throw fail('项目记录过多，无法安全核对。')}
  private view(r:ProjectRecord):ProjectIntent {const {scope,...v}=r;return v.state==='creating'?{...v,state:'unknown',message:'创建结果尚未确认，请核对服务端结果。'}:v}

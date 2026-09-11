@@ -38,7 +38,7 @@ describe('OryhClientHost', () => {
           name: null,
           role: 'member',
           employee_id: 'employee-1',
-          tenant_id: 'tenant-1',
+          permissions:['master_data.manage'], tenant_id: 'tenant-1',
           tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' },
           environment_id: null,
         },
@@ -115,7 +115,7 @@ describe('OryhClientHost', () => {
       jsonResponse(200, {
         data: {
           id: 'user-1', email: 'member@example.com', name: 'Member', role: 'manager', employee_id: 'employee-1',
-          tenant_id: 'tenant-1', tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' }, environment_id: null,
+          permissions:['master_data.manage'], tenant_id: 'tenant-1', tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' }, environment_id: null,
         }, meta: {},
       }),
     ])
@@ -145,7 +145,7 @@ describe('OryhClientHost', () => {
       jsonResponse(200, {
         data: {
           id: 'user-2', email: 'other@example.com', name: 'Other', role: 'member', employee_id: 'employee-2',
-          tenant_id: 'tenant-1', tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' }, environment_id: null,
+          permissions:['master_data.manage'], tenant_id: 'tenant-1', tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' }, environment_id: null,
         }, meta: {},
       }),
     ])
@@ -159,6 +159,7 @@ function restoredHost(fetcher: import('../src/http.js').Fetcher) {
   const id = connectionId('oryh-1')
   const credentials = new MemoryCredentialVault()
   const identity = {
+    permissions:['master_data.manage'],
     user: { id: 'user-1', email: 'member@example.com', name: null, role: 'member', employeeId: 'employee-1' },
     tenant: { id: 'tenant-1', slug: 'acme', name: null, environmentId: null },
   }
@@ -171,7 +172,7 @@ function restoredHost(fetcher: import('../src/http.js').Fetcher) {
 
 const verifiedIdentity = {
   data: { id: 'user-1', email: 'member@example.com', role: 'member', employee_id: 'employee-1',
-    tenant_id: 'tenant-1', tenant: { slug: 'acme' } },
+    permissions:['master_data.manage'], tenant_id: 'tenant-1', tenant: { slug: 'acme' } },
 }
 
 it('freezes a previously verified connection and clears results after identity verification fails', async () => {

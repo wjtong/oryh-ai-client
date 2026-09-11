@@ -1,3 +1,4 @@
+import {hasPermission,requirePermission,requirePage} from './access.js'
 import { OryhClientError } from './errors.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { connectionId } from './brand.js'
@@ -30,9 +31,9 @@ export class TimesheetService implements OryhTimesheetRemote {
   private guard(id: string, scope: string) { if (this.scope(id) !== scope) throw fail('企业或员工身份已改变，请重新核对。') }
   private async get(id: string, path: `/${string}`) { const scope = this.scope(id); const r = object(await this.http.request(connectionId(id), { path })); this.guard(id, scope); return r }
   private async list(id: string, path: `/${string}`) { const scope=this.scope(id); const result: Record<string, unknown>[] = []; for (let page=1; page<=1000; page++) { const b=await this.get(id, `${path}${path.includes('?')?'&':'?'}page=${page}&size=100`); this.guard(id,scope); result.push(...rows(b.data)); const meta=object(b.meta ?? {}); if (!meta.pages || page >= Number(meta.pages)) return result } throw fail('数据过多，请联系管理员。') }
-  async timesheetList(id: string) { const employee=this.connection(id).identity.user.employeeId; return (await this.list(id, `/timesheet-headers?employee_id=${encodeURIComponent(employee ?? '')}`)).filter(r=>r.employee_id===employee).map(header) }
+  async timesheetList(id: string) { requirePage((await this.verify(id)).identity,'timesheets'); const employee=this.connection(id).identity.user.employeeId; return (await this.list(id, `/timesheet-headers?employee_id=${encodeURIComponent(employee ?? '')}`)).filter(r=>r.employee_id===employee).map(header) }
   private async todos(id: string) { const employee=this.connection(id).identity.user.employeeId; return (await this.list(id, `/todos?employee_id=${encodeURIComponent(employee ?? '')}&status=open&entity_type=timesheet_header`)).filter(r=>r.employee_id===employee && r.entity_type==='timesheet_header' && r.status==='open' && r.todo_type==='approval') }
-  async timesheetQueue(id: string) { return (await this.todos(id)).map(r=>({id:str(r.id),entity_id:str(r.entity_id),title:str(r.title),description:str(r.description)})) }
+  async timesheetQueue(id: string) { requirePage((await this.verify(id)).identity,'timesheet-approvals'); return (await this.todos(id)).map(r=>({id:str(r.id),entity_id:str(r.entity_id),title:str(r.title),description:str(r.description)})) }
   async timesheetOptions(id: string) {
     const scope=this.scope(id)
     const [types,projects,definitions,permissions]=await Promise.all([this.list(id,'/type-options?family=work_type&status=active'),this.list(id,'/projects'),this.list(id,'/workflow-definitions?entity_kind=builtin&object_type=timesheet_header'),this.permissions(id)])
@@ -62,11 +63,12 @@ export class TimesheetService implements OryhTimesheetRemote {
   async timesheetDetail(id: string, headerId: string, todoId?: string) {
     await this.verify(id)
     const scope=this.scope(id)
+    requirePage(this.connection(id).identity,todoId?'timesheet-approvals':'timesheets')
     const d=viewDetail((await this.detail(id,headerId,todoId)).d)
     const [rules,me]=await Promise.all([this.permissions(id),this.get(id,'/auth/me')])
     const grants=object(me.data).permissions
     this.guard(id,scope)
-    return {...d,canEdit:!todoId && d.header.employee_id===this.connection(id).identity.user.employeeId && rules.editableStates.includes(d.header.status) && Array.isArray(grants) && grants.includes('timesheet.submit_own')}
+    return {...d,canEdit:!todoId && d.header.employee_id===this.connection(id).identity.user.employeeId && rules.editableStates.includes(d.header.status) && hasPermission({...this.connection(id).identity,permissions:Array.isArray(grants)?grants.filter((v):v is string=>typeof v==='string'):[]},'timesheet.submit_own')}
   }
   private view(r: TimesheetRecord): TimesheetIntent { const {scope:_s,digest:_d,payload:_p,path:_path,method:_m,...v}=r; return v.state==='executing'?{...v,state:'unknown',message:'写入结果尚未确认，请先核对。'}:v }
   async timesheetHistory(id: string) { const scope=this.scope(id); const r=await this.store.list(); this.guard(id,scope); return r.filter(r=>r.scope===scope).map(r=>this.view(r)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)) }
@@ -82,6 +84,7 @@ export class TimesheetService implements OryhTimesheetRemote {
   }
   async timesheetPrepare(id: string, input: TimesheetAction) {
     await this.verify(id)
+    requirePermission(this.connection(id).identity,input.kind==='approve'?'approval.record':'timesheet.submit_own')
     const scope=this.scope(id), action=structuredClone(input), intentId=randomUUID()
     const previous=await this.store.list()
     if (previous.some(r=>r.scope===scope && ['unknown','executing'].includes(r.state) && (action.kind==='create'?r.action.kind==='create' && r.action.fields?.period_start===action.fields?.period_start && r.action.fields?.period_end===action.fields?.period_end:r.action.headerId===action.headerId))) throw fail('这张工时单有尚未确认的写入，请先核对执行记录。')
@@ -127,6 +130,7 @@ export class TimesheetService implements OryhTimesheetRemote {
   private async confirm(id: string,intentId: string,revision: number,token: string) {
     await this.verify(id); let r=await this.read(id,intentId,revision)
     if ((await this.store.list()).some(other => other.id !== r.id && other.scope === r.scope && ['unknown','executing'].includes(other.state) && (r.action.kind === 'create' ? other.action.kind === 'create' && other.action.fields?.period_start === r.action.fields?.period_start && other.action.fields?.period_end === r.action.fields?.period_end : other.action.headerId === r.action.headerId))) throw fail('该单据有未确认的操作，请先核对执行记录。')
+    requirePermission(this.connection(id).identity,r.action.kind==='approve'?'approval.record':'timesheet.submit_own')
     if (r.state!=='review' || r.token!==token || r.expiresAt<Date.now()) throw fail('确认已过期或已使用，请重新核对。')
     if (r.action.kind!=='create' && (await this.context(id,r.action)).digest!==r.digest) throw fail('工时内容或审批待办已改变，请重新核对。')
     if (r.expiresAt<Date.now()) throw fail('确认已过期，请重新核对。')

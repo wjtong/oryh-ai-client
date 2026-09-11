@@ -1,7 +1,9 @@
+import {z} from 'zod'
+import {createViewPreference} from './view-preferences.js'
 import { defineStore } from '@deepseek-ai/dsh-client-store'
 import type { OperationId } from '@oryh/ai-client-core/types'
 export type BusinessView = OperationId | import('@oryh/ai-client-core/types').RecordKind | 'settings' | 'timesheets' | 'timesheet-approvals'
-export interface FrameIdentity { company: string; email: string }
+export interface FrameIdentity { company: string; email: string; allowedPages?: string[] }
 export interface FrameState {
   identity?: FrameIdentity | undefined
   page: BusinessView
@@ -15,10 +17,17 @@ export interface FrameState {
   rightbarTrack: boolean
   rightbarFullscreen: boolean
 }
-/** Transient root state; deliberately independent of the selected Session. */
+const framePreferenceSchema=z.object({
+ page:z.enum(['my-open-todos','my-expense-claims','list-projects','sales-orders','inventory-items','inventory-item-details','shipments','settings','timesheets','timesheet-approvals']).catch('my-open-todos'),
+ collapsed:z.boolean().catch(true), chatWidth:z.number().finite().min(280).max(3000).catch(360),
+ chatVisible:z.boolean().catch(true), focus:z.enum(['business','chat']).catch('business'),
+})
+const frameDefaults={page:'my-open-todos' as const,collapsed:true,chatWidth:360,chatVisible:true,focus:'business' as const}
+/** Persist display choices only; identity, viewport and native overlays stay transient. */
 export function createFrameStore() {
-  return defineStore({
-    init: (): FrameState => ({ page: 'my-open-todos', narrowExpanded: false, collapsed: true, focus: 'business', chatWidth:360, chatVisible: true, viewport: 1280, rightbarShown: false, rightbarTrack: false, rightbarFullscreen: false }),
+  const preferences=createViewPreference('browser','frame',frameDefaults as z.infer<typeof framePreferenceSchema>,framePreferenceSchema)
+  const handle=defineStore({
+    init: (): FrameState => ({ narrowExpanded: false, viewport: 1280, rightbarShown: false, rightbarTrack: false, rightbarFullscreen: false, ...preferences.getSnapshot() }),
     actions: {
       setIdentity: (d, identity: FrameIdentity | undefined) => { d.identity = identity },
       navigate: (d, page: BusinessView) => { d.page = page; d.focus = 'business'; d.narrowExpanded = false },
@@ -32,4 +41,13 @@ export function createFrameStore() {
       closeRightbar: d => { d.rightbarShown = false; d.rightbarTrack = false; d.rightbarFullscreen = false },
     },
   })
+  return {...handle,create(scopeKey?:string){
+    const instance=handle.create(scopeKey)
+    const unsubscribe=instance.subscribe(()=>{
+      const {page,collapsed,chatWidth,chatVisible,focus}=instance.getSnapshot()
+      const next={page,collapsed,chatWidth,chatVisible,focus}
+      if(JSON.stringify(next)!==JSON.stringify(preferences.getSnapshot()))preferences.set(next)
+    })
+    return {...instance,dispose:()=>{unsubscribe()}}
+  }}
 }

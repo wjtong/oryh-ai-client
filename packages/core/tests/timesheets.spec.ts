@@ -8,7 +8,7 @@ import { jsonResponse } from './fixtures.js'
 const fields:TimesheetFields={period_start:'2026-09-07',period_end:'2026-09-11',source_report_text:'原始工时',entries:[{work_date:'2026-09-08',hours:7.25,work_type:'regular',project_id:'',task:'测试任务',notes:'真实记录'}]}
 function setup(){
   const registry=new ConnectionRegistry(),vault=new MemoryCredentialVault(),store=new MemoryTimesheetStore()
-  const c=registry.add({origin:'https://oryh.example',identity:{user:{id:'user',email:'test@example.invalid',name:'Test',employeeId:'employee',role:'member'},tenant:{id:'tenant',slug:'tenant',name:'Tenant',environmentId:null}}});registry.markVerified(c.id,c.identity)
+  const c=registry.add({origin:'https://oryh.example',identity:{permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],user:{id:'user',email:'test@example.invalid',name:'Test',employeeId:'employee',role:'member'},tenant:{id:'tenant',slug:'tenant',name:'Tenant',environmentId:null}}});registry.markVerified(c.id,c.identity)
   const headers:Record<string,any>[]=[{id:'h',employee_id:'employee',period_start:fields.period_start,period_end:fields.period_end,status:'draft',source_report_text:'original',custom_fields:{}}]
   let entries:Record<string,any>[]=[{...fields.entries[0],id:'entry',header_id:'h',custom_fields:{}}]
   const history:Record<string,any>[]=[{id:'submission',round_no:1,sequence_no:1,action:'submitted',metadata:{}}]
@@ -123,7 +123,7 @@ describe('timesheet business operations',()=>{
 describe('tenant workflow rules',()=>{
   it('uses the tenant definition for editable and submittable states',async()=>{
     const registry=new ConnectionRegistry(),vault=new MemoryCredentialVault()
-    const c=registry.add({origin:'https://oryh.example',identity:{user:{id:'u',email:'u@example.invalid',name:'u',employeeId:'e',role:'member'},tenant:{id:'t',slug:'t',name:'t',environmentId:null}}});registry.markVerified(c.id,c.identity)
+    const c=registry.add({origin:'https://oryh.example',identity:{permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],user:{id:'u',email:'u@example.invalid',name:'u',employeeId:'e',role:'member'},tenant:{id:'t',slug:'t',name:'t',environmentId:null}}});registry.markVerified(c.id,c.identity)
     await vault.write(c.id,{accessKey:'synthetic',refreshToken:'synthetic',expiresAt:null})
     const http=new OryhHttpClient(registry,vault,async(input)=>jsonResponse(200,{data:new URL(input).pathname.endsWith('object-type-definitions')?[{state_machine:{states:['editing','waiting','rework','final'],roles:{submitted:'waiting'},editable_states:['editing','rework'],transitions:{editing:['waiting'],rework:['waiting'],waiting:['final']}}}]:[]}))
     const s=new TimesheetService(new MemoryTimesheetStore(),http,()=>c,async()=>c)
@@ -142,4 +142,14 @@ describe('timesheet edit access',()=>{
   await expect(f.s.timesheetDetail(f.c.id,'h')).rejects.toThrow(/不属于/)
   expect((await f.s.timesheetDetail(f.c.id,'h','todo')).canEdit).toBe(false)
  })
+})
+
+it('rechecks revoked permission before consuming an existing confirmation',async()=>{
+ const f=await fixture()
+ const review=await f.s.timesheetPrepare(f.c.id,{kind:'create',fields})
+ f.registry.markVerified(f.c.id,{...f.c.identity,permissions:[]})
+ const count=f.calls.length
+ await expect(f.s.timesheetConfirm(f.c.id,review.id,review.revision,review.token!)).rejects.toThrow('权限')
+ expect(f.calls).toHaveLength(count)
+ expect((await f.store.list()).find(r=>r.id===review.id)?.state).toBe('review')
 })

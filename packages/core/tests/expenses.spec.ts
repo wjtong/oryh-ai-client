@@ -11,7 +11,7 @@ const fields: ExpenseFields = { title: '客户拜访交通费', claimDate: '2026
 ] }
 function setup(store: ExpenseStore = new MemoryExpenseStore()) {
   const registry = new ConnectionRegistry()
-  const connection = registry.add({ origin: 'https://oryh.example', identity: {
+  const connection = registry.add({ origin: 'https://oryh.example', identity: {permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],
     user: { id: 'user', email: 'test@example.invalid', name: 'Test', employeeId: 'employee', role: 'member' },
     tenant: { id: 'tenant', slug: 'tenant', name: 'Tenant', environmentId: null },
   } })

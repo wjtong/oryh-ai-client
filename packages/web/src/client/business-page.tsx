@@ -1,3 +1,4 @@
+import {useViewPreference,filterPreference,pagePreference,PreferenceDetails} from './view-preferences.js';
 import {ProjectTable,projectColumnLabels,defaultProjectColumns} from './project-columns.js';
 import type {ProjectColumn} from '@oryh/dsh-host/types';
 import type {OryhProject} from '@oryh/ai-client-core/types';
@@ -25,8 +26,8 @@ export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectCol
     const [result, setResult] = useState<OryhOperationResult>();
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
-    const [filter, setFilter] = useState<ViewFilter>(emptyFilter);
-    const [page, setPage] = useState(1);
+    const [filter, setFilter] = useViewPreference<ViewFilter>(`${operationId}:filter`,emptyFilter,filterPreference);
+    const [page, setPage] = useViewPreference(`${operationId}:page`,1,pagePreference);
     const [selectedId, setSelectedId] = useState<string>();
     const [todoNavigationId,setTodoNavigationId]=useState<string>();
     const [saved, setSaved] = useState<readonly SavedOperationView[]>([]);
@@ -136,18 +137,18 @@ export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectCol
     </header>
     {error && <MessageBar intent="error"><MessageBarBody>{error} {result && t("text47")}</MessageBarBody><Button disabled={busy} onClick={() => void load()}>{t("text48")}</Button></MessageBar>}
     {active && operationId === 'my-open-todos' && <TodoChat connectionId={connection.id} visibleTodos={busy||invalidDates?[]:filtered.slice((currentPage-1)*12,currentPage*12).map(r=>({id:r.id,title:r.title}))} listContext={JSON.stringify({currentPage,filter,busy})} onOpen={openRecord} {...(todoNavigationId?{navigationId:todoNavigationId}:{})} {...(selected?.id ? { todoId: selected.id } : {})}/>}
-    {selected ? <section className="surface record-detail">{operationId === 'my-open-todos' ? <details><summary>待办摘要与原系统入口</summary><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></details> : <><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl><p className="muted">{t("text51")}</p><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></>}</section>
+    {selected ? <section className="surface record-detail">{operationId === 'my-open-todos' ? <PreferenceDetails preferenceKey={`${operationId}:section0`}><summary>待办摘要与原系统入口</summary><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></PreferenceDetails> : <><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl><p className="muted">{t("text51")}</p><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></>}</section>
             : <>
       {selectedId && !selected && <MessageBar><MessageBarBody>{t("text53")}</MessageBarBody></MessageBar>}
       <section className="surface table-surface" aria-label={title}>
         <div className="query-toolbar"><Field label={t("text58")}><Input contentBefore={<IconSearch size={16}/>} placeholder={t("text59")} value={filter.text} onChange={(_, data) => update({ text: data.value })}/></Field>
           <Field label={t("text60")}><Select value={filter.status} onChange={event => update({ status: event.target.value })}><option value="">{t("text61")}</option>{[...new Set([...rows.map(row => row.status), ...(filter.status ? [filter.status] : [])])].map(status => <option key={status} value={status}>{statusLabel(status, t)}</option>)}</Select></Field>
-        </div><details className="advanced-filters"><summary>更多筛选与排序{(filter.from || filter.to || !filter.descending) ? " · 已设置" : ""}</summary><div className="advanced-filter-fields">
+        </div><PreferenceDetails preferenceKey={`${operationId}:section1`} className="advanced-filters"><summary>更多筛选与排序{(filter.from || filter.to || !filter.descending) ? " · 已设置" : ""}</summary><div className="advanced-filter-fields">
           <Field label={t("text62", { value0: dateLabel })}><Input type="date" value={filter.from} onChange={(_, data) => update({ from: data.value })}/></Field>
           <Field label={t("text63")}><Input type="date" value={filter.to} onChange={(_, data) => update({ to: data.value })}/></Field>
           <Field label={t("text64")}><Select value={filter.descending ? 'desc' : 'asc'} onChange={event => update({ descending: event.target.value === 'desc' })}><option value="desc">{t("text65")}</option><option value="asc">{t("text66")}</option></Select></Field>
-        </div></details>
-        {operationId==='list-projects'&&onProjectColumns&&<details className="advanced-filters"><summary>显示列</summary><div className="project-column-options">{(Object.keys(projectColumnLabels) as ProjectColumn[]).map(c=><label key={c}><input type="checkbox" checked={projectColumns.includes(c)} disabled={c==='name'} onChange={e=>onProjectColumns(e.target.checked?[...projectColumns,c]:projectColumns.filter(k=>k!==c))}/>{projectColumnLabels[c]}</label>)}<Button appearance="subtle" size="small" onClick={()=>onProjectColumns([...defaultProjectColumns])}>恢复默认列</Button></div></details>}
+        </div></PreferenceDetails>
+        {operationId==='list-projects'&&onProjectColumns&&<PreferenceDetails preferenceKey={`${operationId}:section2`} className="advanced-filters"><summary>显示列</summary><div className="project-column-options">{(Object.keys(projectColumnLabels) as ProjectColumn[]).map(c=><label key={c}><input type="checkbox" checked={projectColumns.includes(c)} disabled={c==='name'} onChange={e=>onProjectColumns(e.target.checked?[...projectColumns,c]:projectColumns.filter(k=>k!==c))}/>{projectColumnLabels[c]}</label>)}<Button appearance="subtle" size="small" onClick={()=>onProjectColumns([...defaultProjectColumns])}>恢复默认列</Button></div></PreferenceDetails>}
         {conditions && <div className="filter-summary"><span>{conditions || t("text67")}</span>{conditions && <Button appearance="subtle" size="small" onClick={() => { setFilter(emptyFilter); setPage(1); }}>{t("text68")}</Button>}</div>}
         {invalidDates && <MessageBar intent="error"><MessageBarBody>{t("text69")}</MessageBarBody></MessageBar>}
         {busy && <div className="list-loading" role="status"><Spinner size="tiny"/>{t("text70")}</div>}
@@ -158,7 +159,7 @@ export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectCol
         </>}
       </section>
       <div className="data-caption"><span>{scope}</span>{result && <time dateTime={result.executedAt}>{t("text89")}{new Date(result.executedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>}</div>
-      <details className="saved-queries"><summary>{t("text90")}{saved.length ? ` · ${saved.length}` : ''}</summary><p>{t("text91")}</p><div className="toolbar"><Input aria-label={t("text92")} placeholder={t("text93")} value={label} onChange={(_, data) => setLabel(data.value)}/><Button disabled={busy || !result || !label.trim()} onClick={() => void save()}>{t("text94")}</Button></div>{saveMessage && <p role="status">{saveMessage}</p>}{saved.map(entry => <div className="saved-entry" key={entry.id}><span>{entry.label}</span><Button size="small" disabled={busy} onClick={() => { setFilter(emptyFilter); setPage(1); void load(entry.id); }}>{t("text95")}</Button></div>)}</details>
+      <PreferenceDetails preferenceKey={`${operationId}:section3`} className="saved-queries"><summary>{t("text90")}{saved.length ? ` · ${saved.length}` : ''}</summary><p>{t("text91")}</p><div className="toolbar"><Input aria-label={t("text92")} placeholder={t("text93")} value={label} onChange={(_, data) => setLabel(data.value)}/><Button disabled={busy || !result || !label.trim()} onClick={() => void save()}>{t("text94")}</Button></div>{saveMessage && <p role="status">{saveMessage}</p>}{saved.map(entry => <div className="saved-entry" key={entry.id}><span>{entry.label}</span><Button size="small" disabled={busy} onClick={() => { setFilter(emptyFilter); setPage(1); void load(entry.id); }}>{t("text95")}</Button></div>)}</PreferenceDetails>
     </>}
   </div>;
 }

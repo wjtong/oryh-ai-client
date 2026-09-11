@@ -1,7 +1,7 @@
 import { mkdtemp,rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe,it,expect } from 'vitest'
+import { describe,it,expect,vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { OryhClientController,TodoDetailService } from '@oryh/ai-client-core'
 import { BusinessChat } from '../src/business-chat.js'
@@ -9,7 +9,7 @@ const connectionId='c' as import('@oryh/ai-client-core').ConnectionId
 async function setup(api?:import('@oryh/ai-client-core/types').OryhTimesheetRemote){
  const directory=await mkdtemp(join(tmpdir(),'oryh-chat-'))
  const agent={id:'s',status:'idle',session:{header:{isSeeded:false,parentSession:undefined as string|undefined}}}
- const identity={id:connectionId,origin:'https://oryh.example',identity:{tenant:{id:'tenant'},user:{id:'user',employeeId:'employee'}}}
+ const identity={id:connectionId,origin:'https://oryh.example',identity:{permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],tenant:{id:'tenant'},user:{id:'user',employeeId:'employee'}}}
  let read=async()=>({todoId:'todo',title:'业务待办',entityType:'sales_quotation',entityId:'q',fetchedAt:'now',sections:[]})
  const ctx={agents:{get:(id:string)=>id==='s'?agent:undefined}} as unknown as Context
  const controller={verifyConnection:async()=>identity,listConnections:async()=>[identity]} as unknown as OryhClientController
@@ -53,7 +53,8 @@ describe('open existing timesheet navigation',()=>{
   try{
    await f.chat.select({sessionId:'s',connectionId,homeOnly:true});f.agent.status='running'
    const pending=f.chat.openTimesheet('s',new AbortController().signal,'header',manager?'todo':'')
-   await new Promise(r=>setTimeout(r,0));const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+   await new Promise(r=>setTimeout(r,0));await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
+  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
    expect(calls).toEqual([[connectionId,'header',manager?'todo':undefined]])
    expect(n.headerId).toBe('header');expect(n.manager).toBe(manager)
    await expect(f.chat.select({sessionId:'s',connectionId,timesheetPage:'page',navigationId:n.id,manager:!manager})).rejects.toThrow(/正在回答/)
@@ -78,7 +79,8 @@ describe('visible todo navigation',()=>{
    f.agent.status='running'
    const pending=f.chat.openTodo('s',1,'v1',new AbortController().signal)
    await new Promise(r=>setTimeout(r,0))
-   const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+   await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
+  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
    expect(n.todoId).toBe('second-on-server');expect(n.target).toBe('todo')
    await expect(f.chat.select({sessionId:'s',connectionId,todoId:'first-on-server',navigationId:n.id})).rejects.toThrow(/正在回答/)
    const selected=await f.chat.select({sessionId:'s',connectionId,todoId:n.todoId!,navigationId:n.id})
@@ -157,7 +159,8 @@ describe('live page background and navigation',()=>{
    f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'list-projects',context:{key:'list',title:'项目',detail:'筛选',scope:'当前页',content:'项目甲'}})
    expect(f.chat.currentPage('s').context?.content).toBe('项目甲')
    const pending=f.chat.navigate('s','my-expense-claims',new AbortController().signal)
-   const command=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+   await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
+    const command=(await f.chat.homePoll({sessionId:'s',connectionId}))!
    expect(command.target).toBe('page')
    f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'my-expense-claims',navigationId:command.id,context:{key:'expenses',title:'费用',detail:'',scope:'',content:'费用乙'}})
    expect(JSON.parse(await pending).context.content).toBe('费用乙')
@@ -197,6 +200,7 @@ it('changes project columns only after matching page acknowledgement',async()=>{
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'list-projects',context})
   await expect(f.chat.configureProjectColumns('s',['name','password'],new AbortController().signal)).rejects.toThrow(/列配置/)
   const pending=f.chat.configureProjectColumns('s',['name','createdAt'],new AbortController().signal)
+  await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
   const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'list-projects',navigationId:n.id,context:{...context,columns:['name','createdAt']}})
   expect(await pending).toContain('显示列已更新')
@@ -213,7 +217,8 @@ for(const kind of ['sales-orders','inventory-items','inventory-item-details','sh
    f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:kind,context})
    for(const columns of [[],['password'],['__proto__'],['id','id']])await expect(f.chat.configureRecordColumns('s',columns,new AbortController().signal)).rejects.toThrow(/列配置/)
    const pending=f.chat.configureRecordColumns('s',['id'],new AbortController().signal)
-   const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+   await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
+  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
    expect(n).toMatchObject({target:'columns',page:kind,columns:['id']})
    f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:kind,navigationId:n.id,context})
    expect(await pending).toContain('显示列已更新')
@@ -231,6 +236,7 @@ it('adds the inventory query field only after acknowledgement and validates fiel
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'inventory-item-details',context})
   await expect(f.chat.configureInventoryFilters('s',['password'],undefined,new AbortController().signal)).rejects.toThrow(/配置无效/)
   const pending=f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal)
+  await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
   const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
   expect(n).toMatchObject({target:'filters',queryFields:['product_code']})
   expect(n).not.toHaveProperty('productCode')
@@ -249,9 +255,20 @@ it('hydrates multi-product selections before sending them to the page',async()=>
   await expect(f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal,['a','a'])).rejects.toThrow(/选择无效/)
   const pending=f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal,['a','b'])
   await new Promise(r=>setTimeout(r,0))
+  await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
   const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
   expect(n.products).toEqual(products)
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'inventory-item-details',navigationId:n.id,context:{...context,queryFields:['product_code'],productIds:['a','b']}})
   expect(await pending).toContain('查询栏已更新')
+ }finally{await f.close()}
+})
+
+it('does not queue Chat navigation after the server revokes the required grant',async()=>{
+ const f=await setup();try{
+  await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos'})
+  f.identity.identity.permissions=[]
+  await expect(f.chat.navigate('s','inventory-items',new AbortController().signal)).rejects.toThrow('权限')
+  expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeUndefined()
  }finally{await f.close()}
 })

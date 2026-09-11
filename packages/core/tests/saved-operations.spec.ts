@@ -29,7 +29,7 @@ describe('saved deterministic operations', () => {
       jsonResponse(200, {
         data: {
           id: 'user-1', email: 'member@example.com', name: null, role: 'member', employee_id: 'employee-1',
-          tenant_id: 'tenant-1', tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' }, environment_id: null,
+          permissions:['master_data.manage'], tenant_id: 'tenant-1', tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' }, environment_id: null,
         }, meta: {},
       }),
       jsonResponse(200, { data: [], meta: { total: 0 } }),

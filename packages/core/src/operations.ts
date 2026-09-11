@@ -1,3 +1,4 @@
+import {requirePage} from './access.js'
 import { operationResultId, type ConnectionId, type OperationResultId } from './brand.js'
 import type { ConnectionRegistry } from './connections.js'
 import {
@@ -90,6 +91,7 @@ export class OperationExecutor {
     operationId: OperationId,
   ): Promise<OperationResult<OryhTodo> | OperationResult<OryhExpenseClaim> | OperationResult<OryhProject>> {
     const connection = this.connections.requireVerified(connectionId)
+    if(operationId==='list-projects'||connection.identity.user.employeeId)requirePage(connection.identity,operationId)
     const generation = this.#generations.get(connectionId) ?? 0
     let result: OryhList<OperationValue>
     switch (operationId) {
@@ -163,6 +165,7 @@ export class OperationExecutor {
     if (expectedOperation !== undefined && result.operationId !== expectedOperation) {
       throw new OryhClientError('The result belongs to another operation.', 'operation-not-found')
     }
+    requirePage(this.connections.requireVerified(connectionId).identity,result.operationId)
     return result as OperationResult<Value>
   }
 }

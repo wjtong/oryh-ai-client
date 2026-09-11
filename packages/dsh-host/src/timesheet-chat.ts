@@ -24,7 +24,7 @@ const fail=(text:string)=>new OryhClientError(text,'request-failed')
 export class TimesheetChat {
   private states=new Map<string,TimesheetChatState>()
   private proposals=new Map<string,TimesheetChatProposal>()
-  constructor(private ctx:Context,private api:OryhTimesheetRemote|undefined,private binding:(id:string,verify?:boolean)=>Promise<PageBinding>){}
+  constructor(private ctx:Context,private api:OryhTimesheetRemote|undefined,private binding:(id:string,verify?:boolean,write?:boolean)=>Promise<PageBinding>){}
   current(id:string){return this.states.get(id)}
   clear(id:string){this.states.delete(id);this.proposals.delete(id)}
   async sync(state:TimesheetChatState):Promise<void>{
@@ -57,6 +57,7 @@ export class TimesheetChat {
     return {revision:s.revision,manager:s.manager,today:new Date().toLocaleDateString('en-CA'),options,records,detail,form:s.fields,localEdits:s.localEdits,pendingSuggestion:this.proposals.get(id)?.action,notice:'表单是未保存的用户输入。建议需在中间栏应用或核对确认，不代表已保存。'}
   }
   async propose(id:string,revision:number,input:unknown):Promise<{message:string;proposalId:string}>{
+    await this.binding(id,true,true)
     const {state:s,api}=await this.page(id)
     if(s.revision!==revision)throw fail('表单版本已改变，请重新读取。')
     const parsed=actionSchema.safeParse(input)

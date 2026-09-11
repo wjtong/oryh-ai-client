@@ -19,6 +19,7 @@ export interface OryhTenant {
 
 /** Authenticated server identity, normalized from the ORYH envelope. */
 export interface OryhIdentity {
+  readonly permissions?: readonly string[]
   readonly user: OryhUser
   readonly tenant: OryhTenant
 }
@@ -136,7 +137,7 @@ export function decodeIdentity(value: unknown): OryhIdentity {
     name: optionalString(tenantData.name, 'auth/me tenant name'),
     environmentId: optionalString(data.environment_id, 'auth/me environment id'),
   }
-  return { user, tenant }
+  return { user, tenant, permissions: Array.isArray(data.permissions) ? data.permissions.filter((p):p is string=>typeof p==='string') : [] }
 }
 
 function decodeMeta(value: unknown): OryhListMeta {

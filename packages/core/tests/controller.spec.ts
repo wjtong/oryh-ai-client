@@ -37,7 +37,7 @@ describe('OryhClientController', () => {
           name: 'Member',
           role: 'member',
           employee_id: 'employee-1',
-          tenant_id: 'tenant-1',
+          permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'], tenant_id: 'tenant-1',
           tenant: { id: 'tenant-1', slug: 'acme', name: 'Acme' },
           environment_id: 'test',
         },

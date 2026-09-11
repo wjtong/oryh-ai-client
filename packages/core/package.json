@@ -17,6 +17,10 @@
     "./views": {
       "types": "./lib/record-views.d.ts",
       "default": "./lib/record-views.js"
+    },
+    "./access": {
+      "types": "./lib/access.d.ts",
+      "default": "./lib/access.js"
     }
   },
   "dependencies": {

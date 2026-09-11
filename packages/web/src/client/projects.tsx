@@ -1,3 +1,4 @@
+import {PreferenceDetails} from './view-preferences.js'
 import {useContext,useEffect,useRef,useState} from 'react'
 import {Button,Dialog,DialogSurface,DialogBody,DialogTitle,DialogContent,DialogActions} from '@fluentui/react-components'
 import type {ConnectionSummary,ProjectFields,ProjectIntent} from '@oryh/ai-client-core/types'
@@ -64,7 +65,7 @@ export function ProjectPanel({columns,onColumns,connection,active,navigation,onD
   </>}
 
   {!editor&&error&&<p role="alert">{error}</p>}
-  {history.length>0&&<details className="surface"><summary>项目执行记录</summary>{history.map(r=><div key={r.id}><p>{r.fields.project_name} · {r.message}{r.projectId&&<> · 项目编号：{r.projectId}</>}</p>{['unknown','creating'].includes(r.state)&&<Button disabled={busy} onClick={()=>void run(async()=>{const n=await api.projectReconcile(connection.id,r.id,r.revision);if(alive.current){setHistory(h=>h.map(x=>x.id===n.id?n:x));setMessage(n.message);if(n.state==='created'){setEditor(false);setReload(v=>v+1)}}})}>核对服务端结果</Button>}</div>)}</details>}
+  {history.length>0&&<PreferenceDetails preferenceKey="projects:historyOpen" className="surface"><summary>项目执行记录</summary>{history.map(r=><div key={r.id}><p>{r.fields.project_name} · {r.message}{r.projectId&&<> · 项目编号：{r.projectId}</>}</p>{['unknown','creating'].includes(r.state)&&<Button disabled={busy} onClick={()=>void run(async()=>{const n=await api.projectReconcile(connection.id,r.id,r.revision);if(alive.current){setHistory(h=>h.map(x=>x.id===n.id?n:x));setMessage(n.message);if(n.state==='created'){setEditor(false);setReload(v=>v+1)}}})}>核对服务端结果</Button>}</div>)}</PreferenceDetails>}
   <Dialog open={Boolean(review)} onOpenChange={(_,d)=>{if(!d.open&&!busy)setReview(undefined)}}><DialogSurface className="oryh-project-review"><DialogBody><DialogTitle>确认创建项目</DialogTitle><DialogContent><p>{connection.identity.tenant.name??connection.identity.tenant.slug} · {connection.identity.user.email}</p>{review&&<dl>{(Object.keys(labels) as (keyof ProjectFields)[]).map(k=><div key={k}><dt>{labels[k]}</dt><dd>{review.fields[k]||'未填写'}</dd></div>)}</dl>}<p>确认后将在 ORYH 创建项目。</p>{error&&<p role="alert">{error}</p>}</DialogContent><DialogActions><Button disabled={busy} onClick={()=>setReview(undefined)}>返回修改</Button><Button appearance="primary" disabled={busy||!review||review.expiresAt<Date.now()} onClick={()=>void run(async()=>{if(!review)return;const n=await api.projectConfirm(connection.id,review.id,review.revision,review.token);if(alive.current){setReview(undefined);setHistory(h=>h.map(x=>x.id===n.id?n:x));setMessage(n.message);if(n.state==='created'){setEditor(false);setFields(blank());setOpened(undefined);setReload(v=>v+1)}}})}>{busy?'正在创建…':'确认创建'}</Button></DialogActions></DialogBody></DialogSurface></Dialog>
  </section>
 }

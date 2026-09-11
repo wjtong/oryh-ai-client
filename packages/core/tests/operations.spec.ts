@@ -11,6 +11,7 @@ import { jsonResponse, ScriptedFetcher } from './fixtures.js'
 
 function identity(employeeId: string) {
   return {
+    permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],
     user: {
       id: `user-${employeeId}`,
       email: `${employeeId}@example.com`,
@@ -133,9 +134,10 @@ describe('OperationExecutor', () => {
     const connections = new ConnectionRegistry()
     const connection = connections.add({
       origin: 'https://oryh.example',
-      identity: {
+      identity: {permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],
         ...identity('employee-1'),
-        user: {
+        permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],
+    user: {
           ...identity('employee-1').user,
           employeeId: null,
         },
@@ -143,7 +145,8 @@ describe('OperationExecutor', () => {
     })
     connections.markVerified(connection.id, {
       ...identity('employee-1'),
-      user: {
+      permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],
+    user: {
         ...identity('employee-1').user,
         employeeId: null,
       },

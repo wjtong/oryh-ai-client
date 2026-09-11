@@ -2,7 +2,7 @@ import {describe,it,expect,vi} from 'vitest'
 import {RecordService,decodeRecordPage} from '../src/records.js'
 import type {ConnectionSummary} from '../src/connections.js'
 import type {OryhHttpClient} from '../src/http.js'
-const connection={origin:'https://example.invalid',identity:{tenant:{id:'t'},user:{id:'u'}}} as ConnectionSummary
+const connection={origin:'https://example.invalid',identity:{permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],tenant:{id:'t'},user:{id:'u'}}} as ConnectionSummary
 const body={data:[{id:'i',product_code:'P-1',quantity_on_hand:0,available_to_promise:-2,metadata:{password:'never'},secret:'never'}],meta:{pages:2,total:30}}
 describe('business record queries',()=>{
  it('preserves zero and signed quantities and only exposes named fields',()=>{

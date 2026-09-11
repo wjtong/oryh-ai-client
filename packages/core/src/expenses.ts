@@ -1,3 +1,4 @@
+import {requirePermission} from './access.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { connectionId } from './brand.js'
 import type { ConnectionSummary } from './connections.js'
@@ -102,7 +103,7 @@ export class ExpenseService implements OryhExpenseRemote {
     return detail
   }
   async expensePrepare(id: string, draftId: string, revision: number): Promise<ExpenseDraft> {
-    await this.verify(id)
+    requirePermission((await this.verify(id)).identity,'expense.submit_own')
     let record = await this.read(id, draftId, revision)
     let action: 'create' | 'submit'
     let serverDigest: string | undefined
@@ -125,7 +126,7 @@ export class ExpenseService implements OryhExpenseRemote {
     return this.view(record)
   }
   async expenseConfirm(id: string, draftId: string, revision: number, token: string): Promise<ExpenseDraft> {
-    await this.verify(id)
+    requirePermission((await this.verify(id)).identity,'expense.submit_own')
     let record = await this.read(id, draftId, revision)
     const confirmation = record.confirmation
     if (confirmation === undefined || confirmation.token !== token || Date.parse(confirmation.expiresAt) <= Date.now()
@@ -158,7 +159,7 @@ export class ExpenseService implements OryhExpenseRemote {
     }
   }
   async expenseReconcile(id: string, draftId: string, revision: number): Promise<ExpenseDraft> {
-    await this.verify(id)
+    requirePermission((await this.verify(id)).identity,'expense.submit_own')
     let record = await this.read(id, draftId, revision)
     if (record.claimId === undefined) {
       const matches: Record<string, unknown>[] = []

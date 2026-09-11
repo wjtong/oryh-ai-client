@@ -1,3 +1,6 @@
+import {canAccessPage} from '@oryh/ai-client-core/access';
+import {PreferenceScope} from './view-preferences.js';
+import {columnPreferenceScope} from './column-preferences.js';
 import type { BusinessView, FrameIdentity } from './layout-store.js';
 import { useBusinessText } from './locale.js';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -25,15 +28,29 @@ export function App({ dark, page, onIdentity }: { dark: boolean; page: BusinessV
     const [origin, setOrigin] = useState('http://127.0.0.1:8080');
     const [disconnectOpen, setDisconnectOpen] = useState(false);
     const isDark = dark;
-    const activeConnection = snapshot.activeConnectionId === undefined
+    const selectedConnection = snapshot.activeConnectionId === undefined
         ? undefined
         : snapshot.connections.find(connection => connection.id === snapshot.activeConnectionId);
+    const [verified,setVerified]=useState<ConnectionSummary>();
+    const [accessError,setAccessError]=useState(false);
+    useEffect(()=>{
+      let live=true, running=false;
+      setVerified(undefined);setAccessError(false);
+      const refresh=async()=>{if(!selectedConnection||running)return;running=true;try{const next=await remote.verifyConnection(selectedConnection.id);if(live){setVerified(next);setAccessError(false)}}catch{if(live){setVerified(undefined);setAccessError(true)}}finally{running=false}};
+      void refresh();const timer=window.setInterval(()=>void refresh(),60000);
+      const focus=()=>void refresh();window.addEventListener('focus',focus);
+      return()=>{live=false;window.clearInterval(timer);window.removeEventListener('focus',focus)};
+    },[selectedConnection?.id,remote]);
+    const activeConnection=selectedConnection;
+    const permittedConnection=verified&&activeConnection&&verified.id===activeConnection.id&&columnPreferenceScope(verified)===columnPreferenceScope(activeConnection)?verified:undefined;
+    const allowedPages=permittedConnection?['my-open-todos','my-expense-claims','timesheets','timesheet-approvals','list-projects','sales-orders','inventory-items','inventory-item-details','shipments','settings'].filter(p=>canAccessPage(permittedConnection.identity,p)):['settings'];
+    const allowedKey=allowedPages.join(',');
     const company = activeConnection ? tenantName(activeConnection) : undefined;
     const email = activeConnection?.identity.user.email;
     useEffect(() => {
-        onIdentity(company && email ? { company, email } : undefined);
+        onIdentity(company && email ? { company, email, allowedPages } : undefined);
         return () => onIdentity(undefined);
-    }, [company, email, onIdentity]);
+    }, [company, email, onIdentity,allowedKey]);
     const apply = useCallback(async (action: () => Promise<void>, nextBusy: BusyAction) => {
         const generation = ++actionGeneration.current;
         setBusy(nextBusy);
@@ -104,7 +121,7 @@ export function App({ dark, page, onIdentity }: { dark: boolean; page: BusinessV
     {activeConnection && snapshot.pendingConnection && <DeviceAuthorization styles={styles} pending={snapshot.pendingConnection} busy={busy} switchingAccount onCancel={() => { void apply(async () => { await workspace.cancelConnection(); }, 'connect'); }}/>}
   </>;
     return <FluentProvider theme={isDark ? webDarkTheme : webLightTheme} className="client-root" data-theme={isDark ? 'dark' : 'light'}>
-    {activeConnection ? <Workbench key={`${activeConnection.id}:${activeConnection.identity.tenant.id}:${activeConnection.identity.user.id}:${activeConnection.identity.user.employeeId}`} page={page} connection={activeConnection} operations={snapshot.operations} onDirtyChange={setExpenseDirty} settings={connectionControls} notices={notices}/>
+    {activeConnection ? (!permittedConnection&&page!=='settings'?<main className="business-content"><p role="status">{accessError?'无法核验当前账号权限，请刷新页面重试。':'正在核验当前账号权限…'}</p></main>:<PreferenceScope.Provider value={columnPreferenceScope(activeConnection)}><Workbench key={`${activeConnection.id}:${activeConnection.identity.tenant.id}:${activeConnection.identity.user.id}:${activeConnection.identity.user.employeeId}`} page={page} connection={permittedConnection??{...activeConnection,identity:{...activeConnection.identity,permissions:[]}}} operations={snapshot.operations} onDirtyChange={setExpenseDirty} settings={connectionControls} notices={notices}/></PreferenceScope.Provider>)
             : <main className="connection-screen"><div className="connection-brand">ORYH <span>{t("text5")}</span></div>{notices}
         {busy === 'load' ? <Spinner label={t("text6")}/> : <ConnectView styles={styles} origin={origin} pending={snapshot.pendingConnection} busy={busy} onOriginChange={setOrigin} onBegin={() => { void apply(async () => { await workspace.beginConnection(origin.trim(), copy.productName); }, 'connect'); }} onCancel={() => { void apply(async () => { await workspace.cancelConnection(); }, 'connect'); }}/>}
       </main>}

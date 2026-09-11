@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import { registerFrame } from './layout.js'
@@ -8,6 +8,7 @@ import { presentTheme } from './theme.js'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 
 describe('external ORYH root composition', () => {
+  beforeEach(()=>localStorage.clear())
   it('owns compatible slots, wires layout actions, and releases them on unload', async () => {
     const ctx = new Context()
     const slots = new SlotCore()
@@ -56,7 +57,10 @@ describe('external ORYH root composition', () => {
     expect(store.getSnapshot().page).toBe('my-expense-claims')
     expect(store.getSnapshot().chatWidth).toBe(473)
     const anotherRoot = createFrameStore().create()
-    expect(anotherRoot.store.getSnapshot().page).toBe('my-open-todos')
+    expect(anotherRoot.store.getSnapshot().page).toBe('my-expense-claims')
+    expect(anotherRoot.getSnapshot().chatWidth).toBe(473)
+    expect(anotherRoot.getSnapshot().chatVisible).toBe(false)
+    expect(anotherRoot.getSnapshot().viewport).toBe(1280)
     instance.dispose?.(); anotherRoot.dispose?.()
   })
   it('projects public theme snapshots and restores prior DOM on plugin unload', async () => {

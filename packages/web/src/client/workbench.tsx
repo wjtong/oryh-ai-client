@@ -1,4 +1,8 @@
-import {recordDefaultColumns} from '@oryh/ai-client-core/views';
+import {canAccessPage,hasPermission} from '@oryh/ai-client-core/access';
+import {z} from 'zod';
+import {useViewPreference} from './view-preferences.js';
+const expenseTabPreference=z.enum(['list','drafts']).catch('list');
+import {useColumnPreferences} from './column-preferences.js';
 import {RecordPanel,isRecordKind,recordTitles} from './records.js';
 import {ProjectPanel} from './projects.js';
 import type { ChatNavigation as Navigation } from '@oryh/dsh-host/types';
@@ -24,7 +28,11 @@ export interface PageContext {
     productIds?:string[];
     availableColumns?:{id:string;label:string}[];
 }
-export function Workbench({ page, connection, operations, onDirtyChange, settings, notices }: {
+export function Workbench(props:Parameters<typeof WorkbenchContent>[0]):ReactNode {
+ if(!canAccessPage(props.connection.identity,props.page))return <main className="business-content"><h1>此功能不可用</h1><p>当前账号没有访问此功能的权限，或正在核验权限。请从左侧选择可用菜单。</p></main>;
+ return <WorkbenchContent {...props}/>;
+}
+function WorkbenchContent({ page, connection, operations, onDirtyChange, settings, notices }: {
     page: BusinessView;
     connection: ConnectionSummary;
     operations: readonly OperationDefinition[];
@@ -44,8 +52,7 @@ export function Workbench({ page, connection, operations, onDirtyChange, setting
         'my-expense-claims': { title: t("text10"), description: t("text11"), icon: IconReceipt },
         'list-projects': { title: t("text12"), description: t("text13"), icon: IconFolder },
     };
-    const [recordViewColumns,setRecordViewColumns]=useState(recordDefaultColumns);
-    const [projectColumns,setProjectColumns]=useState<import('@oryh/dsh-host/types').ProjectColumn[]>(['name','status','client','startDate']);
+    const {recordViewColumns,projectColumns,setProjectColumns,setRecordColumns}=useColumnPreferences(connection);
     const [projectDirty,setProjectDirty]=useState(false);
     const [expenseDirty, setExpenseDirty] = useState(false);
     const [timesheetDirty, setTimesheetDirty] = useState(false);
@@ -54,8 +61,9 @@ export function Workbench({ page, connection, operations, onDirtyChange, setting
     const [approvalVisited, setApprovalVisited] = useState(false);
     useEffect(() => onDirtyChange(expenseDirty || timesheetDirty || approvalDirty || projectDirty), [expenseDirty, timesheetDirty, approvalDirty, projectDirty, onDirtyChange]);
     const [visited, setVisited] = useState<OperationId[]>(['my-open-todos']);
-    const [expenseTab, setExpenseTab] = useState<'list' | 'drafts'>('list');
-    const [expenseVisited, setExpenseVisited] = useState(false);
+    const [savedExpenseTab, setExpenseTab] = useViewPreference<'list' | 'drafts'>('expenseTab','list',expenseTabPreference);
+    const expenseTab=hasPermission(connection.identity,'expense.submit_own')?savedExpenseTab:'list';
+    const [expenseVisited, setExpenseVisited] = useState(expenseTab==='drafts');
     const [newExpenseRequest, setNewExpenseRequest] = useState(0);
     const company = connection.identity.tenant.name ?? connection.identity.tenant.slug;
     useEffect(() => { if (page === 'timesheets') setTimesheetVisited(true); else if (page === 'timesheet-approvals') setApprovalVisited(true); else if (page !== 'settings'&&!isRecordKind(page)) setVisited(current => current.includes(page) ? current : [...current, page]); }, [page]);
@@ -65,23 +73,23 @@ export function Workbench({ page, connection, operations, onDirtyChange, setting
     function report(id: string, value: PageContext) { setPageContexts(current=>JSON.stringify(current[id])===JSON.stringify(value)?current:{...current,[id]:value}); }
     const chatContext=page==='my-expense-claims'&&expenseTab==='drafts'?pageContexts['expense-draft']:pageContexts[page];
     return <div className="oryh-business">
-    <ChatNavigation page={page} {...(chatContext?{context:chatContext}:{})} connectionId={connection.id} onOpen={command=>{if(command.target==='filters'){setNavigation(command);return}if(command.target==='columns'&&command.columns){if(command.page&&isRecordKind(command.page)){const kind=command.page,columns=command.columns;setRecordViewColumns(v=>({...v,[kind]:columns}))}else setProjectColumns(command.columns as import('@oryh/dsh-host/types').ProjectColumn[]);return}if(command.target==='page'&&command.page){setNavigation(undefined);navigate(command.page);return}setNavigation(command);if(command.target==='project'){setVisited(current=>current.includes('list-projects')?current:[...current,'list-projects']);navigate('list-projects')}else if(command.manager){setApprovalVisited(true);navigate('timesheet-approvals')}else{setTimesheetVisited(true);navigate('timesheets')}}}/>
+    <ChatNavigation page={page} {...(chatContext?{context:chatContext}:{})} connectionId={connection.id} onOpen={command=>{if(command.target==='filters'){setNavigation(command);return}if(command.target==='columns'&&command.columns){if(command.page&&isRecordKind(command.page)){const kind=command.page,columns=command.columns;setRecordColumns(kind,columns)}else setProjectColumns(command.columns as import('@oryh/dsh-host/types').ProjectColumn[]);return}if(command.target==='page'&&command.page){setNavigation(undefined);navigate(command.page);return}setNavigation(command);if(command.target==='project'){setVisited(current=>current.includes('list-projects')?current:[...current,'list-projects']);navigate('list-projects')}else if(command.manager){setApprovalVisited(true);navigate('timesheet-approvals')}else{setTimesheetVisited(true);navigate('timesheets')}}}/>
     <main ref={main} className="business-content">
       {notices}
       <div className="breadcrumb">{t("text16")}<IconChevronRight size={13}/> {page === 'settings' ? t('text17') : page === 'timesheets' ? t('tsMine') : page === 'timesheet-approvals' ? t('tsApprovals') : isRecordKind(page)?recordTitles[page]:pages[page].title}</div>
       {page === 'settings' && <div className="page-heading"><div><h1>{t('text17')}</h1><p>{t('text18')}</p></div></div>}
-      {isRecordKind(page)&&<RecordPanel key={`${connection.id}:${page}`} kind={page} {...(navigation?.target==='filters'?{filterCommand:navigation}:{})} columns={recordViewColumns[page]} onColumns={columns=>setRecordViewColumns(v=>({...v,[page]:columns}))} connectionId={connection.id} onContext={value=>report(page,value)}/>}
-      {visited.map(id => <section key={id} hidden={page !== id} aria-label={t("text19", { value0: pages[id].title })}>
-        {id === 'my-expense-claims' && <div className="view-tabs" role="group" aria-label={t("text20")}>
+      {isRecordKind(page)&&<RecordPanel key={`${connection.id}:${page}`} kind={page} {...(navigation?.target==='filters'?{filterCommand:navigation}:{})} columns={recordViewColumns[page]} onColumns={columns=>setRecordColumns(page,columns)} connectionId={connection.id} onContext={value=>report(page,value)}/>}
+      {visited.filter(id=>canAccessPage(connection.identity,id)).map(id => <section key={id} hidden={page !== id} aria-label={t("text19", { value0: pages[id].title })}>
+        {id === 'my-expense-claims' && hasPermission(connection.identity,'expense.submit_own') && <div className="view-tabs" role="group" aria-label={t("text20")}>
           <Button appearance={expenseTab === 'list' ? 'secondary' : 'subtle'} aria-pressed={expenseTab === 'list'} onClick={() => setExpenseTab('list')}>{t("text21")}</Button>
           <Button appearance={expenseTab === 'drafts' ? 'secondary' : 'subtle'} aria-pressed={expenseTab === 'drafts'} onClick={() => { setExpenseTab('drafts'); setExpenseVisited(true); }}>{t("text22")}</Button>
         </div>}
         {id==='list-projects'&&<ProjectPanel columns={projectColumns} onColumns={setProjectColumns} connection={connection} active={page===id} {...(navigation?.target==='project'?{navigation}: {})} onDirtyChange={setProjectDirty} onContext={value=>report(id,value)}/>}
-        {id!=='list-projects'&&<div hidden={id === 'my-expense-claims' && expenseTab !== 'list'}><BusinessPage connection={connection} operationId={id} active={page === id && (id !== 'my-expense-claims' || expenseTab === 'list')} onContext={value => report(id, value)} onNewExpense={id === 'my-expense-claims' ? () => { setExpenseTab('drafts'); setExpenseVisited(true); setNewExpenseRequest(value => value + 1); } : undefined}/></div>}
-        {id === 'my-expense-claims' && expenseVisited && <div hidden={expenseTab !== 'drafts'}><ExpensePanel connection={connection} newRequest={newExpenseRequest} onDirtyChange={setExpenseDirty} onContext={value => report('expense-draft', value)}/></div>}
+        {id!=='list-projects'&&<div hidden={id === 'my-expense-claims' && expenseTab !== 'list'}><BusinessPage connection={connection} operationId={id} active={page === id && (id !== 'my-expense-claims' || expenseTab === 'list')} onContext={value => report(id, value)} onNewExpense={id === 'my-expense-claims' && hasPermission(connection.identity,'expense.submit_own') ? () => { setExpenseTab('drafts'); setExpenseVisited(true); setNewExpenseRequest(value => value + 1); } : undefined}/></div>}
+        {id === 'my-expense-claims' && expenseVisited && hasPermission(connection.identity,'expense.submit_own') && <div hidden={expenseTab !== 'drafts'}><ExpensePanel connection={connection} newRequest={newExpenseRequest} onDirtyChange={setExpenseDirty} onContext={value => report('expense-draft', value)}/></div>}
       </section>)}
-      {timesheetVisited && <div hidden={page !== 'timesheets'}><TimesheetPanel connection={connection} active={page === 'timesheets'} {...(!navigation?.manager&&navigation&&navigation.target!=='project'?{navigationId:navigation.id,navigation}:{})} manager={false} onDirtyChange={setTimesheetDirty}/></div>}
-      {approvalVisited && <div hidden={page !== 'timesheet-approvals'}><TimesheetPanel connection={connection} active={page === 'timesheet-approvals'} {...(navigation?.manager?{navigationId:navigation.id,navigation}:{})} manager onDirtyChange={setApprovalDirty}/></div>}
+      {timesheetVisited && canAccessPage(connection.identity,'timesheets') && <div hidden={page !== 'timesheets'}><TimesheetPanel connection={connection} active={page === 'timesheets'} {...(!navigation?.manager&&navigation&&navigation.target!=='project'?{navigationId:navigation.id,navigation}:{})} manager={false} onDirtyChange={setTimesheetDirty}/></div>}
+      {approvalVisited && canAccessPage(connection.identity,'timesheet-approvals') && <div hidden={page !== 'timesheet-approvals'}><TimesheetPanel connection={connection} active={page === 'timesheet-approvals'} {...(navigation?.manager?{navigationId:navigation.id,navigation}:{})} manager onDirtyChange={setApprovalDirty}/></div>}
       {page === 'settings' && <section className="settings-page"><div className="surface"><h2>{t("text15")}</h2><dl className="detail-grid"><dt>{t("text23")}</dt><dd>{company}</dd><dt>{t("text24")}</dt><dd>{connection.identity.user.email}</dd><dt>{t("text25")}</dt><dd>{connection.origin}</dd></dl>{settings}</div></section>}
     </main>
   </div>;

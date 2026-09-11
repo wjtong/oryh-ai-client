@@ -22,7 +22,7 @@ describe('timesheet save feedback',()=>{
     const api={timesheetList:async()=>[],timesheetOptions:async()=>({workTypes:[],projects:[],requirements:[],submitStates:[],editableStates:[]}),timesheetHistory:async()=>[],timesheetPrepare:prepare,timesheetConfirm:confirm}
     const node=document.createElement('div');document.body.append(node);const root=createRoot(node)
     try{
-      await act(async()=>root.render(h(RemoteContext.Provider,{value:api as never},h(LocaleContext.Provider,{value:k=>dictionaries[k]},h(TimesheetPanel,{connection:{id:'c',identity:{tenant:{name:'Test'},user:{email:'test@example.invalid'}}} as never,manager:false,active:false,navigationId:'open',onDirtyChange:()=>{}})))))
+      await act(async()=>root.render(h(RemoteContext.Provider,{value:api as never},h(LocaleContext.Provider,{value:k=>dictionaries[k]},h(TimesheetPanel,{connection:{id:'c',identity:{permissions:['timesheet.submit_own','approval.record'],tenant:{name:'Test'},user:{email:'test@example.invalid'}}} as never,manager:false,active:false,navigationId:'open',onDirtyChange:()=>{}})))))
       await act(async()=>Array.from(node.querySelectorAll('button')).find(b=>b.textContent==='新建工时单')!.click())
       const form=node.querySelector('form')!, before=Array.from(form.querySelectorAll('input,select,textarea')).map(e=>(e as HTMLInputElement).value)
       await act(async()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))})
@@ -47,7 +47,7 @@ describe('existing timesheet view modes',()=>{
   const api={timesheetList:async()=>[],timesheetOptions:async()=>({workTypes:[{name:'regular',title:'正常工时'}],projects:[],requirements:[],submitStates:['draft'],editableStates:['draft']}),timesheetHistory:async()=>[],timesheetDetail:open}
   const node=document.createElement('div');document.body.append(node);const root=createRoot(node)
   try{
-   await act(async()=>root.render(h(RemoteContext.Provider,{value:api as never},h(LocaleContext.Provider,{value:k=>dictionaries[k]},h(TimesheetPanel,{connection:{id:'c',identity:{tenant:{name:'Test'},user:{email:'test@example.invalid'}}} as never,manager:false,active:true,navigationId:'open',navigation:{id:'open',headerId:'h',expiresAt:Date.now()+15000},onDirtyChange:()=>{}})))))
+   await act(async()=>root.render(h(RemoteContext.Provider,{value:api as never},h(LocaleContext.Provider,{value:k=>dictionaries[k]},h(TimesheetPanel,{connection:{id:'c',identity:{permissions:['timesheet.submit_own','approval.record'],tenant:{name:'Test'},user:{email:'test@example.invalid'}}} as never,manager:false,active:true,navigationId:'open',navigation:{id:'open',headerId:'h',expiresAt:Date.now()+15000},onDirtyChange:()=>{}})))))
    expect(open).toHaveBeenCalledWith('c','h',undefined)
    expect(node.textContent).toContain(canEdit?'编辑工时':'工时详情 · 只读')
    expect(node.querySelectorAll('form input[type=number]').length).toBe(canEdit?1:0)

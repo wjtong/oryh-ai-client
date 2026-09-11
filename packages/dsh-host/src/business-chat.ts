@@ -1,3 +1,4 @@
+import {requirePage,requirePermission} from '@oryh/ai-client-core/access'
 import {recordColumns,recordSpecs} from '@oryh/ai-client-core/views'
 import {ProjectChat} from './project-chat.js'
 import type {OryhProjectRemote} from '@oryh/ai-client-core/types'
@@ -27,12 +28,14 @@ export class BusinessChat {
   readonly timesheet: TimesheetChat
   constructor(private ctx:Context,private controller:OryhClientController,private details:TodoDetailService,private directory:string, private api?:OryhTimesheetRemote,private projects?:OryhProjectRemote){
     this.project=new ProjectChat(ctx,projects,id=>{const home=this.homes.get(id);if(!home||this.pages.get(id)?.page!=='list-projects')throw new OryhClientError('当前不是项目页面。','request-failed');return home.connectionId})
-    this.timesheet=new TimesheetChat(ctx,api,async(sessionId,verify=true)=>{
+    this.timesheet=new TimesheetChat(ctx,api,async(sessionId,verify=true,write=false)=>{
       const b=this.bindings.get(sessionId)
       if(b)this.assertPage(sessionId,b)
       if(!b?.timesheetPage)throw new OryhClientError('请打开工时菜单并等待 Chat 已关联。','request-failed')
       const c=verify?await this.controller.verifyConnection(b.connectionId):(await this.controller.listConnections()).find(c=>c.id===b.connectionId)
       if(!c)throw new OryhClientError('企业连接已失效。','connection-not-found')
+      requirePage(c.identity,b.manager?'timesheet-approvals':'timesheets')
+      if(write)requirePermission(c.identity,b.manager?'approval.record':'timesheet.submit_own')
       if(JSON.stringify([c.origin,c.identity.tenant.id,c.identity.user.id,c.identity.user.employeeId])!==b.scope)throw new OryhClientError('当前企业身份已改变。','connection-identity-mismatch')
       if(this.bindings.get(sessionId)!==b)throw new OryhClientError('页面已改变，请重新读取。','request-failed')
       return b
@@ -109,6 +112,8 @@ export class BusinessChat {
   }
   async navigate(sessionId:string,page:ChatPageRequest['page'],signal:AbortSignal){
     const before=this.currentPage(sessionId),home=this.homes.get(sessionId)!
+    requirePage((await this.controller.verifyConnection(home.connectionId)).identity,page)
+    if(this.homes.get(sessionId)!==home)throw new OryhClientError('企业页面已改变。','request-failed')
     if(before.page===page)return JSON.stringify(before)
     const command:ChatNavigation={id:randomUUID(),target:'page',page,expiresAt:Date.now()+15000}
     this.navigation.set(sessionId,command)
@@ -116,6 +121,7 @@ export class BusinessChat {
   }
   async configureProjectColumns(id:string,columns:string[],signal:AbortSignal){
     const p=this.currentPage(id)
+    requirePage((await this.controller.verifyConnection(this.homes.get(id)!.connectionId)).identity,p.page)
     const allowed=['name','code','status','client','startDate','endDate','createdAt','updatedAt']
     if(p.page!=='list-projects'||p.context?.key!=='list-projects:list')throw new OryhClientError('请先打开项目列表，退出当前详情或表单。','request-failed')
     if(!columns.includes('name')||columns.length>8||new Set(columns).size!==columns.length||columns.some(c=>!allowed.includes(c)))throw new OryhClientError('列配置无效：只能选择项目支持的字段，必须保留项目名称。','request-failed')
@@ -134,6 +140,7 @@ export class BusinessChat {
   }
   async configureInventoryFilters(id:string,fields:string[],productCode:string|undefined,signal:AbortSignal,productIds?:string[]){
     const p=this.currentPage(id)
+    requirePage((await this.controller.verifyConnection(this.homes.get(id)!.connectionId)).identity,p.page)
     if(p.page!=='inventory-item-details'||p.context?.key!=='inventory-item-details:list')throw new OryhClientError('请先打开库存流水列表。','request-failed')
     if(fields.length>1||fields.some(f=>f!=='product_code')||productCode!==undefined&&(typeof productCode!=='string'||productCode.length>200||!fields.includes('product_code')))throw new OryhClientError('查询字段配置无效；支持增加产品编码查询。','request-failed')
     if(productIds!==undefined&&(!Array.isArray(productIds)||productIds.length>50||productIds.some(v=>typeof v!=='string'||!v||v.length>200)||new Set(productIds).size!==productIds.length||productCode!==undefined||!fields.includes('product_code')))throw new OryhClientError('产品选择无效。','request-failed')
@@ -175,6 +182,8 @@ export class BusinessChat {
     const home=this.homes.get(sessionId)
     if(!home)throw new OryhClientError('请先连接企业并打开会话。','request-failed')
     const c=await this.controller.verifyConnection(home.connectionId)
+    requirePage(c.identity,todoId?'timesheet-approvals':'timesheets')
+    if(!headerId&&!todoId)requirePermission(c.identity,'timesheet.submit_own')
     if(JSON.stringify([c.origin,c.identity.tenant.id,c.identity.user.id,c.identity.user.employeeId])!==home.scope||this.homes.get(sessionId)!==home)throw new OryhClientError('企业身份已改变。','connection-identity-mismatch')
     if(headerId){
       if(!this.api)throw new OryhClientError('工时能力不可用。','request-failed')
