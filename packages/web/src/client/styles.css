@@ -473,3 +473,11 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
   .timesheet-entry:not(:first-child) .timesheet-entry-remove { margin-top:3px; }
  }
 }
+
+/* Pre-submit norm review, shown inside the confirm dialog. The verdict comes from the agent, so
+   the block has to hold anything from one line to a paragraph without moving the buttons. */
+.oryh-ts-norm { margin-top: 14px; padding: 12px 14px; border-radius: 6px; border: 1px solid #a0a0a055; display: grid; gap: 8px; justify-items: start; }
+.oryh-ts-norm p { margin: 0; font-size: 13px; }
+.oryh-ts-norm .muted { font-size: 12px; }
+.oryh-ts-norm[data-phase="passed"] { border-color: #2a7d5f66; }
+.oryh-ts-norm[data-phase="flagged"] { border-color: #b9770066; }

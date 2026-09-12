@@ -15,11 +15,16 @@ function setup(){
  const binding={connectionId:'c' as ConnectionId,timesheetPage:'page',manager:false}
  const queue=new CommandQueue()
  const registered=new Map<string,{execute:(args:never,extra:never)=>Promise<string>}>()
- const ctx={tools:{register:(tool:{name:string})=>{registered.set(tool.name,tool as never)}},effect:()=>{}} as unknown as Context
+ const inbox:{target:string;text:string}[]=[]
+ // followup is what the Host must use: it queues AND wakes an idle driver. A bare inbox.append
+ // leaves the message parked forever when nobody is mid-turn, which is the common case.
+ const agent={status:'idle',inbox:{nextTurn:[],append:()=>{throw new Error('inbox.append does not wake an idle agent; use followup')}},
+   followup:(message:{content:{text?:string}[]})=>{inbox.push({target:'followup',text:String(message.content[0]?.text??'')})}}
+ const ctx={tools:{register:(tool:{name:string})=>{registered.set(tool.name,tool as never)}},effect:()=>{},agents:{get:()=>agent}} as unknown as Context
  const chat=new TimesheetChat(ctx,api,async()=>binding,queue)
  chat.install()
  const state={sessionId:'s',connectionId:binding.connectionId,pageKey:'page',revision:1,manager:false,fields:form}
- return {chat,api,binding,state,prepare,confirm,queue,tool:(name:string)=>registered.get(name)!}
+ return {chat,api,binding,state,prepare,confirm,queue,inbox,agent,tool:(name:string)=>registered.get(name)!}
 }
 /** Drive microtasks until `ready`, so a staged proposal is observed rather than guessed at. */
 async function until(ready:()=>boolean){
@@ -97,6 +102,38 @@ describe('timesheet suggestions',()=>{
   expect(receipt.applied.entries[0].project_name).toBe('项目')
   expect(receipt.applied.total_hours).toBe(8)
   expect(receipt.applied.daily_hours).toEqual([{work_date:'2026-09-09',hours:8}])
+ })
+ it('asks the agent to review a submission through its inbox, without starting a competing turn',async()=>{
+  const f=setup();await f.chat.sync(f.state)
+  f.agent.status='running'
+  await f.chat.reviewStart('s','h')
+  // followup queues behind a running turn and still wakes an idle one; append does neither.
+  expect(f.inbox).toHaveLength(1)
+  expect(f.inbox[0]?.target).toBe('followup')
+  expect(f.inbox[0]?.text).toContain('提交动作触发')
+  expect(f.inbox[0]?.text).toContain('h')
+  expect(f.chat.review('s')).toEqual({headerId:'h',status:'pending',waiting:true})
+ })
+ it('publishes the agent verdict and ignores one that arrives for no live review',async()=>{
+  const f=setup();await f.chat.sync(f.state)
+  const report=f.tool('oryh_timesheet_review_result')
+  const extra={agent:{id:'s'},signal:new AbortController().signal} as never
+  // No review running: a stray verdict must not appear against the next submission.
+  expect(await report.execute({verdict:'passed',message:''} as never,extra)).toContain('没有待回报')
+  expect(f.chat.review('s')).toBeUndefined()
+  await f.chat.reviewStart('s','h')
+  await report.execute({verdict:'flagged',message:'本周合计 36 小时，少于要求的 40 小时。'} as never,extra)
+  expect(f.chat.review('s')).toEqual({headerId:'h',status:'flagged',waiting:false,message:'本周合计 36 小时，少于要求的 40 小时。'})
+  // A second verdict for a settled review is late, not a correction.
+  expect(await report.execute({verdict:'passed',message:''} as never,extra)).toContain('已结束')
+  expect(f.chat.review('s')?.status).toBe('flagged')
+ })
+ it('drops the review when it is skipped or the page is left',async()=>{
+  const f=setup();await f.chat.sync(f.state)
+  await f.chat.reviewStart('s','h');expect(f.chat.review('s')).toBeDefined()
+  f.chat.reviewClear('s');expect(f.chat.review('s')).toBeUndefined()
+  await f.chat.reviewStart('s','h');f.chat.clear('s')
+  expect(f.chat.review('s')).toBeUndefined()
  })
  it('restricts approval proposals to the current managers todo and never confirms',async()=>{
   const f=setup();f.binding.manager=true;await f.chat.sync({...f.state,manager:true})

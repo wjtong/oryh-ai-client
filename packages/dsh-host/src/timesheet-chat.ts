@@ -4,7 +4,8 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { z } from 'zod'
 import { OryhClientError, type ConnectionId } from '@oryh/ai-client-foundation'
 import { validateTimesheet, type OryhTimesheetRemote, type TimesheetAction, type TimesheetFields, type TimesheetLine } from '@oryh/ai-client-timesheets'
-import type { TimesheetChatState, TimesheetChatProposal } from './types.js'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { TimesheetChatState, TimesheetChatProposal, TimesheetReviewState } from './types.js'
 import type { CommandQueue } from './command-queue.js'
 const line=z.object({id:z.string().optional(),work_date:z.string(),hours:z.number(),work_type:z.string(),project_id:z.string(),project_name:z.string(),task:z.string().max(200),notes:z.string().max(2000)}).strict()
 const fields=z.object({period_start:z.string(),period_end:z.string(),source_report_text:z.string().max(10000),entries:z.array(line).min(1).max(100)}).strict()
@@ -63,11 +64,37 @@ const fail=(text:string)=>new OryhClientError(text,'request-failed')
 export class TimesheetChat {
   private states=new Map<string,TimesheetChatState>()
   private proposals=new Map<string,TimesheetChatProposal>()
+  private reviews=new Map<string,TimesheetReviewState>()
   constructor(private ctx:Context,private api:OryhTimesheetRemote|undefined,private binding:(id:string,verify?:boolean,write?:boolean)=>Promise<PageBinding>,private queue:CommandQueue){}
   current(id:string){return this.states.get(id)}
   /** The staged suggestion the command stream publishes for this session. */
   pending(id:string){return this.proposals.get(id)}
-  clear(id:string){this.states.delete(id);this.proposals.delete(id);this.queue.changed(id)}
+  clear(id:string){this.states.delete(id);this.proposals.delete(id);this.reviews.delete(id);this.queue.changed(id)}
+  /** The review the command stream publishes for this session. */
+  review(id:string){return this.reviews.get(id)}
+  /**
+   * Ask the session's agent to check this timesheet against the enterprise norms before submitting.
+   *
+   * The norms live in Skills, not in code, so the only way to apply them is to let the agent read
+   * them. `followup` is the right door: it queues the request as its own turn AND wakes an idle
+   * driver. A bare `inbox.append` only queues — with the agent idle, which is the common case when
+   * someone clicks submit, the message sits in the chat forever and no turn ever runs. Nothing here
+   * blocks; progress reaches the page over the command stream. See docs/22.
+   * @param id - session whose agent performs the review.
+   * @param headerId - timesheet being submitted; a verdict for any other document is ignored.
+   */
+  async reviewStart(id:string,headerId:string):Promise<void>{
+    await this.binding(id,true,true)
+    const agent=this.ctx.agents.get(id as never)
+    if(!agent)throw fail('当前会话不可用，无法进行规范核对。')
+    const waiting=agent.status!=='idle'
+    this.reviews.set(id,{headerId,status:'pending',waiting})
+    agent.followup(createUserMessage({content:[{type:'text',
+      text:`（提交动作触发）请按企业当前工时流程要求核对这张待提交的工时单（编号 ${headerId}）。先用 oryh_timesheet_read 读取实际内容，再调用 oryh_timesheet_review_result 回报结论；不要修改表单。`}],source:{kind:'user'}}))
+    this.queue.changed(id)
+  }
+  /** Drop the review, whether the user skipped it or the submission finished. */
+  reviewClear(id:string){if(this.reviews.delete(id))this.queue.changed(id)}
   async sync(state:TimesheetChatState):Promise<void>{
     const b=await this.binding(state.sessionId,false)
     if(b.connectionId!==state.connectionId||b.timesheetPage!==state.pageKey||Boolean(b.manager)!==state.manager)throw fail('工时页面已改变，请重新关联。')
@@ -165,6 +192,16 @@ export class TimesheetChat {
       })
       return JSON.stringify(applied)
     }catch(error){if(this.proposals.get(id)?.id===result.proposalId)this.proposals.delete(id);throw error}}return JSON.stringify(result)}}))
-    this.ctx.effect(()=>()=>{this.states.clear();this.proposals.clear()},'oryh timesheet suggestions')
+    this.ctx.tools.register(defineTool({name:'oryh_timesheet_review_result',description:'回报一次提交前的工时规范核对结论。只在收到"（提交动作触发）"的核对请求后调用，且必须先用 oryh_timesheet_read 读过实际内容。verdict=passed 表示未发现与企业工时流程要求冲突；verdict=flagged 表示存在冲突，message 用一两句话说明是哪一条、具体差多少，供用户判断。这不是保存或提交，用户仍需在页面确认。',
+      parameters:{verdict:{type:'string',required:true,enum:['passed','flagged']},message:{type:'string',required:true,description:'flagged 时说明冲突；passed 时可留空字符串'}},output,
+      execute:async(args,e)=>{if(!e.agent)throw fail('需要会话');const id=String(e.agent.id)
+        const current=this.reviews.get(id)
+        if(!current)return '当前没有待回报的核对请求，结论已忽略。'
+        // The page moved on while the agent was thinking; a verdict about the old document is noise.
+        if(current.status!=='pending')return '该核对请求已结束，结论已忽略。'
+        this.reviews.set(id,{...current,status:args.verdict==='passed'?'passed':'flagged',message:String(args.message??'')})
+        this.queue.changed(id)
+        return '核对结论已回报给页面，等待用户确认。'}}))
+    this.ctx.effect(()=>()=>{this.states.clear();this.proposals.clear();this.reviews.clear()},'oryh timesheet suggestions')
   }
 }

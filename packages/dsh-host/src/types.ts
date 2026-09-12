@@ -65,6 +65,26 @@ export interface CommandSnapshot {
   timesheet?: TimesheetChatProposal
   /** Staged new-project field suggestion. */
   project?: ProjectChatProposal
+  /** Where the pre-submit norm review stands, when one is running. */
+  review?: TimesheetReviewState
+}
+
+/**
+ * Pre-submit norm review, published so the submit dialog can show progress.
+ *
+ * `pending` covers both waiting behind an in-flight conversation turn and the review turn itself;
+ * `waiting` records which it was when the review started. Distinguishing them live would need an
+ * agent-status subscription the Host does not have, and the dialog only needs to show that the
+ * agent is working. See docs/22.
+ */
+export interface TimesheetReviewState {
+  /** The timesheet this review is about; a review for another document is stale. */
+  headerId: string
+  status: 'pending' | 'passed' | 'flagged'
+  /** True when a conversation turn was already running as the review was queued behind it. */
+  waiting: boolean
+  /** The agent's own words when `flagged`. */
+  message?: string
 }
 
 /** Opening frame of one stream generation, carrying the full pending set. */

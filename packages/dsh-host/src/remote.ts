@@ -38,7 +38,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Browser-only typed business API; no member is registered as an Agent tool. */
 export class OryhRemote extends TypertRemoteService {
-  static inject = ['typert', 'oryhClient', 'oryhExpenses', 'oryhTimesheets', 'oryhProjects', 'oryhRecords', 'oryhTodoDetails', 'oryhChat', 'oryhAbort']
+  static inject = ['typert', 'oryhClient', 'oryhExpenses', 'oryhTimesheets', 'oryhProjects', 'oryhRecords', 'oryhTodoDetails', 'oryhChat', 'oryhAbort', 'agents']
   private readonly api: OryhClientRemoteAdapter
   private closed = false
   private readonly active = new Set<Promise<unknown>>()
@@ -84,6 +84,10 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('chatSelect') chatSelect(request: ChatSelection): Promise<ChatContextView> { return this.call(() => this.ctx.oryhChat.select(request)) }
   @Remote('chatClear') chatClear(request: ChatClearRequest): Promise<void> { return this.call(() => this.ctx.oryhChat.clear(request.sessionId)) }
   @Remote('timesheetChatSync') timesheetChatSync(request: TimesheetChatState): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.sync(request)) }
+  /** Start the pre-submit norm review; it returns at once and reports over the command stream. */
+  @Remote('timesheetReviewStart') timesheetReviewStart(request: { sessionId: string; headerId: string }): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.reviewStart(request.sessionId, request.headerId)) }
+  /** Drop the review when the user skips it or the submission settles. */
+  @Remote('timesheetReviewClear') timesheetReviewClear(request: { sessionId: string }): Promise<void> { return this.call(async () => { this.ctx.oryhChat.timesheet.reviewClear(request.sessionId) }) }
   @Remote('productSearch') productSearch(r:ProductSearch):Promise<ProductOptions>{return this.call(()=>this.ctx.oryhRecords.productSearch(r))}
   @Remote('recordList') recordList(r:RecordQuery):Promise<RecordPage>{return this.call(()=>this.ctx.oryhRecords.recordList(r))}
   @Remote('projectOptions') projectOptions(r:ConnectionRequest):Promise<ProjectOptions>{return this.call(()=>this.ctx.oryhProjects.projectOptions(r.connectionId))}
