@@ -45,6 +45,9 @@ export function TimesheetPanel({connection,manager,active,navigationId,navigatio
     const s=reviewState&&reviewState.headerId===review.action.headerId?reviewState:undefined
     // Before the first frame arrives the review is already queued Host-side, so treat it as such.
     if(!s)return {phase:'queued' as const,message:''}
+    // `unavailable` now also arrives from the Host, which is what settles a review whose turn died
+    // (a model quota error, say) or never reported. Without it the dialog waited forever, and since
+    // submitting is gated on the verdict, waiting forever is a dead end rather than a slow path.
     return {phase:s.status,message:s.message??''}
   })()
   const normRunning=norm?.phase==='queued'||norm?.phase==='reviewing'

@@ -60,6 +60,8 @@ const lineSpec={type:'object',additionalProperties:false,properties:{id:{type:'s
 const fieldsSpec={type:'object',additionalProperties:false,properties:{period_start:{type:'string',required:true},period_end:{type:'string',required:true},source_report_text:{type:'string',required:true},entries:{type:'array',required:true,items:lineSpec}}} as const
 const actionSpec={type:'object',required:true,additionalProperties:false,properties:{kind:{type:'string',required:true,enum:['create','update','submit','approve','add-line','edit-line','delete-line']},fields:fieldsSpec,headerId:{type:'string'},todoId:{type:'string'},entryId:{type:'string'},line:lineSpec,decision:{type:'string',enum:['approved','rejected','returned']},comment:{type:'string'}}} as const
 const fail=(text:string)=>new OryhClientError(text,'request-failed')
+/** How long a review may run before the page stops waiting on it. */
+const REVIEW_TIMEOUT_MS=120_000
 /** Ephemeral suggestions only. No prepare/confirm method or confirmation token reaches a tool. */
 export class TimesheetChat {
   private states=new Map<string,TimesheetChatState>()
@@ -72,9 +74,37 @@ export class TimesheetChat {
   current(id:string){return this.states.get(id)}
   /** The staged suggestion the command stream publishes for this session. */
   pending(id:string){return this.proposals.get(id)}
-  clear(id:string){this.states.delete(id);this.proposals.delete(id);this.reviews.delete(id);this.reviewMessages.delete(id);this.queue.changed(id)}
+  clear(id:string){this.states.delete(id);this.proposals.delete(id);this.reviews.delete(id);this.reviewMessages.delete(id);this.reviewSettled(id);this.queue.changed(id)}
   /** The review the command stream publishes for this session. */
   review(id:string){return this.reviews.get(id)}
+  /** Why the last review turn died, kept until the status listener can report it. */
+  private reviewFailures=new Map<string,string>()
+  /** Timers that settle a review no turn ever finishes; cleared the moment it settles. */
+  private reviewTimers=new Map<string,ReturnType<typeof setTimeout>>()
+  /** Whether a review is still waiting on the agent, and so may still be settled. */
+  private reviewLive(id:string){const s=this.reviews.get(id)?.status;return s==='queued'||s==='reviewing'}
+  /**
+   * Settle a review the agent never reported on.
+   *
+   * `unavailable` is a terminal state, not a pause: the page offers a retry and keeps 确认执行
+   * disabled. Reporting the underlying failure verbatim matters more than tidy wording — a quota
+   * error or a dead model is something only the user can act on, and "核对失败" tells them nothing.
+   * @param id - session whose review failed.
+   * @param message - the reason, shown to the user as-is.
+   */
+  private reviewFailed(id:string,message:string){
+    const current=this.reviews.get(id)
+    if(!current||!this.reviewLive(id))return
+    this.reviewSettled(id)
+    this.reviews.set(id,{...current,status:'unavailable',message})
+    this.queue.changed(id)
+  }
+  /** Drop the bookkeeping a settled review no longer needs. */
+  private reviewSettled(id:string){
+    const timer=this.reviewTimers.get(id)
+    if(timer!==undefined){clearTimeout(timer);this.reviewTimers.delete(id)}
+    this.reviewFailures.delete(id)
+  }
   /**
    * Ask the session's agent to check this timesheet against the enterprise norms before submitting.
    *
@@ -95,6 +125,11 @@ export class TimesheetChat {
       text:`（提交动作触发）请按企业当前工时流程要求核对这张待提交的工时单（编号 ${headerId}）。先用 oryh_timesheet_read 读取实际内容，再调用 oryh_timesheet_review_result 回报结论；不要修改表单。`}],source:{kind:'user'}})
     agent.followup(request)
     this.reviewMessages.set(id,String(request.id))
+    this.reviewSettled(id)
+    // Backstop for an agent that neither reports nor goes idle. The status listener catches the
+    // common failure within a second; this only covers a driver that hangs, and is generous because
+    // a review queued behind a long conversation turn is legitimately slow.
+    this.reviewTimers.set(id,setTimeout(()=>this.reviewFailed(id,'核对超时，未收到结论。'),REVIEW_TIMEOUT_MS))
     this.reviews.set(id,{headerId,status:this.reviewPhase(id,agent)})
     this.queue.changed(id)
   }
@@ -118,7 +153,7 @@ export class TimesheetChat {
     throw new OryhClientError('本次提交未经企业工时流程要求核对，无法提交。请在 Chat 中保持会话后重新提交。','request-failed')
   }
   /** Drop the review, whether the user skipped it or the submission finished. */
-  reviewClear(id:string){this.reviewMessages.delete(id);if(this.reviews.delete(id))this.queue.changed(id)}
+  reviewClear(id:string){this.reviewMessages.delete(id);this.reviewSettled(id);if(this.reviews.delete(id))this.queue.changed(id)}
   /** Queued while the request is still pending in the inbox; reviewing once the agent claimed it. */
   private reviewPhase(id:string,agent:{inbox:{nextTurn:readonly {id:string}[]}}):'queued'|'reviewing'{
     const message=this.reviewMessages.get(id)
@@ -243,18 +278,34 @@ export class TimesheetChat {
         const current=this.reviews.get(id)
         if(!current)return '当前没有待回报的核对请求，结论已忽略。'
         // The page moved on while the agent was thinking; a verdict about the old document is noise.
-        if(current.status==='passed'||current.status==='flagged')return '该核对请求已结束，结论已忽略。'
+        if(!this.reviewLive(id))return '该核对请求已结束，结论已忽略。'
+        this.reviewSettled(id)
         this.reviews.set(id,{...current,status:args.verdict==='passed'?'passed':'flagged',message:String(args.message??'')})
         this.queue.changed(id)
         return '核对结论已回报给页面，等待用户确认。'}}))
+    // A turn that dies takes the verdict with it. The failure itself is the only place the reason
+    // exists (a model quota error, say), and the page is blocked until something settles the review,
+    // so keep it for the status listener below to report.
+    this.ctx.on('agent/error',({agent,error}:{agent:{id:unknown};error:unknown})=>{
+      const id=String(agent.id)
+      if(this.reviewLive(id))this.reviewFailures.set(id,error instanceof Error?error.message:String(error))
+    })
     // The queued -> reviewing transition rides the agent's own status events rather than a poll:
     // every transition re-reads the inbox, which is what actually says whether our request is still
     // waiting behind a conversation turn.
-    this.ctx.on('agent/status',({agent}:{agent:{id:unknown;inbox:{nextTurn:readonly {id:string}[]}}})=>{
+    this.ctx.on('agent/status',({agent,status}:{agent:{id:unknown;inbox:{nextTurn:readonly {id:string}[]}};status?:string})=>{
       const id=String(agent.id),current=this.reviews.get(id)
-      if(!current||current.status==='passed'||current.status==='flagged')return
+      if(!current||!this.reviewLive(id))return
+      // Going idle after the review turn started means it ran and ended without reporting. Before
+      // submitting was gated on the verdict this only cost a stale label; now it is what stands
+      // between the user and a submit, so it has to settle rather than spin forever. The claim is
+      // read from our own state, not recomputed from the inbox: the request id can linger there
+      // after the driver has taken it, and this must not mistake a dead turn for a queued one.
+      if(status==='idle'&&current.status==='reviewing'){this.reviewFailed(id,this.reviewFailures.get(id)??'核对回合已结束但没有回报结论。');return}
       const phase=this.reviewPhase(id,agent)
-      if(phase===current.status)return
+      // Only ever forward: once the review turn has been claimed it is running, whatever the inbox
+      // still says.
+      if(phase===current.status||current.status==='reviewing')return
       this.reviews.set(id,{...current,status:phase})
       this.queue.changed(id)
     })

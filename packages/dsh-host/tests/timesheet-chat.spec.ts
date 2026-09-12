@@ -22,15 +22,18 @@ function setup(){
    id:'s',
    // A real followup lands in nextTurn until the driver claims it; the queued/reviewing split reads exactly that.
    followup:(message:{id:string;content:{text?:string}[]})=>{inbox.push({target:'followup',text:String(message.content[0]?.text??'')});agent.inbox.nextTurn.push({id:String(message.id)})}}
- let onStatus:((payload:{agent:unknown})=>void)|undefined
+ // Every listener is kept, not just agent/status: a review also has to settle on agent/error.
+ const listeners=new Map<string,(payload:never)=>void>()
+ const emit=(name:string,payload:unknown)=>listeners.get(name)?.(payload as never)
+ const onStatus=(payload:{agent:unknown})=>emit('agent/status',payload)
  const ctx={tools:{register:(tool:{name:string})=>{registered.set(tool.name,tool as never)}},effect:()=>{},agents:{get:()=>agent},
-   on:(name:string,fn:(payload:{agent:unknown})=>void)=>{if(name==='agent/status')onStatus=fn}} as unknown as Context
+   on:(name:string,fn:(payload:never)=>void)=>{listeners.set(name,fn)}} as unknown as Context
  const chat=new TimesheetChat(ctx,api,async()=>binding,queue)
  chat.install()
  const state={sessionId:'s',connectionId:binding.connectionId,pageKey:'page',revision:1,manager:false,fields:form}
- return {chat,api,binding,state,prepare,confirm,queue,inbox,agent,tool:(name:string)=>registered.get(name)!,
+ return {chat,api,binding,state,prepare,confirm,queue,inbox,agent,emit,tool:(name:string)=>registered.get(name)!,
   /** Simulate the driver claiming the queued request, then the status transition it raises. */
-  claimRequest:()=>{agent.inbox.nextTurn.length=0;onStatus?.({agent})}}
+  claimRequest:()=>{agent.inbox.nextTurn.length=0;onStatus({agent})}}
 }
 /** Drive microtasks until `ready`, so a staged proposal is observed rather than guessed at. */
 async function until(ready:()=>boolean){
@@ -120,6 +123,26 @@ describe('timesheet suggestions',()=>{
   expect(f.inbox[0]?.text).toContain('h')
   // The request is still pending in the inbox, so the page shows it queued rather than running.
   expect(f.chat.review('s')).toEqual({headerId:'h',status:'queued'})
+ })
+ it('settles a review whose turn died, reporting why',async()=>{
+  const f=setup();await f.chat.sync(f.state)
+  await f.chat.reviewStart('s','h')
+  await f.tool('oryh_timesheet_read').execute({headerId:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
+  expect(f.chat.review('s')?.status).toBe('reviewing')
+
+  // The turn fails (a model quota error here) and then the agent goes idle with nothing reported.
+  // Before this, the page waited on a verdict that was never coming — and with submitting gated on
+  // it, that is a dead end rather than a slow path.
+  f.emit('agent/error',{agent:f.agent,error:new Error('Allocated quota exceeded')})
+  f.emit('agent/status',{agent:f.agent,status:'idle'})
+  expect(f.chat.review('s')).toEqual({headerId:'h',status:'unavailable',message:'Allocated quota exceeded'})
+
+  // A verdict arriving late for a settled review is ignored rather than reviving it.
+  const late=await f.tool('oryh_timesheet_review_result').execute({verdict:'passed',message:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
+  expect(late).toContain('已结束')
+  expect(f.chat.review('s')?.status).toBe('unavailable')
+  // And an unavailable review must not open the submit gate.
+  expect(()=>f.chat.assertReviewPassed({kind:'submit',headerId:'h'},'s')).toThrow(/未经/)
  })
  it('lets only a passed verdict through the submit gate',async()=>{
   const f=setup();await f.chat.sync(f.state)

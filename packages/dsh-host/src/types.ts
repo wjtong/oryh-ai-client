@@ -81,8 +81,8 @@ export interface CommandSnapshot {
 export interface TimesheetReviewState {
   /** The timesheet this review is about; a review for another document is stale. */
   headerId: string
-  status: 'queued' | 'reviewing' | 'passed' | 'flagged'
-  /** The agent's own words when `flagged`. */
+  status: 'queued' | 'reviewing' | 'passed' | 'flagged' | 'unavailable'
+  /** The agent's own words when `flagged`; why the review could not run when `unavailable`. */
   message?: string
 }
 
