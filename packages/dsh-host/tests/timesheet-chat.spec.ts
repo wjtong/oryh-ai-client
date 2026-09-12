@@ -18,13 +18,19 @@ function setup(){
  const inbox:{target:string;text:string}[]=[]
  // followup is what the Host must use: it queues AND wakes an idle driver. A bare inbox.append
  // leaves the message parked forever when nobody is mid-turn, which is the common case.
- const agent={status:'idle',inbox:{nextTurn:[],append:()=>{throw new Error('inbox.append does not wake an idle agent; use followup')}},
-   followup:(message:{content:{text?:string}[]})=>{inbox.push({target:'followup',text:String(message.content[0]?.text??'')})}}
- const ctx={tools:{register:(tool:{name:string})=>{registered.set(tool.name,tool as never)}},effect:()=>{},agents:{get:()=>agent}} as unknown as Context
+ const agent={status:'idle',inbox:{nextTurn:[] as {id:string}[],append:()=>{throw new Error('inbox.append does not wake an idle agent; use followup')}},
+   id:'s',
+   // A real followup lands in nextTurn until the driver claims it; the queued/reviewing split reads exactly that.
+   followup:(message:{id:string;content:{text?:string}[]})=>{inbox.push({target:'followup',text:String(message.content[0]?.text??'')});agent.inbox.nextTurn.push({id:String(message.id)})}}
+ let onStatus:((payload:{agent:unknown})=>void)|undefined
+ const ctx={tools:{register:(tool:{name:string})=>{registered.set(tool.name,tool as never)}},effect:()=>{},agents:{get:()=>agent},
+   on:(name:string,fn:(payload:{agent:unknown})=>void)=>{if(name==='agent/status')onStatus=fn}} as unknown as Context
  const chat=new TimesheetChat(ctx,api,async()=>binding,queue)
  chat.install()
  const state={sessionId:'s',connectionId:binding.connectionId,pageKey:'page',revision:1,manager:false,fields:form}
- return {chat,api,binding,state,prepare,confirm,queue,inbox,agent,tool:(name:string)=>registered.get(name)!}
+ return {chat,api,binding,state,prepare,confirm,queue,inbox,agent,tool:(name:string)=>registered.get(name)!,
+  /** Simulate the driver claiming the queued request, then the status transition it raises. */
+  claimRequest:()=>{agent.inbox.nextTurn.length=0;onStatus?.({agent})}}
 }
 /** Drive microtasks until `ready`, so a staged proposal is observed rather than guessed at. */
 async function until(ready:()=>boolean){
@@ -112,7 +118,22 @@ describe('timesheet suggestions',()=>{
   expect(f.inbox[0]?.target).toBe('followup')
   expect(f.inbox[0]?.text).toContain('提交动作触发')
   expect(f.inbox[0]?.text).toContain('h')
-  expect(f.chat.review('s')).toEqual({headerId:'h',status:'pending',waiting:true})
+  // The request is still pending in the inbox, so the page shows it queued rather than running.
+  expect(f.chat.review('s')).toEqual({headerId:'h',status:'queued'})
+ })
+ it('moves from queued to reviewing when the agent claims the request',async()=>{
+  const f=setup();await f.chat.sync(f.state)
+  await f.chat.reviewStart('s','h')
+  expect(f.chat.review('s')?.status).toBe('queued')
+  // The review's own first step is what marks it running: agent/status fires before the inbox
+  // drains, so the read tool is the dependable signal.
+  await f.tool('oryh_timesheet_read').execute({headerId:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
+  expect(f.chat.review('s')?.status).toBe('reviewing')
+  // A settled verdict must not be dragged back by a later status transition.
+  await f.tool('oryh_timesheet_review_result').execute({verdict:'passed',message:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
+  // A settled verdict must not be dragged back by a later read.
+  await f.tool('oryh_timesheet_read').execute({headerId:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
+  expect(f.chat.review('s')?.status).toBe('passed')
  })
  it('publishes the agent verdict and ignores one that arrives for no live review',async()=>{
   const f=setup();await f.chat.sync(f.state)
@@ -123,7 +144,8 @@ describe('timesheet suggestions',()=>{
   expect(f.chat.review('s')).toBeUndefined()
   await f.chat.reviewStart('s','h')
   await report.execute({verdict:'flagged',message:'本周合计 36 小时，少于要求的 40 小时。'} as never,extra)
-  expect(f.chat.review('s')).toEqual({headerId:'h',status:'flagged',waiting:false,message:'本周合计 36 小时，少于要求的 40 小时。'})
+  expect(f.chat.review('s')?.status).toBe('flagged')
+  expect(f.chat.review('s')?.message).toBe('本周合计 36 小时，少于要求的 40 小时。')
   // A second verdict for a settled review is late, not a correction.
   expect(await report.execute({verdict:'passed',message:''} as never,extra)).toContain('已结束')
   expect(f.chat.review('s')?.status).toBe('flagged')
