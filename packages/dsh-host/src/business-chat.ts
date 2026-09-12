@@ -14,6 +14,7 @@ import { OryhClientError, type ConnectionId, type OryhClientController, type Tod
 import { TimesheetChat } from './timesheet-chat.js'
 import type { OryhTimesheetRemote } from '@oryh/ai-client-core/types'
 import type { ChatPageRequest, ChatSelection, ChatContextView, ChatHomeRequest, ChatNavigation } from './types.js'
+import { CommandQueue } from './command-queue.js'
 interface Binding { document?:TodoDocument; connectionId:ConnectionId; scope:string; todoId?:string; title:string; generation:number; timesheetPage?:string; manager?:boolean; visibleTodos?:{id:string;title:string}[]; listRevision?:string; navigationId?:string }
 const toolName='oryh_current_todo_details'
 const toolNames=[toolName,'oryh_timesheet_read','oryh_timesheet_propose','oryh_open_timesheet','oryh_find_timesheets','oryh_visible_todos','oryh_open_todo','oryh_current_page','oryh_project_columns','oryh_record_columns','oryh_inventory_filters','oryh_search_products','oryh_navigate','oryh_open_project','oryh_project_read','oryh_project_fill']
@@ -21,13 +22,13 @@ const instructions='库存流水、库存余额、销售订单和 Shipment 列�
 export class BusinessChat {
   private bindings=new Map<string,Binding>()
   private homes=new Map<string,Binding>()
-  private navigation=new Map<string,ChatNavigation>()
+  private queue=new CommandQueue()
   private pages=new Map<string,ChatPageRequest>()
   private serial:Promise<unknown>=Promise.resolve()
   readonly project:ProjectChat
   readonly timesheet: TimesheetChat
   constructor(private ctx:Context,private controller:OryhClientController,private details:TodoDetailService,private directory:string, private api?:OryhTimesheetRemote,private projects?:OryhProjectRemote){
-    this.project=new ProjectChat(ctx,projects,id=>{const home=this.homes.get(id);if(!home||this.pages.get(id)?.page!=='list-projects')throw new OryhClientError('当前不是项目页面。','request-failed');return home.connectionId})
+    this.project=new ProjectChat(ctx,projects,id=>{const home=this.homes.get(id);if(!home||this.pages.get(id)?.page!=='list-projects')throw new OryhClientError('当前不是项目页面。','request-failed');return home.connectionId},this.queue)
     this.timesheet=new TimesheetChat(ctx,api,async(sessionId,verify=true,write=false)=>{
       const b=this.bindings.get(sessionId)
       if(b)this.assertPage(sessionId,b)
@@ -39,7 +40,7 @@ export class BusinessChat {
       if(JSON.stringify([c.origin,c.identity.tenant.id,c.identity.user.id,c.identity.user.employeeId])!==b.scope)throw new OryhClientError('当前企业身份已改变。','connection-identity-mismatch')
       if(this.bindings.get(sessionId)!==b)throw new OryhClientError('页面已改变，请重新读取。','request-failed')
       return b
-    })
+    },this.queue)
   }
   select(request:ChatSelection):Promise<ChatContextView>{
     const result=this.serial.then(()=>this.bind(request));this.serial=result.catch(()=>{});return result
@@ -50,8 +51,8 @@ export class BusinessChat {
     const current=this.bindings.get(r.sessionId)
     if(!r.homeOnly)this.assertSelectionPage(r)
     // Invalidate the old target before any asynchronous work, so failed selection cannot use it.
-    const command=this.navigation.get(r.sessionId)
-    const permitted=()=>Boolean(this.navigation.get(r.sessionId)===command&&r.navigationId&&command?.id===r.navigationId&&command.expiresAt>Date.now()&&this.homes.get(r.sessionId)?.connectionId===r.connectionId&&command.target!=='project'&&command.target!=='page'&&command.target!=='columns'&&command.target!=='filters'&&(command.target==='todo'?r.todoId===command.todoId&&!r.timesheetPage:Boolean(r.timesheetPage)&&Boolean(r.manager)===Boolean(command.manager)&&!r.todoId))
+    const command=this.queue.peek(r.sessionId)
+    const permitted=()=>Boolean(command&&this.queue.holds(r.sessionId,command.id)&&r.navigationId&&command.id===r.navigationId&&command.expiresAt>Date.now()&&this.homes.get(r.sessionId)?.connectionId===r.connectionId&&command.target!=='project'&&command.target!=='page'&&command.target!=='columns'&&command.target!=='filters'&&(command.target==='todo'?r.todoId===command.todoId&&!r.timesheetPage:Boolean(r.timesheetPage)&&Boolean(r.manager)===Boolean(command.manager)&&!r.todoId))
     const listUpdate=()=>Boolean(r.visibleTodos&&!r.homeOnly&&!r.todoId&&!r.timesheetPage&&this.homes.get(r.sessionId)?.connectionId===r.connectionId)
     const pageUpdate=()=>{const p=this.pages.get(r.sessionId);return Boolean(p&&p.connectionId===r.connectionId&&this.homes.get(r.sessionId)?.connectionId===r.connectionId&&!r.homeOnly&&p.page===(r.timesheetPage?(r.manager?'timesheet-approvals':'timesheets'):'my-open-todos'))}
     if(!r.homeOnly){this.bindings.delete(r.sessionId); this.timesheet.clear(r.sessionId)}
@@ -75,12 +76,13 @@ export class BusinessChat {
     if(agent.status!=='idle'&&!permitted()&&!listUpdate()&&!pageUpdate())throw new OryhClientError('会话已开始回答，请结束后重新同步。','request-failed')
     if(!r.homeOnly)this.assertSelectionPage(r)
     if(r.homeOnly)this.homes.set(r.sessionId,next);else this.bindings.set(r.sessionId,next)
+    this.queue.settle(r.sessionId)
     return {...(next.document?{document:next.document}:{}),ready:Boolean(next.todoId || next.timesheetPage || next.visibleTodos),title:next.title,message:next.visibleTodos?'Chat 已关联当前待办列表。':next.timesheetPage?'Chat 已关联工时页面，可查询或生成填写与操作建议。':next.todoId?'Chat 已关联当前待办，可询问关联单据详情。':'请在“我的待办”中打开一条待办。'}
   }
   private bindingPage(b:Binding){return b.timesheetPage?(b.manager?'timesheet-approvals':'timesheets'):'my-open-todos'}
   private assertPage(sessionId:string,b:Binding){const page=this.pages.get(sessionId);if(page&&(page.connectionId!==b.connectionId||page.page!==this.bindingPage(b)))throw new OryhClientError('右侧页面已改变，请先读取当前页面。','request-failed')}
   private assertSelectionPage(r:ChatSelection){
-    const page=this.pages.get(r.sessionId),command=this.navigation.get(r.sessionId)
+    const page=this.pages.get(r.sessionId),command=this.queue.peek(r.sessionId)
     if(command&&command.id===r.navigationId&&command.target!=='project'&&command.target!=='page'&&command.target!=='columns'&&command.target!=='filters'&&command.expiresAt>Date.now())return
     if(page&&(page.connectionId!==r.connectionId||page.page!==(r.timesheetPage?(r.manager?'timesheet-approvals':'timesheets'):'my-open-todos')))throw new OryhClientError('旧页面上下文已失效。','request-failed')
   }
@@ -94,8 +96,9 @@ export class BusinessChat {
     const b=this.bindings.get(r.sessionId)
     if(r.page!=='list-projects')this.project.clear(r.sessionId)
     if(b&&this.bindingPage(b)!==r.page){this.bindings.delete(r.sessionId);this.timesheet.clear(r.sessionId)}
-    const command=this.navigation.get(r.sessionId)
-    if(command&&r.page!==(command.target==='page'?command.page:(command.target==='columns'||command.target==='filters')?(command.page??'list-projects'):command.target==='project'?'list-projects':command.target==='todo'?'my-open-todos':command.manager?'timesheet-approvals':'timesheets'))this.navigation.delete(r.sessionId)
+    const command=this.queue.peek(r.sessionId)
+    if(command&&r.page!==(command.target==='page'?command.page:(command.target==='columns'||command.target==='filters')?(command.page??'list-projects'):command.target==='project'?'list-projects':command.target==='todo'?'my-open-todos':command.manager?'timesheet-approvals':'timesheets'))this.queue.withdraw(r.sessionId,command.id)
+    this.queue.settle(r.sessionId)
   }
   currentPage(sessionId:string){
     const p=this.pages.get(sessionId),home=this.homes.get(sessionId)
@@ -116,8 +119,12 @@ export class BusinessChat {
     if(this.homes.get(sessionId)!==home)throw new OryhClientError('企业页面已改变。','request-failed')
     if(before.page===page)return JSON.stringify(before)
     const command:ChatNavigation={id:randomUUID(),target:'page',page,expiresAt:Date.now()+15000}
-    this.navigation.set(sessionId,command)
-    try{while(Date.now()<command.expiresAt){signal.throwIfAborted();if(this.homes.get(sessionId)!==home||this.navigation.get(sessionId)!==command)throw new OryhClientError('页面导航已取消。','request-failed');const p=this.pages.get(sessionId);if(p?.page===page&&p.navigationId===command.id)return JSON.stringify(this.currentPage(sessionId));await new Promise(r=>setTimeout(r,100))}throw new OryhClientError('网页未确认导航，请重新读取当前页面。','request-failed')}finally{if(this.navigation.get(sessionId)===command)this.navigation.delete(sessionId)}
+    this.queue.issue(sessionId,command)
+    try{return await this.queue.wait<string>(sessionId,'navigation',{
+      invalid:()=>this.homes.get(sessionId)!==home||!this.queue.holds(sessionId,command.id)?'页面导航已取消。':undefined,
+      until:()=>{const p=this.pages.get(sessionId);return p?.page===page&&p.navigationId===command.id?JSON.stringify(this.currentPage(sessionId)):undefined},
+      expired:'网页未确认导航，请重新读取当前页面。',timeoutMs:15000,signal,
+    })}finally{this.queue.withdraw(sessionId,command.id)}
   }
   async configureProjectColumns(id:string,columns:string[],signal:AbortSignal){
     const p=this.currentPage(id)
@@ -126,8 +133,12 @@ export class BusinessChat {
     if(p.page!=='list-projects'||p.context?.key!=='list-projects:list')throw new OryhClientError('请先打开项目列表，退出当前详情或表单。','request-failed')
     if(!columns.includes('name')||columns.length>8||new Set(columns).size!==columns.length||columns.some(c=>!allowed.includes(c)))throw new OryhClientError('列配置无效：只能选择项目支持的字段，必须保留项目名称。','request-failed')
     const command:ChatNavigation={id:randomUUID(),target:'columns',columns:columns as import('./types.js').ProjectColumn[],expiresAt:Date.now()+10000}
-    this.navigation.set(id,command)
-    try{while(Date.now()<command.expiresAt){signal.throwIfAborted();const now=this.pages.get(id);if(this.navigation.get(id)!==command||now?.page!=='list-projects'||now.context?.key!=='list-projects:list')throw new OryhClientError('项目页面已变化，请重新读取。','request-failed');if(now.navigationId===command.id&&JSON.stringify(now.context?.columns)===JSON.stringify(columns))return '项目列表显示列已更新，未修改业务记录。';await new Promise(r=>setTimeout(r,100))}throw new OryhClientError('页面未确认列配置，请重新读取。','request-failed')}finally{if(this.navigation.get(id)===command)this.navigation.delete(id)}
+    this.queue.issue(id,command)
+    try{return await this.queue.wait<string>(id,'navigation',{
+      invalid:()=>{const now=this.pages.get(id);return !this.queue.holds(id,command.id)||now?.page!=='list-projects'||now.context?.key!=='list-projects:list'?'项目页面已变化，请重新读取。':undefined},
+      until:()=>{const now=this.pages.get(id);return now?.navigationId===command.id&&JSON.stringify(now.context?.columns)===JSON.stringify(columns)?'项目列表显示列已更新，未修改业务记录。':undefined},
+      expired:'页面未确认列配置，请重新读取。',timeoutMs:10000,signal,
+    })}finally{this.queue.withdraw(id,command.id)}
   }
   async configureRecordColumns(id:string,columns:string[],signal:AbortSignal){
     const p=this.currentPage(id),kind=p.page as import('@oryh/ai-client-core/types').RecordKind
@@ -135,8 +146,12 @@ export class BusinessChat {
     const allowed=recordColumns(kind)
     if(!columns.length||columns.length>Object.keys(allowed).length||new Set(columns).size!==columns.length||columns.some(c=>!Object.hasOwn(allowed,c)))throw new OryhClientError('列配置无效，请选择当前列表支持的字段，至少保留一列。','request-failed')
     const command:ChatNavigation={id:randomUUID(),target:'columns',page:kind,columns,expiresAt:Date.now()+10000}
-    this.navigation.set(id,command)
-    try{while(Date.now()<command.expiresAt){signal.throwIfAborted();const now=this.pages.get(id);if(this.navigation.get(id)!==command||now?.page!==kind||now.context?.key!==`${kind}:list`)throw new OryhClientError('页面已变化，请重新读取。','request-failed');if(now.navigationId===command.id&&JSON.stringify(now.context.columns)===JSON.stringify(columns))return '当前列表显示列已更新，未修改业务记录。';await new Promise(r=>setTimeout(r,100))}throw new OryhClientError('页面未确认列配置，请重新读取。','request-failed')}finally{if(this.navigation.get(id)===command)this.navigation.delete(id)}
+    this.queue.issue(id,command)
+    try{return await this.queue.wait<string>(id,'navigation',{
+      invalid:()=>{const now=this.pages.get(id);return !this.queue.holds(id,command.id)||now?.page!==kind||now.context?.key!==`${kind}:list`?'页面已变化，请重新读取。':undefined},
+      until:()=>{const now=this.pages.get(id);return now?.navigationId===command.id&&JSON.stringify(now.context?.columns)===JSON.stringify(columns)?'当前列表显示列已更新，未修改业务记录。':undefined},
+      expired:'页面未确认列配置，请重新读取。',timeoutMs:10000,signal,
+    })}finally{this.queue.withdraw(id,command.id)}
   }
   async configureInventoryFilters(id:string,fields:string[],productCode:string|undefined,signal:AbortSignal,productIds?:string[]){
     const p=this.currentPage(id)
@@ -153,21 +168,21 @@ export class BusinessChat {
     }
     if(this.homes.get(id)!==home||this.currentPage(id).revision!==p.revision)throw new OryhClientError('页面已变化，请重新读取。','request-failed')
     const command:ChatNavigation={id:randomUUID(),target:'filters',page:'inventory-item-details',queryFields:fields,...(products?{products,productIds:products.map(p=>p.id)}:{}),expiresAt:Date.now()+10000}
-    this.navigation.set(id,command)
-    try{while(Date.now()<command.expiresAt){
-      signal.throwIfAborted();const now=this.pages.get(id)
-      if(this.navigation.get(id)!==command||now?.page!==p.page||now.context?.key!==p.context.key)throw new OryhClientError('页面已变化，请重新读取。','request-failed')
-      if(now.navigationId===command.id&&JSON.stringify(now.context.queryFields)===JSON.stringify(fields)&&(products===undefined||JSON.stringify(now.context.productIds)===JSON.stringify(products.map(p=>p.id))))return '查询栏已更新。若设置了产品编码，查询已发起；请读取当前页面的 loading、error 和结果确认查询是否完成。'
-      await new Promise(r=>setTimeout(r,100))
-    }throw new OryhClientError('页面未确认查询栏配置，请重新读取。','request-failed')}finally{if(this.navigation.get(id)===command)this.navigation.delete(id)}
+    this.queue.issue(id,command)
+    try{return await this.queue.wait<string>(id,'navigation',{
+      invalid:()=>{const now=this.pages.get(id);return !this.queue.holds(id,command.id)||now?.page!==p.page||now.context?.key!==p.context?.key?'页面已变化，请重新读取。':undefined},
+      until:()=>{const now=this.pages.get(id)
+        return now?.navigationId===command.id&&JSON.stringify(now.context?.queryFields)===JSON.stringify(fields)&&(products===undefined||JSON.stringify(now.context?.productIds)===JSON.stringify(products.map(v=>v.id)))
+          ?'查询栏已更新。若设置了产品编码，查询已发起；请读取当前页面的 loading、error 和结果确认查询是否完成。':undefined},
+      expired:'页面未确认查询栏配置，请重新读取。',timeoutMs:10000,signal,
+    })}finally{this.queue.withdraw(id,command.id)}
   }
   async homePoll(r:ChatHomeRequest):Promise<ChatNavigation|undefined>{
     const b=this.homes.get(r.sessionId)
     if(!b||b.connectionId!==r.connectionId)throw new OryhClientError('会话尚未绑定企业。','request-failed')
-    const n=this.navigation.get(r.sessionId)
-    return n&&n.expiresAt>Date.now()?n:undefined
+    return this.queue.peek(r.sessionId)
   }
-  homeClear(sessionId:string){this.project.clear(sessionId);this.pages.delete(sessionId);this.homes.delete(sessionId);this.navigation.delete(sessionId);this.serial=this.serial.then(()=>{this.homes.delete(sessionId);this.navigation.delete(sessionId)})}
+  homeClear(sessionId:string){this.project.clear(sessionId);this.pages.delete(sessionId);this.homes.delete(sessionId);this.queue.clear(sessionId,'会话已离开页面。');this.serial=this.serial.then(()=>{this.homes.delete(sessionId);this.queue.clear(sessionId,'会话已离开页面。')})}
   async openProject(sessionId:string,signal:AbortSignal){
     const home=this.homes.get(sessionId)
     if(!home||!this.projects)throw new OryhClientError('请先连接企业。','request-failed')
@@ -175,8 +190,12 @@ export class BusinessChat {
     if(JSON.stringify([c.origin,c.identity.tenant.id,c.identity.user.id,c.identity.user.employeeId])!==home.scope)throw new OryhClientError('企业身份已改变。','connection-identity-mismatch')
     if(!(await this.projects.projectOptions(home.connectionId)).canCreate)throw new OryhClientError('当前账号没有创建项目的主数据管理权限。','request-failed')
     if(this.homes.get(sessionId)!==home)throw new OryhClientError('企业页面已改变。','request-failed')
-    const command:ChatNavigation={id:randomUUID(),target:'project',expiresAt:Date.now()+15000};this.navigation.set(sessionId,command)
-    try{while(Date.now()<command.expiresAt){signal.throwIfAborted();if(this.navigation.get(sessionId)!==command)throw new OryhClientError('页面已改变。','request-failed');if(this.project.current(sessionId)?.navigationId===command.id)return '新建项目表单已打开，未保存内容保留。请先读取字段再填写；尚未创建项目。';await new Promise(r=>setTimeout(r,100))}throw new OryhClientError('项目表单未能打开，请核对页面状态后重试。','request-failed')}finally{if(this.navigation.get(sessionId)===command)this.navigation.delete(sessionId)}
+    const command:ChatNavigation={id:randomUUID(),target:'project',expiresAt:Date.now()+15000};this.queue.issue(sessionId,command)
+    try{return await this.queue.wait<string>(sessionId,'navigation',{
+      invalid:()=>this.queue.holds(sessionId,command.id)?undefined:'页面已改变。',
+      until:()=>this.project.current(sessionId)?.navigationId===command.id?'新建项目表单已打开，未保存内容保留。请先读取字段再填写；尚未创建项目。':undefined,
+      expired:'项目表单未能打开，请核对页面状态后重试。',timeoutMs:15000,signal,
+    })}finally{this.queue.withdraw(sessionId,command.id)}
   }
   async openTimesheet(sessionId:string,signal:AbortSignal, headerId='', todoId=''):Promise<string>{
     const home=this.homes.get(sessionId)
@@ -191,18 +210,19 @@ export class BusinessChat {
     }
     if(this.homes.get(sessionId)!==home)throw new OryhClientError('企业页面已改变。','request-failed')
     const command:ChatNavigation={id:randomUUID(),expiresAt:Date.now()+15000,...(headerId?{headerId,todoId,manager:Boolean(todoId)}:{})}
-    this.navigation.set(sessionId,command)
+    this.queue.issue(sessionId,command)
     try{
-      while(Date.now()<command.expiresAt){
-        signal.throwIfAborted()
-        if(this.homes.get(sessionId)!==home)throw new OryhClientError('会话页面已离开。','request-failed')
-        const state=this.timesheet.current(sessionId)
-        if(headerId&&state?.navigationId===command.id&&state.headerId===headerId&&Boolean(state.manager)===Boolean(todoId))return '指定工时已在右侧打开。编辑权限由服务端身份、权限和状态共同决定，请读取当前单据后继续；未修改或保存数据。'
-        if(!headerId&&state?.navigationId===command.id&&state.fields)return '工时填写表单已打开，保留已有未保存内容。请调用 oryh_timesheet_read 获取版本和字段后填写；未保存到服务端。'
-        await new Promise(r=>setTimeout(r,100))
-      }
-      throw new OryhClientError('表单未能打开，请检查连接或未保存的明细编辑，完成后重试。','request-failed')
-    }finally{if(this.navigation.get(sessionId)===command)this.navigation.delete(sessionId)}
+      return await this.queue.wait<string>(sessionId,'navigation',{
+        invalid:()=>this.homes.get(sessionId)!==home?'会话页面已离开。':undefined,
+        until:()=>{
+          const state=this.timesheet.current(sessionId)
+          if(state?.navigationId!==command.id)return undefined
+          if(headerId)return state.headerId===headerId&&Boolean(state.manager)===Boolean(todoId)?'指定工时已在右侧打开。编辑权限由服务端身份、权限和状态共同决定，请读取当前单据后继续；未修改或保存数据。':undefined
+          return state.fields?'工时填写表单已打开，保留已有未保存内容。请调用 oryh_timesheet_read 获取版本和字段后填写；未保存到服务端。':undefined
+        },
+        expired:'表单未能打开，请检查连接或未保存的明细编辑，完成后重试。',timeoutMs:15000,signal,
+      })
+    }finally{this.queue.withdraw(sessionId,command.id)}
   }
   async findTimesheets(sessionId:string){
     const home=this.homes.get(sessionId)
@@ -233,17 +253,17 @@ export class BusinessChat {
     await this.details.read(b.connectionId,target.id)
     if(this.bindings.get(sessionId)!==b)throw new OryhClientError('列表已改变，请重新读取。','request-failed')
     const command:ChatNavigation={id:randomUUID(),expiresAt:Date.now()+15000,target:'todo',todoId:target.id,listRevision:revision}
-    this.navigation.set(sessionId,command)
+    this.queue.issue(sessionId,command)
     try{
-      while(Date.now()<command.expiresAt){
-        signal.throwIfAborted()
-        if(this.navigation.get(sessionId)!==command)throw new OryhClientError('导航已取消。','request-failed')
-        const selected=this.bindings.get(sessionId)
-        if(selected?.navigationId===command.id&&selected.todoId===target.id&&selected.document)return selected.document
-        await new Promise(r=>setTimeout(r,100))
-      }
-      throw new OryhClientError('待办详情未能打开，列表可能已更新或页面已切换，请重新读取后重试。','request-failed')
-    }finally{if(this.navigation.get(sessionId)===command)this.navigation.delete(sessionId)}
+      return await this.queue.wait<TodoDocument>(sessionId,'navigation',{
+        invalid:()=>this.queue.holds(sessionId,command.id)?undefined:'导航已取消。',
+        until:()=>{
+          const selected=this.bindings.get(sessionId)
+          return selected?.navigationId===command.id&&selected.todoId===target.id&&selected.document?selected.document:undefined
+        },
+        expired:'待办详情未能打开，列表可能已更新或页面已切换，请重新读取后重试。',timeoutMs:15000,signal,
+      })
+    }finally{this.queue.withdraw(sessionId,command.id)}
   }
   async read(sessionId:string):Promise<TodoDocument>{
     const binding=this.bindings.get(sessionId)
@@ -282,6 +302,6 @@ export class BusinessChat {
     }
     ctx.on('agent/created',({agent})=>mount(agent));ctx.agents.list().forEach(mount)
     ctx.on('tools/pre-execute',async(exec,next)=>toolNames.includes(exec.name)&&exec.agent?next():{kind:'deny',reason:'ORYH 仅开放待办查询、工时读取和工时建议工具；正式确认只能在业务页面完成。'})
-    ctx.effect(()=>()=>{this.bindings.clear();this.homes.clear();this.pages.clear();this.navigation.clear();mounted.clear()},'oryh business bindings')
+    ctx.effect(()=>()=>{this.bindings.clear();this.homes.clear();this.pages.clear();this.queue.disposeAll();mounted.clear()},'oryh business bindings')
   }
 }

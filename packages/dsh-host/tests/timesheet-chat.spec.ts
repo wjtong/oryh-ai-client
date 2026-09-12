@@ -2,12 +2,13 @@ import { describe,it,expect,vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionId,OryhTimesheetRemote,TimesheetFields } from '@oryh/ai-client-core/types'
 import { TimesheetChat } from '../src/timesheet-chat.js'
+import { CommandQueue } from '../src/command-queue.js'
 const fields:TimesheetFields={period_start:'2026-09-09',period_end:'2026-09-09',source_report_text:'开发',entries:[{work_date:'2026-09-09',hours:8,work_type:'normal',project_id:'p',task:'开发',notes:''}]}
 function setup(){
  const prepare=vi.fn(),confirm=vi.fn()
  const api={timesheetList:async()=>[{id:'h',employee_id:'e',period_start:'2026-09-09',period_end:'2026-09-09',status:'draft',source_report_text:''}],timesheetQueue:async()=>[{id:'t',entity_id:'h',title:'审批',description:''}],timesheetOptions:async()=>({workTypes:[{name:'normal',title:'正常工时'}],projects:[{id:'p',name:'项目'}],editableStates:['draft'],submitStates:['draft'],requirements:[]}),timesheetDetail:async()=>({header:{id:'h',employee_id:'e',period_start:'2026-09-09',period_end:'2026-09-09',status:'draft',source_report_text:''},entries:[{...fields.entries[0],id:'line'}],approval_records:[]}),timesheetPrepare:prepare,timesheetConfirm:confirm} as unknown as OryhTimesheetRemote
  const binding={connectionId:'c' as ConnectionId,timesheetPage:'page',manager:false}
- const chat=new TimesheetChat({} as Context,api,async()=>binding)
+ const chat=new TimesheetChat({} as Context,api,async()=>binding,new CommandQueue())
  const state={sessionId:'s',connectionId:binding.connectionId,pageKey:'page',revision:1,manager:false,fields}
  return {chat,api,binding,state,prepare,confirm}
 }
