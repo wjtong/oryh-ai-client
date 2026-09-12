@@ -1,6 +1,15 @@
 @scope (.oryh-business-root) {
 .client-root { --bg: #f6f7f9; --surface: #fff; --nav: #f3f5f7; --text: #26313c; --muted: #707b87; --line: #e5e9ed; --accent: #246b63; --accent-soft: #e6f0ed; --hover: #f6f8f9; min-height: 100%; color: var(--text); background: var(--bg); font-size: 14px; line-height: 1.5; }
-.client-root[data-theme="dark"] { --bg: #151a20; --surface: #1c222a; --nav: #191f26; --text: #e1e7ee; --muted: #9aa8b6; --line: #303944; --accent: #86c9bb; --accent-soft: #253d39; --hover: #242d36; }
+/* Two selectors because dialogs live somewhere else. Fluent mounts them in our portal node under a
+   provider it clones, and the clone copies `className` — so `.client-root` still matches — but not
+   the `data-theme` we set in app.tsx. Keyed on the class alone, every token inside a dialog fell
+   back to the light palette while Fluent painted its dark-mode white text: that is how the review
+   verdict came out white on white.
+   The ancestor form is matched against the portal node, which index.tsx stamps with the same theme.
+   It cannot be matched against `.oryh-business-root` instead, even though that element carries the
+   attribute too: this sheet is inside `@scope (.oryh-business-root)`, where an ancestor compound
+   only matches elements *within* the scope, and the scope root is not a descendant of itself. */
+.client-root[data-theme="dark"], [data-theme="dark"] .client-root { --bg: #151a20; --surface: #1c222a; --nav: #191f26; --text: #e1e7ee; --muted: #9aa8b6; --line: #303944; --accent: #86c9bb; --accent-soft: #253d39; --hover: #242d36; }
 h1, h2, h3, p { margin-top: 0; }
 h1 { font-size: 26px; line-height: 1.35; letter-spacing: -.6px; font-weight: 650; margin-bottom: 6px; }
 h2 { font-size: 17px; line-height: 1.5; font-weight: 600; margin-bottom: 10px; }

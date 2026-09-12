@@ -51,7 +51,12 @@ function registerUi(ctx: Context): void {
     const [portal, setPortal] = useState<HTMLDivElement | null>(null)
     return <div className="oryh-business-root" data-theme={theme.active.colorScheme}>
       <PortalMountNodeProvider value={portal ?? undefined}><RemoteContext.Provider value={remote}><LocaleContext.Provider value={t}><BusinessSessionContext.Provider value={sessionId}><BusinessNavigationContext.Provider value={navigate}><App dark={theme.active.colorScheme === 'dark'} page={page} onIdentity={onIdentity}/></BusinessNavigationContext.Provider></BusinessSessionContext.Provider></LocaleContext.Provider></RemoteContext.Provider></PortalMountNodeProvider>
-      <div ref={setPortal} className="oryh-business-portals"/>
+      {/* The theme is repeated here on purpose. Fluent mounts dialogs under a provider it clones
+          into this node; the clone copies `className` (so `.client-root` still matches) but not our
+          `data-theme`, and our stylesheet is inside `@scope (.oryh-business-root)`, where an
+          ancestor selector cannot reach the scope root itself. Without this attribute every token
+          in a dialog falls back to the light palette under Fluent's dark-mode text. */}
+      <div ref={setPortal} className="oryh-business-portals" data-theme={theme.active.colorScheme}/>
     </div>
   }))
 }
