@@ -6,7 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { OryhClientController,TodoDetailService } from '@oryh/ai-client-core'
 import { BusinessChat } from '../src/business-chat.js'
 const connectionId='c' as import('@oryh/ai-client-core').ConnectionId
-async function setup(api?:import('@oryh/ai-client-core/types').OryhTimesheetRemote){
+async function setup(api?:import('@oryh/ai-client-timesheets').OryhTimesheetRemote){
  const directory=await mkdtemp(join(tmpdir(),'oryh-chat-'))
  const agent={id:'s',status:'idle',session:{header:{isSeeded:false,parentSession:undefined as string|undefined}}}
  const identity={id:connectionId,origin:'https://oryh.example',identity:{permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],tenant:{id:'tenant'},user:{id:'user',employeeId:'employee'}}}
@@ -48,7 +48,7 @@ describe('chat-first navigation',()=>{
 describe('open existing timesheet navigation',()=>{
  it.each([false,true])('validates the target before navigation and awaits the matching detail (manager=%s)',async(manager)=>{
   const calls:unknown[]=[]
-  const api={timesheetDetail:async(...args:unknown[])=>{calls.push(args);return {header:{id:'header'},canEdit:!manager}}} as unknown as import('@oryh/ai-client-core/types').OryhTimesheetRemote
+  const api={timesheetDetail:async(...args:unknown[])=>{calls.push(args);return {header:{id:'header'},canEdit:!manager}}} as unknown as import('@oryh/ai-client-timesheets').OryhTimesheetRemote
   const f=await setup(api)
   try{
    await f.chat.select({sessionId:'s',connectionId,homeOnly:true});f.agent.status='running'
@@ -64,7 +64,7 @@ describe('open existing timesheet navigation',()=>{
   }finally{await f.close()}
  })
  it('does not publish navigation for an inaccessible record',async()=>{
-  const api={timesheetDetail:async()=>{throw Error('没有权限')}} as unknown as import('@oryh/ai-client-core/types').OryhTimesheetRemote
+  const api={timesheetDetail:async()=>{throw Error('没有权限')}} as unknown as import('@oryh/ai-client-timesheets').OryhTimesheetRemote
   const f=await setup(api);try{await f.chat.select({sessionId:'s',connectionId,homeOnly:true});await expect(f.chat.openTimesheet('s',new AbortController().signal,'other')).rejects.toThrow('没有权限');expect(f.chat.snapshot('s').navigation).toBeUndefined()}finally{await f.close()}
  })
 })

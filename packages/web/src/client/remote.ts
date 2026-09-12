@@ -10,7 +10,8 @@ import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 import type { CommandFrame } from '@oryh/dsh-host/types'
 import type { CommandState, CommandStreamHandle } from './command-stream.js'
 import type {} from '@oryh/dsh-host/remote'
-import type { OryhClientRemote, OryhExpenseRemote, OryhTimesheetRemote, ConnectionId } from '@oryh/ai-client-core/types'
+import type { OryhClientRemote, OryhExpenseRemote, ConnectionId } from '@oryh/ai-client-core/types'
+import type { OryhTimesheetRemote } from '@oryh/ai-client-timesheets'
 
 interface BusinessChatRemote { projectChatSync(request:ProjectChatState):Promise<void>;projectChatClear(sessionId:string):Promise<void>; chatPageSync(request:ChatPageRequest):Promise<void>; chatHomeClear(sessionId:string):Promise<void>; timesheetChatSync(request:TimesheetChatState):Promise<void>; openCommands(request:ChatHomeRequest):CommandStreamHandle; todoDetail(connectionId: string, todoId: string): Promise<TodoDocument>; chatSelect(request: ChatSelection): Promise<ChatContextView>; chatClear(sessionId: string): Promise<void> }
 export type BusinessRemote = BusinessChatRemote & OryhRecordRemote & OryhProjectRemote & OryhClientRemote & OryhExpenseRemote & OryhTimesheetRemote

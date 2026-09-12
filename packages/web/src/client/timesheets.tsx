@@ -1,10 +1,11 @@
-import {hasPermission} from '@oryh/ai-client-core/access'
+import {hasPermission} from '@oryh/ai-client-pages'
 import {useViewPreference,textPreference,PreferenceDetails} from './view-preferences.js'
 import type { ChatNavigation } from '@oryh/dsh-host/types'
 import { TimesheetChat } from './timesheet-chat.js'
 import { useEffect, useRef, useState } from 'react'
 import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle } from '@fluentui/react-components'
-import type { ConnectionSummary, TimesheetAction, TimesheetDetail, TimesheetFields, TimesheetHeader, TimesheetIntent, TimesheetLine, TimesheetOptions, TimesheetTodo } from '@oryh/ai-client-core/types'
+import type { ConnectionSummary } from '@oryh/ai-client-core/types'
+import type { TimesheetAction, TimesheetDetail, TimesheetFields, TimesheetHeader, TimesheetIntent, TimesheetLine, TimesheetOptions, TimesheetTodo } from '@oryh/ai-client-timesheets'
 import { useOryhRemote } from './remote.js'
 import { useText } from './locale.js'
 const today=()=>new Date().toLocaleDateString('en-CA')

@@ -1,6 +1,7 @@
 import { describe,it,expect,vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionId,OryhTimesheetRemote,TimesheetFields } from '@oryh/ai-client-core/types'
+import type { ConnectionId } from '@oryh/ai-client-foundation'
+import type { OryhTimesheetRemote,TimesheetFields } from '@oryh/ai-client-timesheets'
 import { TimesheetChat } from '../src/timesheet-chat.js'
 import { CommandQueue } from '../src/command-queue.js'
 const fields:TimesheetFields={period_start:'2026-09-09',period_end:'2026-09-09',source_report_text:'开发',entries:[{work_date:'2026-09-09',hours:8,work_type:'normal',project_id:'p',task:'开发',notes:''}]}

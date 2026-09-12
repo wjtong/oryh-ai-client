@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState } from 'react'
 import { Button } from '@fluentui/react-components'
-import type { ConnectionId, TimesheetAction, TimesheetFields } from '@oryh/ai-client-core/types'
+import type { ConnectionId } from '@oryh/ai-client-foundation'
+import type { TimesheetAction, TimesheetFields } from '@oryh/ai-client-timesheets'
 import type { TimesheetChatProposal } from '@oryh/dsh-host/types'
 import { BusinessSessionContext } from './todo-chat.js'
 import { useCommands } from './command-stream.js'

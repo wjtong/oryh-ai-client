@@ -1,4 +1,4 @@
-import {canAccessPage,hasPermission} from '@oryh/ai-client-core/access';
+import {canAccessPage,hasPermission} from '@oryh/ai-client-pages';
 import {z} from 'zod';
 import {useViewPreference} from './view-preferences.js';
 const expenseTabPreference=z.enum(['list','drafts']).catch('list');

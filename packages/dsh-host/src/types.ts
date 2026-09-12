@@ -20,9 +20,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap { 'oryh/business': { code: string } }
 }
 
-export type { TimesheetHeader, TimesheetTodo, TimesheetOptions, TimesheetDetail, TimesheetIntent } from '@oryh/ai-client-core/types'
+export type { TimesheetHeader, TimesheetTodo, TimesheetOptions, TimesheetDetail, TimesheetIntent } from '@oryh/ai-client-timesheets'
 export interface TimesheetDetailRequest extends ConnectionRequest { headerId: string; todoId?: string }
-export interface TimesheetActionRequest extends ConnectionRequest { action: import('@oryh/ai-client-core/types').TimesheetAction }
+export interface TimesheetActionRequest extends ConnectionRequest { action: import('@oryh/ai-client-timesheets').TimesheetAction }
 
 export interface TodoDetailRequest extends ConnectionRequest { todoId: string }
 export interface ChatClearRequest { sessionId: string }
@@ -35,11 +35,11 @@ export interface TimesheetChatState {
   manager: boolean; headerId?: string; todoId?: string
   localEdits?: string
   navigationId?: string
-  fields?: import('@oryh/ai-client-core/types').TimesheetFields
+  fields?: import('@oryh/ai-client-timesheets').TimesheetFields
 }
 export interface TimesheetChatPoll { sessionId: string; connectionId: ConnectionId; pageKey: string }
 export interface TimesheetChatProposal {
-  id: string; revision: number; action: import('@oryh/ai-client-core/types').TimesheetAction
+  id: string; revision: number; action: import('@oryh/ai-client-timesheets').TimesheetAction
 }
 
 export interface ChatHomeRequest { sessionId:string; connectionId:ConnectionId }

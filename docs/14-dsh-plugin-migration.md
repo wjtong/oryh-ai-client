@@ -358,3 +358,33 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 全程控制台错误计数停在 203，新增的 3 条来自杀掉旧服务到重新导航之间的窗口。未保存、未提交，随后放弃未保存修改。
 
 遗留（不在第 3 步范围内）：`records.tsx` 的 `recordTitles` 与登记表标题重复且已漂移（`Shipment · 收发货` vs `Shipment 收发货`）；`records.tsx` 从 `workbench.tsx` 导入 `PageContext`、而 `workbench` 又导入 `RecordPanel`，是一处仅类型的循环引用；`@oryh/dsh-connections` 与 `@oryh/dsh-workbench` 的边界仍待定义。
+
+### 第 4 步：timesheets 抽包与 `@oryh/ai-client-store`（2026-09-12）
+
+工时域比 records 复杂，records 的模式不能直接套用，调研中发现三件事。
+
+**存储原语必须单独成包。** `EncryptedRevisionStore<T>` 写在 `timesheet-store.ts` 里，但 `local-runtime.ts` 直接用它装项目数据（`EncryptedRevisionStore<ProjectRecord>`），`EncryptedTimesheetStore` 只是它的子类。若让它随工时域搬走，项目就要从 timesheets 包取存储；留在 core 又会形成 `local-runtime → timesheets → core` 的环；放进 foundation 则要把 `@napi-rs/keyring` 带进那个"零依赖"包。三条路里只有第四条成立：新建 `@oryh/ai-client-store`（`packages/store`）。顺带确认 `EncryptedExpenseStore` **不是**它的子类，而是另写了一份近乎相同的 AES-GCM 实现——两份约 90 行的重复，合并是单独的一件事。
+
+**两处跨域泄漏。** 其一，`timesheets.ts` 从 `expense-contracts.js` 借用 `object()`，因此工时响应格式错误时抛的是 `expenseError('费用数据无效。')`、code 为 `expense-conflict`。其二，`EncryptedRevisionStore` 内部一律抛 `timesheetError`，于是项目存储失败会报成工时冲突。
+
+两处的处理**故意不同**，理由是代价不对称：存储原语只要保留原有 code，成本就是一个带注释的常量，因此按"搬迁不改行为"原则原样保留，把问题记录下来另行修正；而 `object()` 若要保留原样，就得把费用域的错误构造函数复制进 timesheets 包——那正与抽包的目的相反，且任何后来者都会把它当成错误。核对过没有任何测试或消费者观察过这个 code（`费用数据无效` 全仓只出现在构造处），因此 timesheets 包改用自己的 `object()` 抛 `timesheetError('工时数据无效。')`，并在新包的 spec 中固定这一行为，避免旧的跨域错误悄悄回来。
+
+**不是所有测试都跟着域走。** `core/tests/timesheets.spec.ts`（15 项）构造的是**真实**的 `OryhHttpClient` 与 `ConnectionRegistry`，是一条贯穿 core 传输层、凭据注入、分页与服务本身的集成测试。搬到 timesheets 包要么让 core 成为它的 devDependency（成环且方向相反），要么把真实传输换成假对象——那会把全套里最强的一条测试掏空。因此它留在 core，经 shim 引用 `TimesheetService`，一行未改仍然通过，继续充当行为见证。**规则：单元测试随域走，贯穿 core 传输层的集成测试留在 core。** 新包另写了 5 项聚焦测试（字段规则、`object()` 的更正、未关联员工的拒绝）。
+
+**一个与第 3 步相反的失败。** 第 3 步的教训是"兼容 shim 会掩盖没搬干净的引用，编译器发现不了"。这次拆分混合导入时把 `ConnectionId`/`OryhClientError` 指向了 foundation，却只给 dsh-host 加了 timesheets 依赖、漏了 foundation，于是 `TS2307 Cannot find module` 当场失败。同一次改动里两种方向：**指错了编译器不报，声明漏了编译器才报**，所以两件事都要做——重指之后扫一遍，以及确认新边所需的依赖都已声明。
+
+`RecordHttp` 只需要 `request(id,{path})`，`TimesheetHttp` 则要完整的 `{path, method, body, retryExpired}`：工时是写入域。web 对 timesheets 包全部是 `import type`，编译期即擦除，所以 `service.ts` 里的 `node:crypto` 不会进浏览器包；records 当初需要 `sideEffects:false` 是因为那是值导入。
+
+验证：`pnpm run verify` 通过，构建范围 6/10 → 7/11，esbuild 无警告。Pages 6、Timesheets 5、Records 14、Core 73、Workspace 9、Host 41、Client 23。
+
+### 第 4 步的基线回放（2026-09-12）
+
+页面加载时 `/api/oryh/timesheetList`、`timesheetOptions`、`timesheetHistory` 均返回 200，抽出的 `TimesheetService` 经真实 Host 已可用。
+
+**工时：通过，项目正确。** 从"我的工时"新建，五条明细为 09-14 至 09-18、每天 8 小时、正常工时、任务"产线调试"、合计 40 小时，项目为 `577eaa44…`（装配产线自动化技改），与原始基线一致。这条路径正是本步搬走的代码：`oryh_timesheet_propose` → `TimesheetService.timesheetPrepare` → `validateTimesheet` → store，现在跑在结构接口与自带的 `object()` 上，结果逐字相同。
+
+**库存流水加产品列：通过。** 先还原成原五列再发指令，产品编码追加回来、原五列保留、勾选区同步为六列、行值为真实数据。records 本步未改动，这条用于确认工时抽包没有波及邻域。
+
+全程控制台错误计数停在 209（新增 6 条来自杀掉旧服务到重新导航之间的窗口）。未保存、未提交，随后放弃未保存修改。
+
+遗留：`EncryptedExpenseStore` 与 `EncryptedRevisionStore` 的重复实现；`EncryptedRevisionStore` 对项目存储抛工时错误码；以及第 3 步列出的那几项。
