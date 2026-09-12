@@ -99,6 +99,7 @@ ORYH 的核心定位是 agent-native 企业事实与控制层。不同员工仍�
 - [ADR-0005：分离账号认证、设备授权、本地解锁和高风险 step-up](docs/adr/0005-separate-account-auth-device-grant-local-unlock-and-step-up.md)
 - [ADR-0006：采用能力派生工作空间、业务线程投影和分类 Operation](docs/adr/0006-capability-derived-workspaces-and-business-thread-projections.md)
 - [ADR-0007：采用 DSH 0.1.2 Web Profile 与类型化 Remote 集成](docs/adr/0007-dsh-web-profile-and-typed-remotes.md)
+- [ADR-0008：领域保持为库，不拆为可独立启停的业务插件](docs/adr/0008-domain-libraries-not-independent-plugins.md)
 
 ## 当前基线决定
 
