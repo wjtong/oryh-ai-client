@@ -1,5 +1,5 @@
 /** Page commands and the tool waits they settle: state syncs resolve them instead of polling loops. */
-import { OryhClientError } from '@oryh/ai-client-core'
+import { OryhClientError } from '@oryh/ai-client-foundation'
 import type { ChatNavigation } from './types.js'
 
 /** One pending wait. `until` returns its receipt once the synced state satisfies the command. */

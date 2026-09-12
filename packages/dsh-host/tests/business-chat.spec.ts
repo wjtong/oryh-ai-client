@@ -3,9 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe,it,expect,vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type { OryhClientController,TodoDetailService } from '@oryh/ai-client-core'
+import type { OryhClientController } from '@oryh/ai-client-core'
+import type { TodoDetailService } from '@oryh/ai-client-todos'
 import { BusinessChat } from '../src/business-chat.js'
-const connectionId='c' as import('@oryh/ai-client-core').ConnectionId
+const connectionId='c' as import('@oryh/ai-client-foundation').ConnectionId
 async function setup(api?:import('@oryh/ai-client-timesheets').OryhTimesheetRemote){
  const directory=await mkdtemp(join(tmpdir(),'oryh-chat-'))
  const agent={id:'s',status:'idle',session:{header:{isSeeded:false,parentSession:undefined as string|undefined}}}

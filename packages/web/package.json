@@ -11,7 +11,10 @@
   "dependencies": {
     "@fluentui/react-components": "^9.74.7",
     "@oryh/ai-client-core": "workspace:*",
+    "@oryh/ai-client-expenses": "workspace:*",
     "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-projects": "workspace:*",
+    "@oryh/ai-client-todos": "workspace:*",
     "@oryh/ai-client-pages": "workspace:*",
     "@oryh/ai-client-records": "workspace:*",
     "@oryh/ai-client-timesheets": "workspace:*",

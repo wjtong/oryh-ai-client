@@ -13,18 +13,8 @@ export * from './host.js'
 export * from './operations.js'
 export * from './remote.js'
 export * from './saved-operations.js'
-export * from './expense-contracts.js'
-export * from './expense-store.js'
-export * from './expenses.js'
 export * from './local-runtime.js'
 
-export * from './timesheet-contracts.js'
-export * from './timesheet-store.js'
-
-export * from './todo-detail.js'
-
-export * from './project-contracts.js'
-export * from './projects.js'
-
-export * from './record-contracts.js'
-export * from './records.js'
+// The business domains now live in their own packages and are no longer re-exported here:
+// @oryh/ai-client-records, -timesheets, -todos, -projects and -expenses. Consumers import
+// them directly, so nothing can reach a domain through the core.

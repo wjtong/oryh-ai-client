@@ -1,20 +1,37 @@
-import {requirePermission} from './access.js'
+import { OryhClientError, connectionId, type ConnectionId } from '@oryh/ai-client-foundation'
+import { requirePermission } from '@oryh/ai-client-pages'
 import { createHash, randomUUID } from 'node:crypto'
-import { connectionId } from './brand.js'
-import type { ConnectionSummary } from './connections.js'
-import { OryhClientError } from './errors.js'
-import type { OryhHttpClient } from './http.js'
-import { expenseError, object, parseExpenseFields, type ExpenseDraft, type ExpenseFields, type OryhExpenseRemote } from './expense-contracts.js'
-import type { ExpenseRecord, ExpenseStore } from './expense-store.js'
+import { expenseError, object, parseExpenseFields, type ExpenseDraft, type ExpenseFields, type OryhExpenseRemote } from './contracts.js'
+import type { ExpenseRecord, ExpenseStore } from './store.js'
+
+/** The transport this service needs. Expenses write, so the request shape is the full one. */
+export interface ExpenseHttp {
+  request(connectionId: ConnectionId, request: {
+    readonly path: `/${string}`
+    readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+    readonly body?: unknown
+    readonly retryExpired?: boolean
+  }): Promise<unknown>
+}
+
+/** The connection facts this service reads; `ConnectionSummary` satisfies this shape. */
+export interface ExpenseConnection {
+  readonly origin: string
+  readonly identity: {
+    readonly permissions?: readonly string[]
+    readonly user: { readonly id: string; readonly employeeId: string | null }
+    readonly tenant: { readonly id: string }
+  }
+}
 
 /** Deterministic expense workflow. Writes consume a version-bound, expiring confirmation. */
 export class ExpenseService implements OryhExpenseRemote {
   private readonly uploads = new Map<string, { id: string; filename: string; sha256: string }>()
   constructor(
     private readonly store: ExpenseStore,
-    private readonly http: OryhHttpClient,
-    private readonly connection: (id: string) => ConnectionSummary,
-    private readonly verify: (id: string) => Promise<ConnectionSummary>,
+    private readonly http: ExpenseHttp,
+    private readonly connection: (id: string) => ExpenseConnection,
+    private readonly verify: (id: string) => Promise<ExpenseConnection>,
   ) {}
 
   private scope(id: string): string {

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@fluentui/react-components'
-import type { ConnectionId, TodoDocument } from '@oryh/ai-client-core/types'
+import type { ConnectionId } from '@oryh/ai-client-foundation'
+import type { TodoDocument } from '@oryh/ai-client-todos'
 import { useCommands } from './command-stream.js'
 import { useOryhRemote } from './remote.js'
 export const BusinessSessionContext=createContext<string|undefined>(undefined)

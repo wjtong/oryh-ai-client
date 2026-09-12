@@ -1,4 +1,4 @@
-import { OryhClientError } from './errors.js'
+import { OryhClientError } from '@oryh/ai-client-foundation'
 
 /** Editable, model-independent expense fields; identity and lifecycle are Host-owned. */
 export interface ExpenseFields {
@@ -45,6 +45,9 @@ export interface OryhExpenseRemote {
 export function expenseError(message: string): OryhClientError {
   return new OryhClientError(message, 'expense-conflict', 409)
 }
+// This helper was borrowed by the timesheets, projects and todo domains before they were
+// extracted, which is why a malformed response in any of them reported an expense conflict.
+// Each domain now has its own; this one stays here, where the error is actually correct.
 export function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw expenseError('费用数据无效。')
   return value as Record<string, unknown>

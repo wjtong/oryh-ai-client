@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { mkdir, readdir, readFile, open, unlink } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { Entry } from '@napi-rs/keyring'
-import { expenseError, type ExpenseDraft } from './expense-contracts.js'
+import { expenseError, type ExpenseDraft } from './contracts.js'
 
 export interface ExpenseRecord extends ExpenseDraft {
   archived?: boolean
@@ -23,7 +23,14 @@ export class MemoryExpenseStore implements ExpenseStore {
   }
 }
 
-/** AES-GCM snapshots, with a separate OS-keychain key for this data directory. */
+/**
+ * AES-GCM snapshots, with a separate OS-keychain key for this data directory.
+ *
+ * This duplicates @oryh/ai-client-store's EncryptedRevisionStore almost exactly, differing
+ * only in the keychain service name and the wording and code of its errors. It could become
+ * a subclass, but that would change observable error text, so the duplication is moved
+ * verbatim here and recorded as a separate consolidation.
+ */
 export class EncryptedExpenseStore implements ExpenseStore {
   private readonly directory: string
   constructor(directory: string, private readonly keyProvider?: () => Promise<Buffer>) { this.directory = resolve(directory) }

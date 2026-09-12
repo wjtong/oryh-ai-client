@@ -14,10 +14,6 @@
       "types": "./lib/types.d.ts",
       "default": "./lib/types.js"
     },
-    "./views": {
-      "types": "./lib/record-views.d.ts",
-      "default": "./lib/record-views.js"
-    },
     "./access": {
       "types": "./lib/access.d.ts",
       "default": "./lib/access.js"
@@ -25,9 +21,12 @@
   },
   "dependencies": {
     "@napi-rs/keyring": "1.3.0",
+    "@oryh/ai-client-expenses": "workspace:*",
     "@oryh/ai-client-foundation": "workspace:*",
     "@oryh/ai-client-pages": "workspace:*",
+    "@oryh/ai-client-projects": "workspace:*",
     "@oryh/ai-client-records": "workspace:*",
+    "@oryh/ai-client-todos": "workspace:*",
     "@oryh/ai-client-store": "workspace:*",
     "@oryh/ai-client-timesheets": "workspace:*"
   },

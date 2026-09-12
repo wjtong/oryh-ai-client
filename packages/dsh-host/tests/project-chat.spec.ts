@@ -2,7 +2,7 @@ import {describe,it,expect,vi} from 'vitest'
 import {ProjectChat} from '../src/project-chat.js'
 import {CommandQueue} from '../src/command-queue.js'
 import type {Context} from '@deepseek-ai/cordis'
-import type {OryhProjectRemote} from '@oryh/ai-client-core/types'
+import type {OryhProjectRemote} from '@oryh/ai-client-projects'
 const fields={project_name:'Project',project_code:'',client:'Client',start_date:'',end_date:''}
 const state={sessionId:'s',connectionId:'c' as never,pageKey:'page',revision:1,fields,busy:false}
 function fixture(){let page=true;const prepare=vi.fn(),confirm=vi.fn();const p=new ProjectChat({} as Context,{projectOptions:async()=>({canCreate:true}),projectPrepare:prepare,projectConfirm:confirm} as unknown as OryhProjectRemote,()=>{if(!page)throw Error('left');return 'c'},new CommandQueue());p.sync(state);return {p,prepare,confirm,leave:()=>{page=false}}}

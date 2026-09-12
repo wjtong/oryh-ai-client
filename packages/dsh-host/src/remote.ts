@@ -1,22 +1,24 @@
 import type {OryhRecordRemote,RecordQuery,RecordPage,ProductSearch,ProductOptions} from '@oryh/ai-client-records'
-import type {OryhProjectRemote,ProjectIntent,ProjectOptions} from '@oryh/ai-client-core/types'
+import type {OryhProjectRemote,ProjectIntent,ProjectOptions} from '@oryh/ai-client-projects'
 import type {ProjectPrepareRequest,ProjectChatState} from './types.js'
 import type { ChatPageRequest, ChatHomeRequest, CommandFrame } from './types.js'
 import type { TimesheetChatState } from './types.js'
 import type { BusinessChat } from './business-chat.js'
-import type { TodoDetailService, TodoDocument } from '@oryh/ai-client-core'
+import type { TodoDetailService, TodoDocument } from '@oryh/ai-client-todos'
 import type { ChatSelection, ChatContextView } from './types.js'
 import type { TodoDetailRequest, ChatClearRequest } from './types.js'
 import type { OryhTimesheetRemote, TimesheetHeader, TimesheetTodo, TimesheetOptions, TimesheetDetail, TimesheetIntent } from '@oryh/ai-client-timesheets'
 import type { TimesheetDetailRequest, TimesheetActionRequest } from './types.js'
-import { OryhClientRemoteAdapter, OryhClientError } from '@oryh/ai-client-core'
+import { OryhClientRemoteAdapter } from '@oryh/ai-client-core'
+import { OryhClientError } from '@oryh/ai-client-foundation'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {
-  BeginConnectionView, ConnectionId, ConnectionSummary, DeviceAuthorizationId, ExpenseDraft, ExpenseFields,
-  OryhClientController, OryhExpenseRemote, OryhOperationResult, OperationDefinition, OperationId,
-  OperationResultId, PollConnectionView, SavedOperationId, SavedOperationView,
+  BeginConnectionView, ConnectionSummary, OryhClientController, OryhOperationResult,
+  OperationDefinition, OperationId, PollConnectionView, SavedOperationView,
 } from '@oryh/ai-client-core'
+import type { ConnectionId, DeviceAuthorizationId, OperationResultId, SavedOperationId } from '@oryh/ai-client-foundation'
+import type { ExpenseDraft, ExpenseFields, OryhExpenseRemote } from '@oryh/ai-client-expenses'
 
 import type { ConnectRequest, ConnectionRequest, AuthorizationRequest, OperationRequest, ResultRequest, SaveResultRequest, SavedRequest, DraftRequest, SaveDraftRequest, ConfirmDraftRequest, UploadRequest, ExpenseOptions, AttachmentReceipt } from './types.js'
 

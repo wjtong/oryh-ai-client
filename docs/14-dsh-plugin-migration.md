@@ -353,7 +353,7 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 
 **库存流水加产品列：通过。** 先取消勾选还原成原五列再发指令。轨迹参数为 `oryh_record_columns{"columns":["product_code","reason","inventory_item_id","quantity_on_hand_diff","available_to_promise_diff","effective_at"]}`，携带完整六列顺序；模型自己把 `product_code` 放在首位，抽包后的 `recordColumns`/`recordSpecs` 没有重排。模型还正确复述了刚被重置的五列，说明可用列目录（现由 records 包提供）正确。另外页面加载时 `/api/oryh/recordList` 就已返回 200，抽出的 `RecordService` 经真实 Host 可用。
 
-**工时：通过，且项目填对了。** 从"库存流水"跨页切到"我的工时"并打开新建工时单，五条明细为 09-14 至 09-18、每天 8 小时、正常工时、任务"产线调试"、合计 40 小时，项目为 `577eaa44…`（装配产线自动化技改），与原始基线完全一致。**第 2 步回放中填错项目（JC-900 量产导入）这次没有复现**，印证了当时的判断：那是模型的非确定性，不是系统性缺陷。但 `oryh_timesheet_propose` 的回执仍不含实际写入内容，该改进建议依然成立。
+**工时：通过，且项目填对了。** 从"库存流水"跨页切到"我的工时"并打开新建工时单，五条明细为 09-14 至 09-18、每天 8 小时、正常工时、任务"产线调试"、合计 40 小时，项目为 `577eaa44…`（装配产线自动化技改），与原始基线完全一致。**第 2 步回放中填错项目（JC-900 量产导入）这次没有复现。** ⚠️ 后续更正：第 5 步回放中它又复现了一次，四次回放里两次填错。当时写的"印证了不是系统性缺陷"低估了频率——用一次没复现去论证无害，与本文档批评模型"照自己的意图复述"是同一种错误。它确实不是代码缺陷（每次都有轨迹证明错值出自模型的工具参数），但发生率接近一半，详见第 5 步。`oryh_timesheet_propose` 的回执仍不含实际写入内容，该改进建议依然成立。
 
 全程控制台错误计数停在 203，新增的 3 条来自杀掉旧服务到重新导航之间的窗口。未保存、未提交，随后放弃未保存修改。
 
@@ -388,3 +388,33 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 全程控制台错误计数停在 209（新增 6 条来自杀掉旧服务到重新导航之间的窗口）。未保存、未提交，随后放弃未保存修改。
 
 遗留：`EncryptedExpenseStore` 与 `EncryptedRevisionStore` 的重复实现；`EncryptedRevisionStore` 对项目存储抛工时错误码；以及第 3 步列出的那几项。
+
+### 第 5 步：todos、projects、expenses 抽包并删除兼容层（2026-09-12）
+
+三个域一次抽出，随后做一次集中的重指与删除。工作区从 5 个包变成 14 个，`packages/core/src` 从 30 个文件降到 18 个——只剩连接、凭据、HTTP、确定性操作与组合根，也就是 core 本来该是的样子。
+
+**`object()` 的借用比第 4 步发现的更广。** 不只是 timesheets，`projects.ts` 与 `todo-detail.ts` 也从 `expense-contracts.js` 借用它，所以项目与待办响应格式错误时同样报的是 `expense-conflict`／"费用数据无效"。三个域现在各有自己的两行实现：projects 用 `request-failed`，todos 用 `invalid-response`（该服务本来就用这个码报"关联单据与待办不匹配"），expenses 保留原版——那里错误本来就是对的。每个新包都用测试把更正后的码钉住，防止跨域错误悄悄回来。
+
+**"单元测试随域走，贯穿 core 传输层的集成测试留在 core"已经四比零成立。** timesheets、todos、projects、expenses 的 spec 全都构造真实的 `ConnectionRegistry`、`MemoryCredentialVault` 与 `OryhHttpClient`（todo-detail 的第二块还整个搭起 `OryhClientHost` 验证并发核验只做一次）。四条都留在 core，改为从各自包里引入服务、从 core 引入传输层，一共 73 项仍然通过，继续充当行为见证。各新包另写聚焦单元测试：todos 6（其中把**字段白名单**单独钉住——它是阻止凭据与自定义字段进入 chat 的那道闸，此前只被集成测试间接覆盖）、projects 4、expenses 7。
+
+**38 行也值得独立成包。** `todo-detail.ts` 很小，但它带着路由表和字段白名单，是有安全含义的领域逻辑而不是胶水；若因为"小"而留在 core，本阶段"core 化整为零"的终点就被悄悄打了折。
+
+**删除兼容层本身就是重指完整性的证明。** 这是本步最有用的一条：有 shim 在，漏掉的引用照样编译通过，编译器不会告诉你依赖边没有移动（第 3 步的教训）。所以顺序是——先把全部消费者重指，再删掉 12 个域 shim，让构建来裁决。结果立刻抓到三处遗漏：`dsh-host/src/remote.ts` 的 `ExpenseDraft`、`ExpenseFields`、`OryhExpenseRemote`，报错精确到行。
+
+**为什么会漏。** 我先做了一份 41 处引用的清单，但那是**按行**扫的，而这三个符号在一个跨行的 `import type { … }` 块里——清单只看到第 19 行那个孤零零的 `} from '@oryh/ai-client-core'`。**结论：基于 grep 的引用清单对跨行导入是结构性失明的；真正的验证是把兼容层删掉。** 修好后又专门搜了一遍跨行导入块，确认全仓只有那一处。
+
+拆分时还要按目的分辨同一行里的符号：`ConnectionId`、`DeviceAuthorizationId`、`OperationResultId`、`SavedOperationId` 都是已下沉 foundation 的品牌类型，而紧挨着的 `OperationId` 属于 `operations.ts`、留在 core；`OryhProject`、`OryhTodo`、`OryhExpenseClaim` 看着像领域类型，其实是确定性操作的 API 信封解码器，也留在 core。
+
+`core/package.json` 的 `./views` 子路径随 `record-views.ts` 一起删除。`errors.ts`、`brand.ts`、`access.ts` **暂时保留为 shim**：core 自己剩下的十几个文件仍从它们引入，改为直接依赖 foundation／pages 是另一件事，单独记录，不塞进这次搬迁。
+
+验证：`pnpm run verify` 通过，构建范围 10/14、类型检查 13/14，esbuild 无警告，共 188 项测试（todos 6、pages 6、records 14、projects 4、timesheets 5、expenses 7、Core 73、Workspace 9、Host 41、Client 23）。web 对各领域包全部是 `import type`，因此 `node:crypto`、`node:fs` 与 keyring 不会进入浏览器包——esbuild 无警告即是证据。
+
+### 第 5 步的基线回放（2026-09-12）
+
+**库存流水加产品列：通过。** 先还原成原五列再发指令，产品编码追加回来、原五列保留、勾选区同步为六列、行值为真实数据。
+
+**工时：通道通过，但填错项目的缺陷复现了。** 表单五条明细的日期、8 小时、正常工时、任务与合计 40 小时都对，项目却又是 `7ef94480…`（JC-900 量产导入）。轨迹确认错值出自模型自己的工具参数，抽包后的 `TimesheetService` 原样透传——**这正是本次必须查证的假设**：服务已换成结构接口和自带的 `object()`，"抽包过程改坏了 project_id" 是一个真实可能性，不能直接沿用前几次的结论。
+
+**更正频率判断：四次回放两次填错（第 2、5 步错，第 3、4 步对）。** 第 4 步记的"印证了不是系统性缺陷"低估了它。另有一处相关观察（样本只有 4，仅作记录不作结论）：两次填错都发生在模型**先反问、并在反问里列出可选项目**之后；两次填对都是直接从详情消息填写。本次它在反问里甚至把"装配产线自动化技改"列在第一位，随后仍选了 JC-900，所以不是列表顺序问题。这与"回执不带实际写入内容"的改进方向相互印证：让回执回带真正生效的项目名，模型就不必凭自己的意图复述。
+
+全程控制台错误计数停在 212（新增 3 条来自杀掉旧服务到重新导航之间的窗口）。未保存、未提交，随后放弃未保存修改。

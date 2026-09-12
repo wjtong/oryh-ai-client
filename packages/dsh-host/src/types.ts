@@ -1,5 +1,8 @@
-import type { ConnectionId, DeviceAuthorizationId, OperationId, OperationResultId, SavedOperationId, ExpenseFields } from '@oryh/ai-client-core/types'
-export type { BeginConnectionView, ConnectionSummary, ExpenseDraft, ExpenseFields, OryhOperationResult, OperationDefinition, PollConnectionView, SavedOperationView } from '@oryh/ai-client-core'
+import type { ConnectionId, DeviceAuthorizationId, OperationResultId, SavedOperationId } from '@oryh/ai-client-foundation'
+import type { OperationId } from '@oryh/ai-client-core/types'
+import type { ExpenseFields } from '@oryh/ai-client-expenses'
+export type { BeginConnectionView, ConnectionSummary, OryhOperationResult, OperationDefinition, PollConnectionView, SavedOperationView } from '@oryh/ai-client-core'
+export type { ExpenseDraft, ExpenseFields } from '@oryh/ai-client-expenses'
 export interface ConnectRequest { origin: string; clientName: string }
 export interface ConnectionRequest { connectionId: ConnectionId }
 export interface AuthorizationRequest { authorizationId: DeviceAuthorizationId }
@@ -27,8 +30,8 @@ export interface TimesheetActionRequest extends ConnectionRequest { action: impo
 export interface TodoDetailRequest extends ConnectionRequest { todoId: string }
 export interface ChatClearRequest { sessionId: string }
 export interface ChatSelection { sessionId: string; connectionId: ConnectionId; todoId?: string; timesheetPage?: string; manager?: boolean; homeOnly?: boolean; navigationId?: string; visibleTodos?: {id:string;title:string}[]; listRevision?:string }
-export interface ChatContextView { document?:import('@oryh/ai-client-core/types').TodoDocument; ready: boolean; title: string; message: string }
-export type { TodoDocument } from '@oryh/ai-client-core/types'
+export interface ChatContextView { document?:import('@oryh/ai-client-todos').TodoDocument; ready: boolean; title: string; message: string }
+export type { TodoDocument } from '@oryh/ai-client-todos'
 
 export interface TimesheetChatState {
   sessionId: string; connectionId: ConnectionId; pageKey: string; revision: number
@@ -47,10 +50,10 @@ export interface ChatNavigation { id:string; expiresAt:number; target?:'todo'|'p
 
 export interface ChatPageRequest extends ChatHomeRequest { viewId:string; revision:number; navigationId?:string; page:'my-open-todos'|'my-expense-claims'|'list-projects'|'timesheets'|'timesheet-approvals'|'settings'|import('@oryh/ai-client-records').RecordKind; context?:{key:string;title:string;detail:string;scope:string;content?:string;queryFields?:string[];productCode?:string;productIds?:string[];products?:import('@oryh/ai-client-records').ProductOption[];columns?:string[];availableColumns?:{id:string;label:string}[]} }
 
-export type {ProjectFields,ProjectIntent,ProjectOptions} from '@oryh/ai-client-core/types'
-export interface ProjectPrepareRequest extends ConnectionRequest {fields:import('@oryh/ai-client-core/types').ProjectFields}
-export interface ProjectChatState extends ChatHomeRequest {pageKey:string;revision:number;navigationId?:string;fields:import('@oryh/ai-client-core/types').ProjectFields;busy:boolean}
-export interface ProjectChatProposal {id:string;revision:number;fields:import('@oryh/ai-client-core/types').ProjectFields}
+export type {ProjectFields,ProjectIntent,ProjectOptions} from '@oryh/ai-client-projects'
+export interface ProjectPrepareRequest extends ConnectionRequest {fields:import('@oryh/ai-client-projects').ProjectFields}
+export interface ProjectChatState extends ChatHomeRequest {pageKey:string;revision:number;navigationId?:string;fields:import('@oryh/ai-client-projects').ProjectFields;busy:boolean}
+export interface ProjectChatProposal {id:string;revision:number;fields:import('@oryh/ai-client-projects').ProjectFields}
 
 export type ProjectColumn='name'|'code'|'status'|'client'|'startDate'|'endDate'|'createdAt'|'updatedAt'
 

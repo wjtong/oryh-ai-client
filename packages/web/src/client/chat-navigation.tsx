@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatPageRequest, ChatNavigation as Navigation } from '@oryh/dsh-host/types'
 import type { BusinessView } from './layout-store.js'
-import type { ConnectionId } from '@oryh/ai-client-core/types'
+import type { ConnectionId } from '@oryh/ai-client-foundation'
 import { BusinessSessionContext } from './todo-chat.js'
 import { useCommands } from './command-stream.js'
 import { useOryhRemote } from './remote.js'

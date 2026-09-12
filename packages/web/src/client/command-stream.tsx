@@ -1,7 +1,7 @@
 /** One Host command stream per bound session, shared by every business view. */
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { CommandSnapshot } from '@oryh/dsh-host/types'
-import type { ConnectionId } from '@oryh/ai-client-core/types'
+import type { ConnectionId } from '@oryh/ai-client-foundation'
 import { useOryhRemote } from './remote.js'
 
 /** Published command state: the last full set the Host sent, plus any terminal failure. */
