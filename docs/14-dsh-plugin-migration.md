@@ -213,6 +213,16 @@ ORYH 现有流水端点不支持 product_id：插件组合现有租户限定 GET
 
 **未先核验就读取连接的业务方法。** `timesheetHistory`、`timesheetOptions` 与 `expenseList`、`expenseOptions`、`expenseSave`、`expenseUpload`、`expenseDelete` 直接经 `scope()`（`expenseDelete` 经 `read()`）调用 `requireVerified`，没有像同类读取那样先 `await verify()`。`projectPrepare` 与 `projectConfirm` 经 `authorize()` → `projectOptions` 已覆盖，`records`、`todo-detail` 与其余工时方法在入口即核验。客户端在挂载、窗口获得焦点和每 60 秒都会重新核验，而 `verifyIdentity` 会先撤销已核验状态、再 await 一次 `/auth/me` 往返，成功后才重新标记。任何未经 await 的读取只要落入这个窗口就抛 `connection-verification-required`。实测证据：同一次工时面板刷新中，`timesheetList` 返回 `ok:true` 和三条真实工时，`timesheetHistory` 同时返回 `connection-verification-required`；面板用 `Promise.all` 聚合，一个失败即整体 reject，已成功的列表数据被丢弃，界面显示告警加“暂无记录”。四处均改为先 `await verify()`。该问题由 2026-09-11 的权限改动引入，与本次布局迁移无关。
 
+### 收口：默认模型、补丁检查与包说明（2026-09-12）
+
+`dsh-base` 把新 Agent 的默认模型写死为 `deepseek-flash`（V41），中转型 DeepSeek 端点会以 412 拒绝。ORYH 的 bundle patch 现在覆盖 `agent-default-model` 行为 `deepseek-v4-flash`；patch 会整体替换该行 config，所以 provider 与 model 两个键都完整重写。注意优先级：该插件把组合配置作为设置区的默认值，随后通过 `setSource` 实时读用户层，因此 `settings.yaml` 里已保存的选择仍然优先——覆盖只对全新 profile 生效，已有 profile 要在界面或设置文件里改。
+
+外部 Remote 符号补丁仍未进入上游，DSH 同步会静默丢弃它，而生成器随后只是跳过被装饰的方法、不会报错。`scripts/check-dsh-patch.mjs` 在 `build` 首步检查链接到的生成器源码是否含该修复，缺失即失败并打印重新应用的命令。
+
+`@oryh/dsh-bundle`、`@oryh/dsh-host` 与 `@oryh/dsh-client` 的 README 此前仍写着“没有方法注册为模型工具”“Chat 驱动的查询与填写尚未启用”，与 16 个已注册工具、按 Agent 的工具白名单、`tools/pre-execute` 拒绝其余工具以及页面命令回执的现状不符，已按当前行为改写。工具数按源码核对：15 个字面量名加 1 个经 `toolName` 常量注册，与白名单的 16 个名字一致。
+
+验证：`pnpm run verify` 通过，158 项测试；在临时 `DSH_HOME` 安装 profile 并 `--dump-config`，组合结果中 `agent-default-model` 行标注为 “patched by @oryh/dsh-bundle”，config 为 `provider: deepseek-official` 与 `model: deepseek-v4-flash`。bundle 行的覆盖不改变任何已保存的用户设置。
+
 ### 端到端基线：Chat 新建并填写工时（2026-09-12）
 
 在修复后的客户端上用真实测试企业连接与 DeepSeek-V4-Flash 录制。先说“帮我新建一条工时”，模型按提示词先调用 `oryh_open_timesheet` 打开右侧表单；补充“2026-09-14 到 2026-09-18，项目选装配产线自动化技改，每天 8 小时正常工时，工作内容写产线调试”后，模型调用 `oryh_timesheet_propose`（`revision: 5`，`kind: create`），页面按版本校验后写入未保存表单。

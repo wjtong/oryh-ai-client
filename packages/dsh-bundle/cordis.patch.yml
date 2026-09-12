@@ -7,6 +7,13 @@
 # Keep workspace selection inside the browser for this Web client.
 - id: directory-picker
   disabled: true
+# dsh-base defaults new Agents to deepseek-flash (V41), which relayed DeepSeek
+# endpoints reject with HTTP 412. A patch replaces the row's whole config, so both
+# keys are restated. A saved selection in settings.yaml still wins for an existing profile.
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-flash
 - insert:
     - id: oryh-directory-picker-host
       name: '@deepseek-ai/dsh-host-directory-picker-browse'
