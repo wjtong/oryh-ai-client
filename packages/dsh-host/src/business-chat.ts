@@ -177,10 +177,33 @@ export class BusinessChat {
       expired:'页面未确认查询栏配置，请重新读取。',timeoutMs:10000,signal,
     })}finally{this.queue.withdraw(id,command.id)}
   }
-  async homePoll(r:ChatHomeRequest):Promise<ChatNavigation|undefined>{
-    const b=this.homes.get(r.sessionId)
-    if(!b||b.connectionId!==r.connectionId)throw new OryhClientError('会话尚未绑定企业。','request-failed')
-    return this.queue.peek(r.sessionId)
+  /** Every command pending for one session, composed from the queue and both children. */
+  snapshot(sessionId:string):import('./types.js').CommandSnapshot{
+    const navigation=this.queue.peek(sessionId),timesheet=this.timesheet.pending(sessionId),project=this.project.pending(sessionId)
+    return {...(navigation?{navigation}:{}),...(timesheet?{timesheet}:{}),...(project?{project}:{})}
+  }
+  /**
+   * Follow this session's pending commands: a baseline, then the full set after every change.
+   * Replaces the browser's poll loops; reconnecting reopens the stream and starts from a baseline.
+   */
+  async *commands(r:ChatHomeRequest,signal:AbortSignal):AsyncIterable<import('./types.js').CommandFrame>{
+    const home=this.homes.get(r.sessionId)
+    if(!home||home.connectionId!==r.connectionId)throw new OryhClientError('会话尚未绑定企业。','request-failed')
+    signal.throwIfAborted()
+    let wake:(()=>void)|undefined
+    const off=this.queue.subscribe(r.sessionId,()=>{wake?.();wake=undefined})
+    const stop=()=>{wake?.();wake=undefined}
+    signal.addEventListener('abort',stop,{once:true})
+    try{
+      yield {type:'baseline',commands:this.snapshot(r.sessionId)}
+      while(!signal.aborted){
+        await new Promise<void>(resolve=>{wake=resolve})
+        if(signal.aborted)return
+        // The binding is re-read each time: a session that left its page stops receiving commands.
+        if(this.homes.get(r.sessionId)?.connectionId!==r.connectionId)return
+        yield {type:'update',commands:this.snapshot(r.sessionId)}
+      }
+    }finally{off();signal.removeEventListener('abort',stop)}
   }
   homeClear(sessionId:string){this.project.clear(sessionId);this.pages.delete(sessionId);this.homes.delete(sessionId);this.queue.clear(sessionId,'会话已离开页面。');this.serial=this.serial.then(()=>{this.homes.delete(sessionId);this.queue.clear(sessionId,'会话已离开页面。')})}
   async openProject(sessionId:string,signal:AbortSignal){

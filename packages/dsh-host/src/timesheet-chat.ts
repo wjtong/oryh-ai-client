@@ -4,7 +4,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { z } from 'zod'
 import { OryhClientError, validateTimesheet } from '@oryh/ai-client-core'
 import type { ConnectionId, OryhTimesheetRemote, TimesheetAction } from '@oryh/ai-client-core/types'
-import type { TimesheetChatState, TimesheetChatPoll, TimesheetChatProposal } from './types.js'
+import type { TimesheetChatState, TimesheetChatProposal } from './types.js'
 import type { CommandQueue } from './command-queue.js'
 const line=z.object({work_date:z.string(),hours:z.number(),work_type:z.string(),project_id:z.string(),task:z.string().max(200),notes:z.string().max(2000)}).strict()
 const fields=z.object({period_start:z.string(),period_end:z.string(),source_report_text:z.string().max(10000),entries:z.array(line).min(1).max(100)}).strict()
@@ -27,7 +27,9 @@ export class TimesheetChat {
   private proposals=new Map<string,TimesheetChatProposal>()
   constructor(private ctx:Context,private api:OryhTimesheetRemote|undefined,private binding:(id:string,verify?:boolean,write?:boolean)=>Promise<PageBinding>,private queue:CommandQueue){}
   current(id:string){return this.states.get(id)}
-  clear(id:string){this.states.delete(id);this.proposals.delete(id)}
+  /** The staged suggestion the command stream publishes for this session. */
+  pending(id:string){return this.proposals.get(id)}
+  clear(id:string){this.states.delete(id);this.proposals.delete(id);this.queue.changed(id)}
   async sync(state:TimesheetChatState):Promise<void>{
     const b=await this.binding(state.sessionId,false)
     if(b.connectionId!==state.connectionId||b.timesheetPage!==state.pageKey||Boolean(b.manager)!==state.manager)throw fail('工时页面已改变，请重新关联。')
@@ -36,11 +38,6 @@ export class TimesheetChat {
     if(!old||old.revision!==state.revision)this.proposals.delete(state.sessionId)
     this.states.set(state.sessionId,structuredClone(state))
     this.queue.settle(state.sessionId)
-  }
-  async poll(r:TimesheetChatPoll):Promise<TimesheetChatProposal|undefined>{
-    const b=await this.binding(r.sessionId,false),s=this.states.get(r.sessionId)
-    if(b.connectionId!==r.connectionId||b.timesheetPage!==r.pageKey||s?.pageKey!==r.pageKey)throw fail('会话已切换到其他业务页面，请重新同步。')
-    return this.proposals.get(r.sessionId)
   }
   private async page(id:string){
     const b=await this.binding(id),state=this.states.get(id)
@@ -87,6 +84,7 @@ export class TimesheetChat {
     this.check(id,s)
     const proposal={id:randomUUID(),revision,action}
     this.proposals.set(id,proposal)
+    this.queue.changed(id)
     return {message:'填写更新已发送到右侧未保存表单；其他操作等待用户核对。尚未保存、提交或审批。',proposalId:proposal.id}
   }
   install(){

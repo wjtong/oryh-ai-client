@@ -7,6 +7,8 @@ import {RecordPanel,isRecordKind,recordTitles} from './records.js';
 import {ProjectPanel} from './projects.js';
 import type { ChatNavigation as Navigation } from '@oryh/dsh-host/types';
 import { ChatNavigation, BusinessNavigationContext } from './chat-navigation.js';
+import { CommandStream } from './command-stream.js';
+import { BusinessSessionContext } from './todo-chat.js';
 import { TimesheetPanel } from './timesheets.js';
 import type { BusinessView } from './layout-store.js';
 import { useText } from './locale.js';
@@ -42,6 +44,7 @@ function WorkbenchContent({ page, connection, operations, onDirtyChange, setting
 }): ReactNode {
     const t = useText();
     const navigate=useContext(BusinessNavigationContext);
+    const sessionId=useContext(BusinessSessionContext);
     const [navigation,setNavigation]=useState<Navigation>();
     const pages: Record<OperationId, {
         title: string;
@@ -72,7 +75,7 @@ function WorkbenchContent({ page, connection, operations, onDirtyChange, setting
     const [pageContexts,setPageContexts]=useState<Record<string,PageContext>>({});
     function report(id: string, value: PageContext) { setPageContexts(current=>JSON.stringify(current[id])===JSON.stringify(value)?current:{...current,[id]:value}); }
     const chatContext=page==='my-expense-claims'&&expenseTab==='drafts'?pageContexts['expense-draft']:pageContexts[page];
-    return <div className="oryh-business">
+    return <CommandStream sessionId={sessionId} connectionId={connection.id}><div className="oryh-business">
     <ChatNavigation page={page} {...(chatContext?{context:chatContext}:{})} connectionId={connection.id} onOpen={command=>{if(command.target==='filters'){setNavigation(command);return}if(command.target==='columns'&&command.columns){if(command.page&&isRecordKind(command.page)){const kind=command.page,columns=command.columns;setRecordColumns(kind,columns)}else setProjectColumns(command.columns as import('@oryh/dsh-host/types').ProjectColumn[]);return}if(command.target==='page'&&command.page){setNavigation(undefined);navigate(command.page);return}setNavigation(command);if(command.target==='project'){setVisited(current=>current.includes('list-projects')?current:[...current,'list-projects']);navigate('list-projects')}else if(command.manager){setApprovalVisited(true);navigate('timesheet-approvals')}else{setTimesheetVisited(true);navigate('timesheets')}}}/>
     <main ref={main} className="business-content">
       {notices}
@@ -92,5 +95,5 @@ function WorkbenchContent({ page, connection, operations, onDirtyChange, setting
       {approvalVisited && canAccessPage(connection.identity,'timesheet-approvals') && <div hidden={page !== 'timesheet-approvals'}><TimesheetPanel connection={connection} active={page === 'timesheet-approvals'} {...(navigation?.manager?{navigationId:navigation.id,navigation}:{})} manager onDirtyChange={setApprovalDirty}/></div>}
       {page === 'settings' && <section className="settings-page"><div className="surface"><h2>{t("text15")}</h2><dl className="detail-grid"><dt>{t("text23")}</dt><dd>{company}</dd><dt>{t("text24")}</dt><dd>{connection.identity.user.email}</dd><dt>{t("text25")}</dt><dd>{connection.origin}</dd></dl>{settings}</div></section>}
     </main>
-  </div>;
+  </div></CommandStream>;
 }

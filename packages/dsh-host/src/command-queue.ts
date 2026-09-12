@@ -28,6 +28,31 @@ interface Pending {
 export class CommandQueue {
   readonly #waits = new Map<string, Map<string, Pending>>()
   readonly #navigation = new Map<string, ChatNavigation>()
+  readonly #listeners = new Map<string, Set<() => void>>()
+
+  /**
+   * Follow command changes for one session; the stream Remote republishes its snapshot on each.
+   * @param sessionId - session to follow.
+   * @param listener - called after any command is issued, withdrawn or cleared.
+   * @returns unsubscribe.
+   */
+  subscribe(sessionId: string, listener: () => void): () => void {
+    const listeners = this.#listeners.get(sessionId) ?? new Set<() => void>()
+    this.#listeners.set(sessionId, listeners)
+    listeners.add(listener)
+    return () => {
+      listeners.delete(listener)
+      if (listeners.size === 0) this.#listeners.delete(sessionId)
+    }
+  }
+
+  /**
+   * Notify followers that this session's pending commands changed.
+   * @param sessionId - session whose commands changed, including a child's staged suggestion.
+   */
+  changed(sessionId: string): void {
+    for (const listener of [...(this.#listeners.get(sessionId) ?? [])]) listener()
+  }
 
   /**
    * Publish the navigation command browser views fetch for this session.
@@ -36,6 +61,7 @@ export class CommandQueue {
    */
   issue(sessionId: string, command: ChatNavigation): void {
     this.#navigation.set(sessionId, command)
+    this.changed(sessionId)
   }
 
   /**
@@ -56,7 +82,9 @@ export class CommandQueue {
   withdraw(sessionId: string, id?: string): void {
     const command = this.#navigation.get(sessionId)
     if (command === undefined) return
-    if (id === undefined || command.id === id) this.#navigation.delete(sessionId)
+    if (id !== undefined && command.id !== id) return
+    this.#navigation.delete(sessionId)
+    this.changed(sessionId)
   }
 
   /**
@@ -126,6 +154,7 @@ export class CommandQueue {
     this.#navigation.delete(sessionId)
     for (const pending of [...(this.#waits.get(sessionId)?.values() ?? [])]) pending.fail(message)
     this.#waits.delete(sessionId)
+    this.changed(sessionId)
   }
 
   /** Release every session's commands and waits on plugin unload. */

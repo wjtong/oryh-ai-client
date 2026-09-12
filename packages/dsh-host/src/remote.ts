@@ -1,8 +1,8 @@
 import type {OryhRecordRemote,RecordQuery,RecordPage,ProductSearch,ProductOptions} from '@oryh/ai-client-core/types'
 import type {OryhProjectRemote,ProjectIntent,ProjectOptions} from '@oryh/ai-client-core/types'
-import type {ProjectPrepareRequest,ProjectChatState,ProjectChatProposal} from './types.js'
-import type { ChatPageRequest, ChatHomeRequest, ChatNavigation } from './types.js'
-import type { TimesheetChatState, TimesheetChatPoll, TimesheetChatProposal } from './types.js'
+import type {ProjectPrepareRequest,ProjectChatState} from './types.js'
+import type { ChatPageRequest, ChatHomeRequest, CommandFrame } from './types.js'
+import type { TimesheetChatState } from './types.js'
 import type { BusinessChat } from './business-chat.js'
 import type { TodoDetailService, TodoDocument } from '@oryh/ai-client-core'
 import type { ChatSelection, ChatContextView } from './types.js'
@@ -82,7 +82,6 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('chatSelect') chatSelect(request: ChatSelection): Promise<ChatContextView> { return this.call(() => this.ctx.oryhChat.select(request)) }
   @Remote('chatClear') chatClear(request: ChatClearRequest): Promise<void> { return this.call(() => this.ctx.oryhChat.clear(request.sessionId)) }
   @Remote('timesheetChatSync') timesheetChatSync(request: TimesheetChatState): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.sync(request)) }
-  @Remote('timesheetChatPoll') timesheetChatPoll(request: TimesheetChatPoll): Promise<TimesheetChatProposal | undefined> { return this.call(() => this.ctx.oryhChat.timesheet.poll(request)) }
   @Remote('productSearch') productSearch(r:ProductSearch):Promise<ProductOptions>{return this.call(()=>this.ctx.oryhRecords.productSearch(r))}
   @Remote('recordList') recordList(r:RecordQuery):Promise<RecordPage>{return this.call(()=>this.ctx.oryhRecords.recordList(r))}
   @Remote('projectOptions') projectOptions(r:ConnectionRequest):Promise<ProjectOptions>{return this.call(()=>this.ctx.oryhProjects.projectOptions(r.connectionId))}
@@ -91,10 +90,10 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('projectHistory') projectHistory(r:ConnectionRequest):Promise<ProjectIntent[]>{return this.call(()=>this.ctx.oryhProjects.projectHistory(r.connectionId))}
   @Remote('projectReconcile') projectReconcile(r:DraftRequest):Promise<ProjectIntent>{return this.call(()=>this.ctx.oryhProjects.projectReconcile(r.connectionId,r.id,r.revision))}
   @Remote('projectChatSync') projectChatSync(r:ProjectChatState):Promise<void>{return this.call(()=>this.ctx.oryhChat.project.sync(r))}
-  @Remote('projectChatPoll') projectChatPoll(r:ChatHomeRequest):Promise<ProjectChatProposal|undefined>{return this.call(()=>this.ctx.oryhChat.project.poll(r))}
   @Remote('projectChatClear') projectChatClear(r:ChatClearRequest):Promise<void>{return this.call(()=>this.ctx.oryhChat.project.clear(r.sessionId))}
   @Remote('chatPageSync') chatPageSync(request:ChatPageRequest):Promise<void>{return this.call(()=>this.ctx.oryhChat.pageSync(request))}
-  @Remote('chatHomePoll') chatHomePoll(request:ChatHomeRequest):Promise<ChatNavigation|undefined>{return this.call(()=>this.ctx.oryhChat.homePoll(request))}
+  // Streams carry their own failures; the unary `call` wrapper would swallow the iterator.
+  @Remote({mode:'stream'}) commands(request:ChatHomeRequest,signal:AbortSignal):AsyncIterable<CommandFrame>{return this.ctx.oryhChat.commands(request,signal)}
   @Remote('chatHomeClear') chatHomeClear(request:ChatClearRequest):Promise<void>{return this.call(()=>this.ctx.oryhChat.homeClear(request.sessionId))}
   private async call<T>(action: () => T | Promise<T>): Promise<T> {
     if (this.closed) throw new RemoteError('oryh/business', 'ORYH 插件已卸载。', { code: 'request-failed' })

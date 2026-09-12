@@ -53,3 +53,20 @@ export interface ProjectChatState extends ChatHomeRequest {pageKey:string;revisi
 export interface ProjectChatProposal {id:string;revision:number;fields:import('@oryh/ai-client-core/types').ProjectFields}
 
 export type ProjectColumn='name'|'code'|'status'|'client'|'startDate'|'endDate'|'createdAt'|'updatedAt'
+
+/** Every page command pending for one session. The Host republishes the whole set on each change. */
+export interface CommandSnapshot {
+  /** Navigation, column, filter, todo, project-open and timesheet-open commands share one slot. */
+  navigation?: ChatNavigation
+  /** Staged timesheet suggestion for the bound timesheet page. */
+  timesheet?: TimesheetChatProposal
+  /** Staged new-project field suggestion. */
+  project?: ProjectChatProposal
+}
+
+/** Opening frame of one stream generation, carrying the full pending set. */
+export interface CommandBaseline { type:'baseline'; commands:CommandSnapshot }
+/** Later frame; also the full set, so a consumer never replays deltas. */
+export interface CommandUpdate { type:'update'; commands:CommandSnapshot }
+/** Stream frame: exactly one `baseline` per generation, then `update`s. */
+export type CommandFrame = CommandBaseline | CommandUpdate

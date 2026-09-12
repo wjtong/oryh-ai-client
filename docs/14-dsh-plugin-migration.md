@@ -238,3 +238,33 @@ ORYH 现有流水端点不支持 product_id：插件组合现有租户限定 GET
 结果：表格列顺序变为原五列加末尾“产品编码”，各行显示真实值 PT-HEAD、PT-MOTOR、PT-RIBBON，与各自库存项对应；页面“显示列”勾选区同步出现产品编码，与 Chat 共用同一套列状态。未修改任何业务数据。
 
 该记录同样是第 1 步的对照基线：命令必须携带完整列顺序、页面回执吻合后工具才报成功、传统“显示列”与 Chat 共用同一入口，这三点在改造后必须保持。
+
+### 第 1 步（下半）：四个轮询合并为一条命令流（2026-09-12）
+
+浏览器原本有四个轮询循环：chat-navigation 的 `chatHomePoll` 600ms、todo-chat 的 `chatHomePoll` 350ms、`timesheetChatPoll` 350ms、`projectChatPoll` 350ms。现在统一为一条 Host 流：`@Remote({mode:'stream'}) commands(request, signal): AsyncIterable<CommandFrame>`。生成器确实接受外部插件的流方法，产物里有 `commands: (request, signal?) => AsyncIterable<CommandFrame>` 与 `'oryh/commands'`。
+
+帧是整集快照而非增量：`CommandFrame = CommandBaseline | CommandUpdate`，两者都带完整的 `CommandSnapshot{navigation?, timesheet?, project?}`。待发命令最多三条，整集没有排序和去重问题，客户端本来就按 id 去重；重连只需重发 baseline，不会重放也不会丢。注意必须是可辨识联合，写成 `type:'baseline'|'update'` 的单一 interface 时 `Extract` 无法收窄。
+
+Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`clear` 以及两个子对象暂存或清除建议时都触发；`BusinessChat.commands()` 先发 baseline，其后每次变更发整集，并在每帧前重读绑定，会话离开页面即结束。`homePoll`、`timesheet.poll`、`project.poll` 及对应的三个 `@Remote` 已删除；`snapshot(sessionId)` 转为公开方法，作为测试与流共同的观测点，避免为测试保留一个生产环境不再使用的方法。
+
+客户端：新增 `command-stream.tsx`。`CommandStream` provider 先 `chatSelect({homeOnly:true})` 绑定会话、再开流，卸载时 dispose 并 `chatHomeClear`；顺序不能颠倒，Host 对未绑定会话直接拒绝，而拒绝是终态不会重试。四个视图改用 `useCommands()` 读同一份快照。provider 放在 `workbench.tsx`，因为只有那里同时拿得到 `connection` 和全部四个消费者；`sessionId` 走 props 而不是 `BusinessSessionContext`，否则 command-stream 与 todo-chat 形成运行时循环引用。
+
+**外部插件只能引用 Harness 的类型，不能引用它的值。** 最初直接 `import { RemoteSnapshotStream, RemoteStreamCarrierError }`，四个工程 `tsc` 全部通过，但 esbuild 警告 `Import "RemoteSnapshotStream" will always be undefined because .../gateway/lib/client.js has no exports`。原因是 DSH 客户端包以 `window.__ModuleLoader__.load({id, factory})` 分发，不是 ESM 模块；`build-dsh-client.mjs` 只把 react、cordis、dsh-client-store 列为 external，其余全部打包，于是值引用在运行时是 undefined，`new RemoteSnapshotStream(...)` 会直接抛错。类型检查发现不了这一类问题，只有 esbuild 警告会提示。已全仓审计：客户端源码其余非类型的 `@deepseek-ai` 引用只有 `dsh-client-store`（在 external 名单内）与 layout.spec 的两个（spec 不进 bundle），没有同类隐患。这一条与"转发事件是封闭白名单"、"自定义 SessionEventMap 会破坏会话重载"属于同一类外部插件边界。
+
+代价：`ctx.remote.$stream` 是服务方法可以照常使用，但 `RemoteStreamCarrierError` 是类、拿不到，没有它就无法把"正常结束"标记为可重试。因此重连循环自行实现，固定 1 秒重开，放弃了 DSH 依 Connection generation 调度重试的节奏。若该类将来可达，应换回官方实现。
+
+验证：`pnpm run verify` 通过，Core 87、Workspace 9、Host 41、Client 23，esbuild 无警告。Host 新增流测试：开流发 baseline、变更后发整集、重连的 baseline 仍携带页面未消费的命令、未绑定会话被拒。
+
+### 两条基线在改造后的回放（2026-09-12）
+
+重启客户端（旧进程仍持有改造前的 Host 代码，必须先杀掉）后，用同一测试企业回放。
+
+工时：新开会话说"帮我新建一条工时"，右侧从"我的待办"切到"我的工时"并打开新建工时单，出现 `timesheetChatSync` 成功后才会显示的"描述工作内容即可自动填写右侧表单"。补充日期、项目与工时后，实测表单字段为 2026-09-14/2026-09-18、原始说明"装配产线自动化技改项目产线调试"、五条明细各 8 小时 `regular`、项目 577eaa44…（装配产线自动化技改）、任务"产线调试"，合计 40 小时，与基线一致。此处校验的是输入框实际取值，不是页面上那个由取值算出的合计。全程未保存未提交，随后点"放弃未保存修改"清理。
+
+库存流水加产品列：显示列偏好已持久化，页面开局就带着产品编码，等于基线的"之后"状态，直接发指令无法证明任何事；先在"显示列"取消勾选还原成原五列，再说"库存流水列表加上产品列，原来的列保留"。轨迹中的工具参数是 `oryh_record_columns{"columns":["product_code","reason","inventory_item_id","quantity_on_hand_diff","available_to_promise_diff","effective_at"]}`，携带完整列顺序而非只传新增列；页面按该顺序原样渲染，勾选区同步为六列，行值 PT-HEAD、PT-MOTOR 为真实数据。模型回复里还正确复述了改造后重置的五列，说明 `oryh_current_page` 经页面同步读到的是实时状态。
+
+与基线唯一的差异是位置：原记录中产品编码追加在末尾，这次落在首位。轨迹证明是模型自己把 `product_code` 放在参数第一位，页面没有重排，用户要求（原列保留）也已满足，属于模型选择差异而非通道回归。基线真正要保的三点——命令携带完整列顺序、页面回执吻合后工具才报成功、Chat 与"显示列"共用同一套列状态——全部成立。
+
+回放期间浏览器控制台错误计数始终停在 196，全部是杀掉旧服务那段时间产生的 404 与连接拒绝；重新加载、切换会话、两条命令链路都没有新增错误。由于流走 `remote.mux` WebSocket，HTTP 网络面板里看不到 `oryh/commands`，只能靠上述行为证据判断。
+
+副作用：回放把库存流水的持久化列顺序改成了产品编码在首位（原为末位），属于显示偏好，可在"显示列"里调回。

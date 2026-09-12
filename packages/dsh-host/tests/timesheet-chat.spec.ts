@@ -15,16 +15,16 @@ function setup(){
 describe('timesheet suggestions',()=>{
  it('reads user fields and stages a proposal without prepare, confirm or tokens',async()=>{
   const f=setup();await f.chat.sync(f.state);expect((await f.chat.read('s')).form).toEqual(fields)
-  await f.chat.propose('s',1,{kind:'create',fields});const p=await f.chat.poll(f.state)
+  await f.chat.propose('s',1,{kind:'create',fields});const p=f.chat.pending('s')
   expect(p?.action.fields).toEqual(fields);expect(JSON.stringify(p)).not.toContain('token');expect(f.prepare).not.toHaveBeenCalled();expect(f.confirm).not.toHaveBeenCalled()
  })
  it('accepts incremental form filling without treating it as a savable record',async()=>{
   const f=setup();await f.chat.sync(f.state);await f.chat.propose('s',1,{kind:'create',fields:{...fields,entries:[{...fields.entries[0],hours:0,work_type:'',task:'先填写工作内容'}]}})
-  expect((await f.chat.poll(f.state))?.action.fields?.entries[0]?.hours).toBe(0);expect(f.prepare).not.toHaveBeenCalled()
+  expect((f.chat.pending('s'))?.action.fields?.entries[0]?.hours).toBe(0);expect(f.prepare).not.toHaveBeenCalled()
  })
  it('invalidates suggestions after manual edits and rejects stale revisions and pages',async()=>{
   const f=setup();await f.chat.sync(f.state);await f.chat.propose('s',1,{kind:'create',fields});await f.chat.sync({...f.state,revision:2})
-  expect(await f.chat.poll(f.state)).toBeUndefined();await expect(f.chat.propose('s',1,{kind:'create',fields})).rejects.toThrow(/版本/)
+  expect(f.chat.pending('s')).toBeUndefined();await expect(f.chat.propose('s',1,{kind:'create',fields})).rejects.toThrow(/版本/)
   await expect(f.chat.sync({...f.state,pageKey:'other'})).rejects.toThrow(/页面/);f.chat.clear('s');await expect(f.chat.read('s')).rejects.toThrow(/尚未同步/)
  })
  it('rejects unknown targets, guessed projects, invalid hours and cross-menu approvals',async()=>{

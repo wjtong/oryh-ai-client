@@ -1,16 +1,18 @@
 import type {OryhRecordRemote} from '@oryh/ai-client-core/types'
-import type {ProjectChatState,ProjectChatProposal} from '@oryh/dsh-host/types'
+import type {ProjectChatState} from '@oryh/dsh-host/types'
 import type {OryhProjectRemote} from '@oryh/ai-client-core/types'
-import type { ChatPageRequest, ChatHomeRequest, ChatNavigation } from '@oryh/dsh-host/types'
-import type { TimesheetChatState, TimesheetChatPoll, TimesheetChatProposal } from '@oryh/dsh-host/types'
+import type { ChatPageRequest, ChatHomeRequest } from '@oryh/dsh-host/types'
+import type { TimesheetChatState } from '@oryh/dsh-host/types'
 import type { ChatSelection, ChatContextView } from '@oryh/dsh-host/types'
 import type { TodoDocument } from '@oryh/ai-client-core/types'
 import { createContext, useContext } from 'react'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
+import type { CommandFrame } from '@oryh/dsh-host/types'
+import type { CommandState, CommandStreamHandle } from './command-stream.js'
 import type {} from '@oryh/dsh-host/remote'
 import type { OryhClientRemote, OryhExpenseRemote, OryhTimesheetRemote, ConnectionId } from '@oryh/ai-client-core/types'
 
-interface BusinessChatRemote { projectChatSync(request:ProjectChatState):Promise<void>;projectChatPoll(request:ChatHomeRequest):Promise<ProjectChatProposal|undefined>;projectChatClear(sessionId:string):Promise<void>; chatPageSync(request:ChatPageRequest):Promise<void>; chatHomePoll(request:ChatHomeRequest):Promise<ChatNavigation|undefined>; chatHomeClear(sessionId:string):Promise<void>; timesheetChatSync(request:TimesheetChatState):Promise<void>; timesheetChatPoll(request:TimesheetChatPoll):Promise<TimesheetChatProposal|undefined>; todoDetail(connectionId: string, todoId: string): Promise<TodoDocument>; chatSelect(request: ChatSelection): Promise<ChatContextView>; chatClear(sessionId: string): Promise<void> }
+interface BusinessChatRemote { projectChatSync(request:ProjectChatState):Promise<void>;projectChatClear(sessionId:string):Promise<void>; chatPageSync(request:ChatPageRequest):Promise<void>; chatHomeClear(sessionId:string):Promise<void>; timesheetChatSync(request:TimesheetChatState):Promise<void>; openCommands(request:ChatHomeRequest):CommandStreamHandle; todoDetail(connectionId: string, todoId: string): Promise<TodoDocument>; chatSelect(request: ChatSelection): Promise<ChatContextView>; chatClear(sessionId: string): Promise<void> }
 export type BusinessRemote = BusinessChatRemote & OryhRecordRemote & OryhProjectRemote & OryhClientRemote & OryhExpenseRemote & OryhTimesheetRemote
 export const RemoteContext = createContext<BusinessRemote | undefined>(undefined)
 export function useOryhRemote(): BusinessRemote {
@@ -30,6 +32,70 @@ async function unwrap<T>(call: Promise<{ ok: true; value: T } | { ok: false; err
   }
   return result.value
 }
+const streamName = 'ORYH command stream'
+const reopenDelayMs = 1000
+
+/** Resolve after `ms`, or as soon as the stream is disposed. */
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>(resolve => {
+    const finish = (): void => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve() }
+    const timer = setTimeout(finish, ms)
+    signal.addEventListener('abort', finish, { once: true })
+  })
+}
+
+/**
+ * Follow one session's pending commands over the generated stream Remote.
+ *
+ * Every frame carries the full set, so reopening republishes a baseline and no command is
+ * replayed or lost. The previous set stays published while the stream reopens; only a refusal
+ * before any baseline is terminal, because that means the session is no longer bound.
+ *
+ * The reconnect loop is written out here rather than reusing Harness's RemoteSnapshotStream:
+ * an out-of-tree client bundle can import Harness types but not its values, so the helper
+ * classes are unreachable. The cost is a fixed reopen delay instead of Connection-paced retry.
+ * @param remote - client Remote carrying the mounted ORYH namespace.
+ * @param request - the session and connection to follow.
+ * @returns an unstarted store owned by the caller.
+ */
+function createCommandStream(remote: ClientRemote, request: ChatHomeRequest): CommandStreamHandle {
+  let state: CommandState = { commands: {} }
+  let running: Promise<void> | undefined
+  const listeners = new Set<() => void>()
+  const lifetime = new AbortController()
+  const publish = (next: CommandState): void => {
+    state = next
+    for (const listener of [...listeners]) listener()
+  }
+  async function consume(): Promise<void> {
+    while (!lifetime.signal.aborted) {
+      let opened = false
+      try {
+        for await (const frame of remote.oryh.commands(request, lifetime.signal) as AsyncIterable<CommandFrame>) {
+          if (lifetime.signal.aborted) return
+          if (!opened && frame.type !== 'baseline') throw new Error(`${streamName} sent an update before its opening snapshot`)
+          opened = true
+          publish({ commands: frame.commands })
+        }
+      } catch (error) {
+        if (lifetime.signal.aborted) return
+        if (!opened) {
+          publish({ ...state, error: error instanceof Error ? error.message : 'Chat 指令同步已中断。' })
+          return
+        }
+      }
+      if (lifetime.signal.aborted) return
+      await delay(reopenDelayMs, lifetime.signal)
+    }
+  }
+  return {
+    getSnapshot: () => state,
+    subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    start: () => { running ??= consume() },
+    dispose: async () => { lifetime.abort(new Error(`${streamName} disposed`)); await running },
+  }
+}
+
 /** The only browser transport is the generated, authenticated Harness Remote. */
 export function createOryhRemote(remote: ClientRemote): BusinessRemote {
   const api = remote.oryh
@@ -43,13 +109,11 @@ export function createOryhRemote(remote: ClientRemote): BusinessRemote {
     projectHistory:id=>unwrap(api.projectHistory(connection(id))),
     projectReconcile:(id,key,revision)=>unwrap(api.projectReconcile({...connection(id),id:key,revision})),
     projectChatSync:r=>unwrap(api.projectChatSync(r)),
-    projectChatPoll:r=>unwrap(api.projectChatPoll(r)),
     projectChatClear:sessionId=>unwrap(api.projectChatClear({sessionId})),
     chatPageSync: request => unwrap(api.chatPageSync(request)),
-    chatHomePoll: request => unwrap(api.chatHomePoll(request)),
     chatHomeClear: sessionId => unwrap(api.chatHomeClear({sessionId})),
     timesheetChatSync: request => unwrap(api.timesheetChatSync(request)),
-    timesheetChatPoll: request => unwrap(api.timesheetChatPoll(request)),
+    openCommands: request => createCommandStream(remote, request),
     todoDetail: (id, todoId) => unwrap(api.todoDetail({ ...connection(id), todoId })),
     chatSelect: request => unwrap(api.chatSelect(request)),
     chatClear: sessionId => unwrap(api.chatClear({ sessionId })),
