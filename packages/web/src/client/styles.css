@@ -188,6 +188,30 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 .oryh-timesheets fieldset { border: 1px solid #a0a0a055; border-radius: 6px; margin-block: 14px; padding: 16px; min-width: 0; }
 .oryh-timesheets label { display: flex; flex-direction: column; gap: 6px; margin-block: 8px; }
 .oryh-ts-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; }
+/*
+ * One entry per line. The old equal-share grid gave every field at least 180px, so an hours box
+ * was as wide as a task. Flex with a per-field basis sizes each to what it holds and still wraps
+ * on a narrow business pane, with no container query needed.
+ */
+.oryh-ts-line { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 10px; }
+.oryh-ts-line > label { flex: 1 1 7rem; min-width: 0; gap: 3px; margin-block: 0; font-size: 11px; }
+.oryh-ts-line > label[data-field="date"] { flex: 0 0 8.5rem; }
+.oryh-ts-line > label[data-field="hours"] { flex: 0 0 4.25rem; }
+.oryh-ts-line > label[data-field="type"] { flex: 0 1 6.5rem; }
+.oryh-ts-line > label[data-field="project"] { flex: 1 1 7rem; }
+.oryh-ts-line > label[data-field="task"] { flex: 1.4 1 8rem; }
+.oryh-ts-line > label[data-field="notes"] { flex: 1 1 7rem; }
+/* Qualified with .oryh-timesheets on purpose: the generic field rules below this block have the
+   same specificity, so an unqualified selector here would lose on source order alone. */
+.oryh-timesheets .oryh-ts-line input, .oryh-timesheets .oryh-ts-line select, .oryh-timesheets .oryh-ts-line textarea { padding: 6px 7px; font-size: 13px; }
+.oryh-ts-line > label[data-field="hours"] input { text-align: right; font-variant-numeric: tabular-nums; }
+/* A one-row note still grows when the user drags it; it just no longer opens three lines tall,
+   which was what made the notes field twice the height of every other control on the row. */
+.oryh-timesheets .oryh-ts-line textarea { min-height: 0; height: 2.31rem; }
+.oryh-ts-line-actions { flex: 0 0 auto; padding-bottom: 2px; }
+/* Flat grouping: the per-entry border and padding cost more room than the number is worth. */
+.oryh-ts-line-group { border: 0; border-top: 1px solid #a0a0a055; border-radius: 0; margin-block: 0; padding: 10px 0 2px; }
+.oryh-ts-line-group > legend { padding: 0; font-size: 11px; opacity: .55; font-variant-numeric: tabular-nums; }
 .oryh-timesheets input, .oryh-timesheets select, .oryh-timesheets textarea { box-sizing: border-box; min-width: 0; font: inherit; color: inherit; background: transparent; border: 1px solid #a0a0a080; border-radius: 4px; padding: 8px; }
 .oryh-timesheets select option { color: #222; background: #fff; }
 .oryh-timesheets textarea { min-height: 72px; resize: vertical; }
