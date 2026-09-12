@@ -206,3 +206,11 @@ ORYH 现有流水端点不支持 product_id：插件组合现有租户限定 GET
 服务端边界：当前 ORYH 部分列表 GET 只实施企业隔离，没有独立的读取权限。上述规则是 ORYH 插件的功能入口限制，不能宣称其他直接 API 客户端也受到同样的读取限制；本次未修改 calwbiz 服务端授权模型。正式写入仍由服务端最终鉴权。
 
 验证：全量构建/类型检查通过；Core 87、Host 39、Workspace 9、Client 23 项测试通过，涵盖缺失权限、角色不授予权限、通配与权限蕴含、撤权后的 Remote 查询/Chat 导航拒绝，以及旧工时确认不能执行。
+
+### 升级后实测发现的两个缺陷（2026-09-12）
+
+**模型调用全部 412。** 升级到 0.1.5-rc.2 后，原生会话每一轮都以 `DeepSeek API error (HTTP 412)` 失败。原因不在 Harness 的线协议，而在模型目录：旧基线 `c389f96bf3` 的目录首项是 `deepseek-v4-flash`，0.1.5 在最前面新增了 `deepseek-flash`（显示名 DeepSeek-V41-Flash），界面默认选中这一项。本机模型 Base URL 指向第三方中转，该中转不接受这个新 id。把会话模型切换为 DeepSeek-V4-Flash 后立即恢复，模型正常调用 `oryh_open_timesheet`。reasoning effort 与此无关（Off 同样失败）。升级 DSH 时需要复核默认选中的模型 id 是否仍被所用的模型服务接受。
+
+**未先核验就读取连接的业务方法。** `timesheetHistory`、`timesheetOptions` 与 `expenseList`、`expenseOptions`、`expenseSave`、`expenseUpload`、`expenseDelete` 直接经 `scope()`（`expenseDelete` 经 `read()`）调用 `requireVerified`，没有像同类读取那样先 `await verify()`。`projectPrepare` 与 `projectConfirm` 经 `authorize()` → `projectOptions` 已覆盖，`records`、`todo-detail` 与其余工时方法在入口即核验。客户端在挂载、窗口获得焦点和每 60 秒都会重新核验，而 `verifyIdentity` 会先撤销已核验状态、再 await 一次 `/auth/me` 往返，成功后才重新标记。任何未经 await 的读取只要落入这个窗口就抛 `connection-verification-required`。实测证据：同一次工时面板刷新中，`timesheetList` 返回 `ok:true` 和三条真实工时，`timesheetHistory` 同时返回 `connection-verification-required`；面板用 `Promise.all` 聚合，一个失败即整体 reject，已成功的列表数据被丢弃，界面显示告警加“暂无记录”。四处均改为先 `await verify()`。该问题由 2026-09-11 的权限改动引入，与本次布局迁移无关。
+
+端到端基线录制尚未完成，两条示例流程的记录待补。

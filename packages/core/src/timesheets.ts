@@ -35,6 +35,7 @@ export class TimesheetService implements OryhTimesheetRemote {
   private async todos(id: string) { const employee=this.connection(id).identity.user.employeeId; return (await this.list(id, `/todos?employee_id=${encodeURIComponent(employee ?? '')}&status=open&entity_type=timesheet_header`)).filter(r=>r.employee_id===employee && r.entity_type==='timesheet_header' && r.status==='open' && r.todo_type==='approval') }
   async timesheetQueue(id: string) { requirePage((await this.verify(id)).identity,'timesheet-approvals'); return (await this.todos(id)).map(r=>({id:str(r.id),entity_id:str(r.entity_id),title:str(r.title),description:str(r.description)})) }
   async timesheetOptions(id: string) {
+    await this.verify(id)
     const scope=this.scope(id)
     const [types,projects,definitions,permissions]=await Promise.all([this.list(id,'/type-options?family=work_type&status=active'),this.list(id,'/projects'),this.list(id,'/workflow-definitions?entity_kind=builtin&object_type=timesheet_header'),this.permissions(id)])
     this.guard(id,scope)
@@ -71,7 +72,9 @@ export class TimesheetService implements OryhTimesheetRemote {
     return {...d,canEdit:!todoId && d.header.employee_id===this.connection(id).identity.user.employeeId && rules.editableStates.includes(d.header.status) && hasPermission({...this.connection(id).identity,permissions:Array.isArray(grants)?grants.filter((v):v is string=>typeof v==='string'):[]},'timesheet.submit_own')}
   }
   private view(r: TimesheetRecord): TimesheetIntent { const {scope:_s,digest:_d,payload:_p,path:_path,method:_m,...v}=r; return v.state==='executing'?{...v,state:'unknown',message:'写入结果尚未确认，请先核对。'}:v }
-  async timesheetHistory(id: string) { const scope=this.scope(id); const r=await this.store.list(); this.guard(id,scope); return r.filter(r=>r.scope===scope).map(r=>this.view(r)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)) }
+  // Await verification like every sibling read: a concurrent re-verification revokes the
+  // registry entry until `/auth/me` returns, and a bare `scope()` would throw inside that window.
+  async timesheetHistory(id: string) { await this.verify(id); const scope=this.scope(id); const r=await this.store.list(); this.guard(id,scope); return r.filter(r=>r.scope===scope).map(r=>this.view(r)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)) }
   private async next(id: string, r: TimesheetRecord, changes: Partial<TimesheetRecord>) { this.guard(id,r.scope); const n={...r,...changes,revision:r.revision+1,updatedAt:new Date().toISOString()}; await this.store.append(n,r.revision); this.guard(id,r.scope); return n }
   private async read(id: string,intentId: string,revision: number) { const scope=this.scope(id); const r=(await this.store.list()).find(r=>r.scope===scope && r.id===intentId && r.revision===revision); this.guard(id,scope); if (!r) throw fail('操作已改变，请刷新。'); return r }
   private async context(id: string, a: TimesheetAction) {

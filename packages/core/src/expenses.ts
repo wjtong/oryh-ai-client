@@ -46,12 +46,16 @@ export class ExpenseService implements OryhExpenseRemote {
     return view
   }
   async expenseList(id: string): Promise<ExpenseDraft[]> {
+    // Await verification first: a concurrent re-verification revokes the registry entry until
+    // `/auth/me` returns, and a bare `scope()` would throw inside that window.
+    await this.verify(id)
     const scope = this.scope(id)
     const records = await this.store.list()
     this.guard(id, scope)
     return records.filter(row => row.scope === scope && !row.archived).map(row => this.view(row)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
   async expenseOptions(id: string) {
+    await this.verify(id)
     const scope = this.scope(id)
     const body = object(await this.http.request(connectionId(id), { path: '/type-options?family=expense_category&status=active' }))
     this.guard(id, scope)
@@ -64,6 +68,7 @@ export class ExpenseService implements OryhExpenseRemote {
   }
   async expenseSave(id: string, input: { id?: string; revision?: number; fields: ExpenseFields }): Promise<ExpenseDraft> {
     const fields = parseExpenseFields(input.fields, false)
+    await this.verify(id)
     const scope = this.scope(id)
     const previous = (await this.store.list()).filter(row => row.scope === scope)
     for (const line of fields.items) {
@@ -188,6 +193,7 @@ export class ExpenseService implements OryhExpenseRemote {
       message: '已从 ORYH 重新读取并核对记录。' }))
   }
   async expenseUpload(id: string, input: { filename: string; contentType: string; contentBase64: string }) {
+    await this.verify(id)
     const scope = this.scope(id)
     if (typeof input.filename !== 'string' || input.filename.length === 0 || input.filename.length > 255
       || !['application/pdf', 'image/png', 'image/jpeg'].includes(input.contentType)
@@ -206,6 +212,7 @@ export class ExpenseService implements OryhExpenseRemote {
     return receipt
   }
   async expenseDelete(id: string, draftId: string, revision: number): Promise<void> {
+    await this.verify(id)
     const record = await this.read(id, draftId, revision)
     if (!['editing', 'review-create', 'submitted'].includes(record.state)) throw expenseError('未决申请必须先核对结果，不能归档。')
     await this.next(id, record, { archived: true, confirmation: undefined })
