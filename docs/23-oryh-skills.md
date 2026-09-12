@@ -34,7 +34,12 @@ sync(connectionId, force?)
 
 落地位置是 `<agentsHome>/skills`（`DSH_AGENTS_HOME`，默认 `~/.agents/skills`）——与其它通用 agent 同一个位置，由 [`local-runtime.ts`](../packages/core/src/local-runtime.ts) 传入。
 
-触发时机：[`workbench.tsx`](../packages/web/src/client/workbench.tsx) 在工作台挂载时调用 `remote.skillSync(connection.id)`。因为先比清单，装好之后这是一次廉价的空操作。失败是静默的：没有 skill 工作台照常工作，在这里弹错比让 Chat 少知道一点更糟。
+触发时机有两个：
+
+- **工作台挂载时**，[`workbench.tsx`](../packages/web/src/client/workbench.tsx) 调用 `remote.skillSync(connection.id)`。因为先比清单，装好之后这是一次廉价的空操作。失败是静默的：没有 skill 工作台照常工作，在这里弹错比让 Chat 少知道一点更糟。
+- **用户在 Chat 里要求更新时**，agent 调用 `oryh_skill_sync` 工具（`force`：显式的"更新技能"必须重新下载，哪怕清单没变——轮换过的 key 会改变文件内容而不改变清单）。
+
+安装由客户端独占。ORYH 自己也发了一个 `*-skill-sync` 技能——那是给通用 agent 用的安装器，在这里是第二个安装器：它按 ORYH 的原始目录结构解压（见 §4），本客户端的扫描器读不到。系统提示因此明确指向 `oryh_skill_sync`。
 
 安全约束：
 
@@ -54,13 +59,13 @@ calwbiz-jc-medical/
 calwbiz-connect/SKILL.md          ← 共享的 connect skill 本来就在顶层
 ```
 
-Harness 的 `skill-filesystem` **只扫一层**，找 `<root>/<skill>/SKILL.md`。整包放进去，`calwbiz-jc-medical/` 会被读成"一个没有 SKILL.md 的 skill"，一个都发现不了（症状是 `skill "…" is unknown or no longer available`）。
+Harness 的 `skill-filesystem` **只扫一层**，找 `<root>/<skill>/SKILL.md`。整包放进去，`calwbiz-jc-medical/` 里没有 `SKILL.md`，会被静默跳过——不报错，只是一个都发现不了（症状是模型按名装载时收到 `skill "…" is unknown or no longer available`）。
 
 `installPath()` 因此把每个 skill 目录提到根：
 
 - 顶层目录自己带 `SKILL.md` → 原样安装（共享的 connect skill）；
 - 否则是公司容器，第二段才是 skill 目录，提到根；
-- 容器下的散文件（`README.md`、`withheld.json`）描述的是 bundle 而不是 skill，不安装——留着会多出一个被扫描器读成坏 skill 的目录。
+- 容器下的散文件（`README.md`、`withheld.json`、ORYH 自己的 `manifest.json`）描述的是 bundle 而不是 skill，不安装——留着就得保留容器目录，而容器目录里的 skill 仍然在扫描深度之外。代价是 ORYH 自带的 `*-skill-sync` 技能找不到它要的 `manifest.json`，见 §3。
 
 这样做是安全的：ORYH 已经用雇主名给每个 skill 命名（`calwbiz-jc-medical-*`），这正是一个 agent 能同时服务两家公司的前提。
 

@@ -42,7 +42,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.provide('oryhProjects',runtime.projects)
   ctx.provide('oryhAbort', runtime.abort)
   ctx.plugin(OryhRemote)
-  const chat = new BusinessChat(ctx, runtime.controller, runtime.todoDetails, join(config.dataDirectory ?? defaultOryhDataDirectory(), 'chat-bindings'), runtime.timesheets,runtime.projects)
+  const chat = new BusinessChat(ctx, runtime.controller, runtime.todoDetails, join(config.dataDirectory ?? defaultOryhDataDirectory(), 'chat-bindings'), runtime.timesheets,runtime.projects, runtime.skills)
   ctx.provide('oryhSkills', runtime.skills)
   ctx.provide('oryhTodoDetails', runtime.todoDetails)
   ctx.provide('oryhChat', chat)
