@@ -4,6 +4,7 @@ import type { ConnectionId } from '@oryh/ai-client-foundation'
 import type { OryhTimesheetRemote,TimesheetFields } from '@oryh/ai-client-timesheets'
 import { TimesheetChat } from '../src/timesheet-chat.js'
 import { CommandQueue } from '../src/command-queue.js'
+import { SubmitReview } from '../src/submit-review.js'
 /** The page's shape: what the form syncs back and what a stored proposal must look like. */
 const form:TimesheetFields={period_start:'2026-09-09',period_end:'2026-09-09',source_report_text:'开发',entries:[{work_date:'2026-09-09',hours:8,work_type:'normal',project_id:'p',task:'开发',notes:''}]}
 /** The tool's shape: the page form plus the name assertion the tool must make about each id. */
@@ -28,10 +29,14 @@ function setup(){
  const onStatus=(payload:{agent:unknown})=>emit('agent/status',payload)
  const ctx={tools:{register:(tool:{name:string})=>{registered.set(tool.name,tool as never)}},effect:()=>{},agents:{get:()=>agent},
    on:(name:string,fn:(payload:never)=>void)=>{listeners.set(name,fn)}} as unknown as Context
- const chat=new TimesheetChat(ctx,api,async()=>binding,queue)
+ // The review is shared across every document kind ORYH governs with a workflow definition, so the
+ // fixture builds the real one rather than a stub: its tool and listeners are what is under test.
+ const reviews=new SubmitReview(ctx,queue)
+ reviews.install()
+ const chat=new TimesheetChat(ctx,api,async()=>binding,queue,reviews)
  chat.install()
  const state={sessionId:'s',connectionId:binding.connectionId,pageKey:'page',revision:1,manager:false,fields:form}
- return {chat,api,binding,state,prepare,confirm,queue,inbox,agent,emit,tool:(name:string)=>registered.get(name)!,
+ return {chat,reviews,api,binding,state,prepare,confirm,queue,inbox,agent,emit,tool:(name:string)=>registered.get(name)!,
   /** Simulate the driver claiming the queued request, then the status transition it raises. */
   claimRequest:()=>{agent.inbox.nextTurn.length=0;onStatus({agent})}}
 }
@@ -122,85 +127,83 @@ describe('timesheet suggestions',()=>{
   expect(f.inbox[0]?.text).toContain('提交动作触发')
   expect(f.inbox[0]?.text).toContain('h')
   // The request is still pending in the inbox, so the page shows it queued rather than running.
-  expect(f.chat.review('s')).toEqual({headerId:'h',status:'queued'})
+  expect(f.reviews.state('s')).toEqual({kind:'timesheet',documentId:'h',status:'queued'})
  })
  it('settles a review whose turn died, reporting why',async()=>{
   const f=setup();await f.chat.sync(f.state)
   await f.chat.reviewStart('s','h')
-  await f.tool('oryh_timesheet_read').execute({headerId:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
-  expect(f.chat.review('s')?.status).toBe('reviewing')
+  f.claimRequest()
+  expect(f.reviews.state('s')?.status).toBe('reviewing')
 
   // The turn fails (a model quota error here) and then the agent goes idle with nothing reported.
   // Before this, the page waited on a verdict that was never coming — and with submitting gated on
   // it, that is a dead end rather than a slow path.
   f.emit('agent/error',{agent:f.agent,error:new Error('Allocated quota exceeded')})
   f.emit('agent/status',{agent:f.agent,status:'idle'})
-  expect(f.chat.review('s')).toEqual({headerId:'h',status:'unavailable',message:'Allocated quota exceeded'})
+  expect(f.reviews.state('s')).toEqual({kind:'timesheet',documentId:'h',status:'unavailable',message:'Allocated quota exceeded'})
 
   // A verdict arriving late for a settled review is ignored rather than reviving it.
-  const late=await f.tool('oryh_timesheet_review_result').execute({verdict:'passed',message:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
+  const late=await f.tool('oryh_review_result').execute({verdict:'passed',message:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
   expect(late).toContain('已结束')
-  expect(f.chat.review('s')?.status).toBe('unavailable')
+  expect(f.reviews.state('s')?.status).toBe('unavailable')
   // And an unavailable review must not open the submit gate.
-  expect(()=>f.chat.assertReviewPassed({kind:'submit',headerId:'h'},'s')).toThrow(/未经/)
+  expect(()=>f.reviews.assertPassed('timesheet','h','s')).toThrow(/未经/)
  })
  it('lets only a passed verdict through the submit gate',async()=>{
   const f=setup();await f.chat.sync(f.state)
   const submit={kind:'submit',headerId:'h'},exec={agent:{id:'s'},signal:new AbortController().signal}
 
   // No review at all is not a free pass: it is the state anyone would reach by closing the session.
-  expect(()=>f.chat.assertReviewPassed(submit,'s')).toThrow(/未经/)
+  expect(()=>f.reviews.assertPassed('timesheet',submit.headerId,'s')).toThrow(/未经/)
   await f.chat.reviewStart('s','h')
-  expect(()=>f.chat.assertReviewPassed(submit,'s')).toThrow(/尚未完成/)
+  expect(()=>f.reviews.assertPassed('timesheet',submit.headerId,'s')).toThrow(/尚未完成/)
 
-  await f.tool('oryh_timesheet_review_result').execute({verdict:'flagged',message:'本周合计 24 小时，少于 30 小时'} as never,exec as never)
-  expect(()=>f.chat.assertReviewPassed(submit,'s')).toThrow(/少于 30 小时/)
+  await f.tool('oryh_review_result').execute({verdict:'flagged',message:'本周合计 24 小时，少于 30 小时'} as never,exec as never)
+  expect(()=>f.reviews.assertPassed('timesheet',submit.headerId,'s')).toThrow(/少于 30 小时/)
   // Nothing about a flagged verdict may be worked around by dropping the session id either.
-  expect(()=>f.chat.assertReviewPassed(submit,undefined)).toThrow(/未经/)
-  // Other actions never pass through this gate; the review only ever covers a submit.
-  expect(()=>f.chat.assertReviewPassed({kind:'approve',headerId:'h'},'s')).not.toThrow()
+  expect(()=>f.reviews.assertPassed('timesheet',submit.headerId,undefined)).toThrow(/未经/)
 
-  await f.chat.reviewClear('s');await f.chat.reviewStart('s','h')
-  await f.tool('oryh_timesheet_review_result').execute({verdict:'passed',message:''} as never,exec as never)
-  expect(()=>f.chat.assertReviewPassed(submit,'s')).not.toThrow()
+  await f.reviews.clear('s');await f.chat.reviewStart('s','h')
+  await f.tool('oryh_review_result').execute({verdict:'passed',message:''} as never,exec as never)
+  expect(()=>f.reviews.assertPassed('timesheet',submit.headerId,'s')).not.toThrow()
   // A verdict about a different timesheet must not clear this one.
-  expect(()=>f.chat.assertReviewPassed({kind:'submit',headerId:'other'},'s')).toThrow(/未经/)
+  expect(()=>f.reviews.assertPassed('timesheet','other','s')).toThrow(/未经/)
  })
  it('moves from queued to reviewing when the agent claims the request',async()=>{
   const f=setup();await f.chat.sync(f.state)
   await f.chat.reviewStart('s','h')
-  expect(f.chat.review('s')?.status).toBe('queued')
+  expect(f.reviews.state('s')?.status).toBe('queued')
   // The review's own first step is what marks it running: agent/status fires before the inbox
   // drains, so the read tool is the dependable signal.
   await f.tool('oryh_timesheet_read').execute({headerId:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
-  expect(f.chat.review('s')?.status).toBe('reviewing')
+  expect(f.reviews.state('s')?.status).toBe('reviewing')
   // A settled verdict must not be dragged back by a later status transition.
-  await f.tool('oryh_timesheet_review_result').execute({verdict:'passed',message:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
+  await f.tool('oryh_review_result').execute({verdict:'passed',message:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
   // A settled verdict must not be dragged back by a later read.
   await f.tool('oryh_timesheet_read').execute({headerId:''} as never,{agent:{id:'s'},signal:new AbortController().signal} as never)
-  expect(f.chat.review('s')?.status).toBe('passed')
+  expect(f.reviews.state('s')?.status).toBe('passed')
  })
  it('publishes the agent verdict and ignores one that arrives for no live review',async()=>{
   const f=setup();await f.chat.sync(f.state)
-  const report=f.tool('oryh_timesheet_review_result')
+  const report=f.tool('oryh_review_result')
   const extra={agent:{id:'s'},signal:new AbortController().signal} as never
   // No review running: a stray verdict must not appear against the next submission.
   expect(await report.execute({verdict:'passed',message:''} as never,extra)).toContain('没有待回报')
-  expect(f.chat.review('s')).toBeUndefined()
+  expect(f.reviews.state('s')).toBeUndefined()
   await f.chat.reviewStart('s','h')
   await report.execute({verdict:'flagged',message:'本周合计 36 小时，少于要求的 40 小时。'} as never,extra)
-  expect(f.chat.review('s')?.status).toBe('flagged')
-  expect(f.chat.review('s')?.message).toBe('本周合计 36 小时，少于要求的 40 小时。')
+  expect(f.reviews.state('s')?.status).toBe('flagged')
+  expect(f.reviews.state('s')?.message).toBe('本周合计 36 小时，少于要求的 40 小时。')
   // A second verdict for a settled review is late, not a correction.
   expect(await report.execute({verdict:'passed',message:''} as never,extra)).toContain('已结束')
-  expect(f.chat.review('s')?.status).toBe('flagged')
+  expect(f.reviews.state('s')?.status).toBe('flagged')
  })
  it('drops the review when it is skipped or the page is left',async()=>{
   const f=setup();await f.chat.sync(f.state)
-  await f.chat.reviewStart('s','h');expect(f.chat.review('s')).toBeDefined()
-  f.chat.reviewClear('s');expect(f.chat.review('s')).toBeUndefined()
+  await f.chat.reviewStart('s','h');expect(f.reviews.state('s')).toBeDefined()
+  f.reviews.clear('s');expect(f.reviews.state('s')).toBeUndefined()
   await f.chat.reviewStart('s','h');f.chat.clear('s')
-  expect(f.chat.review('s')).toBeUndefined()
+  expect(f.reviews.state('s')).toBeUndefined()
  })
  it('restricts approval proposals to the current managers todo and never confirms',async()=>{
   const f=setup();f.binding.manager=true;await f.chat.sync({...f.state,manager:true})

@@ -70,7 +70,7 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('expenseOptions') expenseOptions(request: ConnectionRequest): Promise<ExpenseOptions> { return this.call(() => this.ctx.oryhExpenses.expenseOptions(request.connectionId)) }
   @Remote('expenseSave') expenseSave(request: SaveDraftRequest): Promise<ExpenseDraft> { return this.call(() => this.ctx.oryhExpenses.expenseSave(request.connectionId, request)) }
   @Remote('expensePrepare') expensePrepare(request: DraftRequest): Promise<ExpenseDraft> { return this.call(() => this.ctx.oryhExpenses.expensePrepare(request.connectionId, request.id, request.revision)) }
-  @Remote('expenseConfirm') expenseConfirm(request: ConfirmDraftRequest): Promise<ExpenseDraft> { return this.call(() => this.ctx.oryhExpenses.expenseConfirm(request.connectionId, request.id, request.revision, request.token)) }
+  @Remote('expenseConfirm') expenseConfirm(request: ConfirmTimesheetRequest): Promise<ExpenseDraft> { return this.call(() => this.ctx.oryhExpenses.expenseConfirm(request.connectionId, request.id, request.revision, request.token, request.sessionId)) }
   @Remote('expenseReconcile') expenseReconcile(request: DraftRequest): Promise<ExpenseDraft> { return this.call(() => this.ctx.oryhExpenses.expenseReconcile(request.connectionId, request.id, request.revision)) }
   @Remote('expenseUpload') expenseUpload(request: UploadRequest): Promise<AttachmentReceipt> { return this.call(() => this.ctx.oryhExpenses.expenseUpload(request.connectionId, request)) }
   @Remote('expenseArchive') expenseArchive(request: DraftRequest): Promise<void> { return this.call(() => this.ctx.oryhExpenses.expenseDelete(request.connectionId, request.id, request.revision)) }
@@ -90,8 +90,9 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('timesheetChatSync') timesheetChatSync(request: TimesheetChatState): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.sync(request)) }
   /** Start the pre-submit norm review; it returns at once and reports over the command stream. */
   @Remote('timesheetReviewStart') timesheetReviewStart(request: { sessionId: string; headerId: string }): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.reviewStart(request.sessionId, request.headerId)) }
+  @Remote('expenseReviewStart') expenseReviewStart(request: { sessionId: string; draftId: string }): Promise<void> { return this.call(async () => { this.ctx.oryhChat.expenseReviewStart(request.sessionId, request.draftId) }) }
   /** Drop the review when the user skips it or the submission settles. */
-  @Remote('timesheetReviewClear') timesheetReviewClear(request: { sessionId: string }): Promise<void> { return this.call(async () => { this.ctx.oryhChat.timesheet.reviewClear(request.sessionId) }) }
+  @Remote('reviewClear') reviewClear(request: { sessionId: string }): Promise<void> { return this.call(async () => { this.ctx.oryhChat.reviews.clear(request.sessionId) }) }
   @Remote('productSearch') productSearch(r:ProductSearch):Promise<ProductOptions>{return this.call(()=>this.ctx.oryhRecords.productSearch(r))}
   @Remote('recordList') recordList(r:RecordQuery):Promise<RecordPage>{return this.call(()=>this.ctx.oryhRecords.recordList(r))}
   @Remote('projectOptions') projectOptions(r:ConnectionRequest):Promise<ProjectOptions>{return this.call(()=>this.ctx.oryhProjects.projectOptions(r.connectionId))}

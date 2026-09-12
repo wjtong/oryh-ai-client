@@ -147,7 +147,18 @@ export class ExpenseService implements OryhExpenseRemote {
       confirmation: { token: randomUUID(), expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(), action }, message: undefined })
     return this.view(record)
   }
-  async expenseConfirm(id: string, draftId: string, revision: number, token: string): Promise<ExpenseDraft> {
+  /**
+   * Refuse a submit the pre-submit norm review has not cleared.
+   *
+   * `expense_claim` carries a workflow definition, so its submit needs the same gate the timesheet
+   * has (docs/22). The verdict lives in the Host's chat layer, which this package must not depend
+   * on, so the Host installs the check here — in the service rather than the page, because a
+   * disabled button is a suggestion and the Remote is reachable without it.
+   * @param gate - throws when the submit may not be confirmed.
+   */
+  setSubmitGate(gate: (draftId: string, sessionId?: string) => void) { this.gate = gate }
+  private gate?: (draftId: string, sessionId?: string) => void
+  async expenseConfirm(id: string, draftId: string, revision: number, token: string, sessionId?: string): Promise<ExpenseDraft> {
     requirePermission((await this.verify(id)).identity,'expense.submit_own')
     let record = await this.read(id, draftId, revision)
     const confirmation = record.confirmation
@@ -155,6 +166,7 @@ export class ExpenseService implements OryhExpenseRemote {
       || (record.state !== 'review-create' && record.state !== 'review-submit')) throw expenseError('确认已失效，请重新校验和确认。')
     const action = confirmation.action
     if (action === 'submit') {
+      this.gate?.(draftId, sessionId)
       const detail = await this.detail(id, record)
       if (record.serverDigest !== digest(detail)) {
         await this.next(id, record, { state: 'created', confirmation: undefined, message: '服务端内容已改变，请重新核对。' })

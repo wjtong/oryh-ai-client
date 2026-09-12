@@ -1,4 +1,4 @@
-# 工时提交前的规范核对
+# 提交前的规范核对（工时、费用及其它带流程定义的单据）
 
 2026-09-12。状态：已实施（2026-09-12）。实施中修正了两处设计假设，见文末。
 
@@ -24,6 +24,27 @@ ORYH 的业务逻辑在 agent 层（Skills），因此像"每周 40 小时"这�
 - **不把 40 小时写成代码。** 见 ADR-0008 之外的 ORYH 哲学：规则写进代码意味着每次调整都要走开发与发布周期。
 
 界线：`validateTimesheet` 里现有的检查（一天不超过 24 小时、日期落在申报期间、明细条数上限）是**数据完整性不变量**，与企业政策无关，继续留在代码里。业务**规范**不进这个函数——尤其注意它已经在按天累加 `totals`，加一个按周累加只有三行，很容易顺手做错。
+
+## 适用范围：带 workflow definition 的单据
+
+判据是**服务端是否为这个 object_type 配了 workflow definition**，而不是单据长什么样。有定义就意味着企业对它有流程要求，页面上的提交按钮就不能绕过这些要求。
+
+2026-09-13 在 晶诚医疗 实测，租户上共 9 条定义：
+
+| object_type | 定义 | 本客户端能否提交 | 是否已接入核对 |
+| --- | --- | --- | --- |
+| `timesheet_header` | builtin v2 | 能 | ✅ |
+| `expense_claim` | builtin v1 | 能 | ✅ |
+| `purchase_request` | builtin v1 | 否（只读） | 页面开放提交时接入 |
+| `sales_order` | builtin v1 | 否（只读） | 同上 |
+| `sales_quotation` | builtin v1 | 否（只读） | 同上 |
+| `warranty_card`、3 × `rg_flow_*` | business_object | 否（本客户端不编辑自定义对象） | 同上 |
+
+接入一个新单据需要三步，核对本身不用重写：
+
+1. `SubmitReview` 的 `ReviewKind` 加一项，并在 `SPECS` 里写清这个流程要求叫什么、agent 该怎么读这张单据；
+2. 该领域 service 暴露 `setSubmitGate()`，在 `confirm()` 里、权限检查之后调用，`index.ts` 把它接到 `reviews.assertPassed(kind, documentId, sessionId)`；
+3. 页面在准备提交时调用对应的 `*ReviewStart`，把核对区渲染进确认对话框，并按 `norm.phase !== 'passed'` 禁用确认。
 
 ## 平台机制
 
@@ -78,11 +99,13 @@ Host 已经持有 `ctx.agents`（`business-chat.ts` 在用）。**这意味着"�
 | 位置 | 变化 |
 | --- | --- |
 | `packages/web/src/client/timesheets.tsx` | 提交按钮改为先开对话框并进入核对态；五个核对状态，只有 `passed` 解禁确认；`unavailable` 提供「重新核对」 |
-| `packages/dsh-host/src/timesheet-chat.ts` | 新增 review 命令与结论工具；注入 inbox |
+| `packages/dsh-host/src/submit-review.ts` | 与单据无关的核对本体：注入 inbox、`oryh_review_result` 结论工具、失败与超时的终局、`assertPassed` 闸门 |
+| `packages/dsh-host/src/timesheet-chat.ts` | 只保留工时自己的页面绑定与权限检查，核对委托给 `SubmitReview` |
+| `packages/web/src/client/expenses.tsx` | 费用申请提交走同一套：核对区、只有 `passed` 解禁确认、`unavailable` 提供「重新核对」 |
 | `packages/dsh-host/src/command-queue.ts` | 复用，无需改动 |
 | `packages/timesheets/src/contracts.ts` | **不改**——规范不进 `validateTimesheet` |
 | `packages/timesheets/src/service.ts` | `setSubmitGate()`：Host 注入的确认闸门，`confirm()` 在权限检查之后调用 |
-| `packages/dsh-host/src/timesheet-chat.ts` | `assertReviewPassed()`：只有 `passed` 且 headerId 相符才放行 |
+| `packages/expenses/src/service.ts` | 同样的 `setSubmitGate()`，只在 `action==='submit'` 时调用 |
 
 ## 已知代价与未决项
 

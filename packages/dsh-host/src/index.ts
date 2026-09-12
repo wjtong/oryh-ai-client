@@ -45,7 +45,8 @@ export function apply(ctx: Context, config: Config): void {
   const chat = new BusinessChat(ctx, runtime.controller, runtime.todoDetails, join(config.dataDirectory ?? defaultOryhDataDirectory(), 'chat-bindings'), runtime.timesheets,runtime.projects, runtime.skills)
   // The page's disabled button is a hint; this is the gate. Wired here because the verdict lives in
   // the chat layer and the confirm lives in the timesheet service, and neither may import the other.
-  runtime.timesheets.setSubmitGate((action, sessionId) => chat.timesheet.assertReviewPassed(action, sessionId))
+  runtime.timesheets.setSubmitGate((action, sessionId) => { if (action.kind === 'submit') chat.reviews.assertPassed('timesheet', action.headerId, sessionId) })
+  runtime.expenses.setSubmitGate((draftId, sessionId) => chat.reviews.assertPassed('expense', draftId, sessionId))
   ctx.provide('oryhSkills', runtime.skills)
   ctx.provide('oryhTodoDetails', runtime.todoDetails)
   ctx.provide('oryhChat', chat)

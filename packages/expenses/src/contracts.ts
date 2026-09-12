@@ -36,7 +36,7 @@ export interface OryhExpenseRemote {
   expenseOptions(connectionId: string): Promise<{ categories: { name: string; title: string }[] }>
   expenseSave(connectionId: string, input: { id?: string; revision?: number; fields: ExpenseFields }): Promise<ExpenseDraft>
   expensePrepare(connectionId: string, id: string, revision: number): Promise<ExpenseDraft>
-  expenseConfirm(connectionId: string, id: string, revision: number, token: string): Promise<ExpenseDraft>
+  expenseConfirm(connectionId: string, id: string, revision: number, token: string, sessionId?: string): Promise<ExpenseDraft>
   expenseReconcile(connectionId: string, id: string, revision: number): Promise<ExpenseDraft>
   expenseUpload(connectionId: string, input: { filename: string; contentType: string; contentBase64: string }): Promise<ExpenseAttachment>
   expenseDelete(connectionId: string, id: string, revision: number): Promise<void>

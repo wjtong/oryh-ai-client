@@ -4,8 +4,8 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { z } from 'zod'
 import { OryhClientError, type ConnectionId } from '@oryh/ai-client-foundation'
 import { validateTimesheet, type OryhTimesheetRemote, type TimesheetAction, type TimesheetFields, type TimesheetLine } from '@oryh/ai-client-timesheets'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { TimesheetChatState, TimesheetChatProposal, TimesheetReviewState } from './types.js'
+import type { TimesheetChatState, TimesheetChatProposal } from './types.js'
+import type { SubmitReview } from './submit-review.js'
 import type { CommandQueue } from './command-queue.js'
 const line=z.object({id:z.string().optional(),work_date:z.string(),hours:z.number(),work_type:z.string(),project_id:z.string(),project_name:z.string(),task:z.string().max(200),notes:z.string().max(2000)}).strict()
 const fields=z.object({period_start:z.string(),period_end:z.string(),source_report_text:z.string().max(10000),entries:z.array(line).min(1).max(100)}).strict()
@@ -60,120 +60,26 @@ const lineSpec={type:'object',additionalProperties:false,properties:{id:{type:'s
 const fieldsSpec={type:'object',additionalProperties:false,properties:{period_start:{type:'string',required:true},period_end:{type:'string',required:true},source_report_text:{type:'string',required:true},entries:{type:'array',required:true,items:lineSpec}}} as const
 const actionSpec={type:'object',required:true,additionalProperties:false,properties:{kind:{type:'string',required:true,enum:['create','update','submit','approve','add-line','edit-line','delete-line']},fields:fieldsSpec,headerId:{type:'string'},todoId:{type:'string'},entryId:{type:'string'},line:lineSpec,decision:{type:'string',enum:['approved','rejected','returned']},comment:{type:'string'}}} as const
 const fail=(text:string)=>new OryhClientError(text,'request-failed')
-/** How long a review may run before the page stops waiting on it. */
-const REVIEW_TIMEOUT_MS=120_000
 /** Ephemeral suggestions only. No prepare/confirm method or confirmation token reaches a tool. */
 export class TimesheetChat {
   private states=new Map<string,TimesheetChatState>()
   private proposals=new Map<string,TimesheetChatProposal>()
-  private reviews=new Map<string,TimesheetReviewState>()
-  /** Identity of each pending request, kept Host-side: while it is still in the agent's inbox the
-   * review is queued behind a conversation turn; once gone, the review turn itself is running. */
-  private reviewMessages=new Map<string,string>()
-  constructor(private ctx:Context,private api:OryhTimesheetRemote|undefined,private binding:(id:string,verify?:boolean,write?:boolean)=>Promise<PageBinding>,private queue:CommandQueue){}
+  constructor(private ctx:Context,private api:OryhTimesheetRemote|undefined,private binding:(id:string,verify?:boolean,write?:boolean)=>Promise<PageBinding>,private queue:CommandQueue,private reviews:SubmitReview){}
   current(id:string){return this.states.get(id)}
   /** The staged suggestion the command stream publishes for this session. */
   pending(id:string){return this.proposals.get(id)}
-  clear(id:string){this.states.delete(id);this.proposals.delete(id);this.reviews.delete(id);this.reviewMessages.delete(id);this.reviewSettled(id);this.queue.changed(id)}
-  /** The review the command stream publishes for this session. */
-  review(id:string){return this.reviews.get(id)}
-  /** Why the last review turn died, kept until the status listener can report it. */
-  private reviewFailures=new Map<string,string>()
-  /** Timers that settle a review no turn ever finishes; cleared the moment it settles. */
-  private reviewTimers=new Map<string,ReturnType<typeof setTimeout>>()
-  /** Whether a review is still waiting on the agent, and so may still be settled. */
-  private reviewLive(id:string){const s=this.reviews.get(id)?.status;return s==='queued'||s==='reviewing'}
+  clear(id:string){this.states.delete(id);this.proposals.delete(id);this.reviews.clear(id);this.queue.changed(id)}
   /**
-   * Settle a review the agent never reported on.
+   * Ask the agent to check this timesheet against the enterprise norms before submitting.
    *
-   * `unavailable` is a terminal state, not a pause: the page offers a retry and keeps 确认执行
-   * disabled. Reporting the underlying failure verbatim matters more than tidy wording — a quota
-   * error or a dead model is something only the user can act on, and "核对失败" tells them nothing.
-   * @param id - session whose review failed.
-   * @param message - the reason, shown to the user as-is.
-   */
-  private reviewFailed(id:string,message:string){
-    const current=this.reviews.get(id)
-    if(!current||!this.reviewLive(id))return
-    this.reviewSettled(id)
-    this.reviews.set(id,{...current,status:'unavailable',message})
-    this.queue.changed(id)
-  }
-  /** Drop the bookkeeping a settled review no longer needs. */
-  private reviewSettled(id:string){
-    const timer=this.reviewTimers.get(id)
-    if(timer!==undefined){clearTimeout(timer);this.reviewTimers.delete(id)}
-    this.reviewFailures.delete(id)
-  }
-  /**
-   * Ask the session's agent to check this timesheet against the enterprise norms before submitting.
-   *
-   * The norms live on the server — in the workflow definitions the agent reads, and in the ORYH
-   * Skills installed for this person (docs/23) — not in code, so the only way to apply them is to
-   * let the agent read them. `followup` is the right door: it queues the request as its own turn AND wakes an idle
-   * driver. A bare `inbox.append` only queues — with the agent idle, which is the common case when
-   * someone clicks submit, the message sits in the chat forever and no turn ever runs. Nothing here
-   * blocks; progress reaches the page over the command stream. See docs/22.
+   * Only the page binding and the write permission are checked here; the review itself is generic
+   * (docs/22), because every ORYH document governed by a workflow definition needs the same gate.
    * @param id - session whose agent performs the review.
    * @param headerId - timesheet being submitted; a verdict for any other document is ignored.
    */
   async reviewStart(id:string,headerId:string):Promise<void>{
     await this.binding(id,true,true)
-    const agent=this.ctx.agents.get(id as never)
-    if(!agent)throw fail('当前会话不可用，无法进行规范核对。')
-    const request=createUserMessage({content:[{type:'text',
-      text:`（提交动作触发）请按企业当前工时流程要求核对这张待提交的工时单（编号 ${headerId}）。先用 oryh_timesheet_read 读取实际内容，再调用 oryh_timesheet_review_result 回报结论；不要修改表单。`}],source:{kind:'user'}})
-    agent.followup(request)
-    this.reviewMessages.set(id,String(request.id))
-    this.reviewSettled(id)
-    // Backstop for an agent that neither reports nor goes idle. The status listener catches the
-    // common failure within a second; this only covers a driver that hangs, and is generous because
-    // a review queued behind a long conversation turn is legitimately slow.
-    this.reviewTimers.set(id,setTimeout(()=>this.reviewFailed(id,'核对超时，未收到结论。'),REVIEW_TIMEOUT_MS))
-    this.reviews.set(id,{headerId,status:this.reviewPhase(id,agent)})
-    this.queue.changed(id)
-  }
-  /**
-   * Refuse a submit the norm review has not cleared.
-   *
-   * Only `passed` opens the door — a flagged verdict, a review still running, and a review that
-   * could not run at all all block. That is deliberate: any state the user can reach by waiting or
-   * by closing the session would otherwise be a way around the verdict, and then the check is
-   * decoration. The submitter still has ORYH Console and any other agent; what this removes is
-   * *this* client being the easy way past its own review.
-   * @param action - the intent being confirmed; anything but a submit passes straight through.
-   * @param sessionId - chat session whose agent ran the review.
-   */
-  assertReviewPassed(action:{kind:string;headerId?:string},sessionId?:string):void{
-    if(action.kind!=='submit')return
-    const review=sessionId===undefined?undefined:this.reviews.get(sessionId)
-    if(review?.status==='passed'&&review.headerId===action.headerId)return
-    if(review?.status==='flagged')throw new OryhClientError(`未通过企业工时流程要求核对：${review.message||'存在冲突'}。请修改后重新提交。`,'request-failed')
-    if(review?.status==='queued'||review?.status==='reviewing')throw new OryhClientError('规范核对尚未完成，请等待结论。','request-failed')
-    throw new OryhClientError('本次提交未经企业工时流程要求核对，无法提交。请在 Chat 中保持会话后重新提交。','request-failed')
-  }
-  /** Drop the review, whether the user skipped it or the submission finished. */
-  reviewClear(id:string){this.reviewMessages.delete(id);this.reviewSettled(id);if(this.reviews.delete(id))this.queue.changed(id)}
-  /** Queued while the request is still pending in the inbox; reviewing once the agent claimed it. */
-  private reviewPhase(id:string,agent:{inbox:{nextTurn:readonly {id:string}[]}}):'queued'|'reviewing'{
-    const message=this.reviewMessages.get(id)
-    return message!==undefined&&agent.inbox.nextTurn.some(m=>String(m.id)===message)?'queued':'reviewing'
-  }
-  /**
-   * Mark the review as actually running.
-   *
-   * `agent/status` alone is not enough: the idle -> running transition fires before the driver
-   * drains the inbox, so the request still looks queued at that moment and no later transition
-   * arrives before the verdict. The review's own first step is the dependable signal, since the
-   * request tells the agent to read the timesheet before reporting. The cost is a narrow false
-   * positive — a conversation turn that happens to read a timesheet while our request is still
-   * queued flips the label early — which changes wording only, never the gate.
-   */
-  reviewClaimed(id:string){
-    const current=this.reviews.get(id)
-    if(current?.status!=='queued')return
-    this.reviews.set(id,{...current,status:'reviewing'})
-    this.queue.changed(id)
+    this.reviews.start(id,'timesheet',headerId)
   }
   async sync(state:TimesheetChatState):Promise<void>{
     const b=await this.binding(state.sessionId,false)
@@ -256,7 +162,7 @@ export class TimesheetChat {
   }
   install(){
     const output={schema:{type:'string' as const},render:(_a:unknown,value:string)=>[{type:'text' as const,text:value}]}
-    this.ctx.tools.register(defineTool({name:'oryh_timesheet_read',description:'读取当前工时菜单的表单版本、未保存表单、本人工时或经理审批队列、企业工时类型和项目。headerId 为空读取当前页面；非空只可查询返回列表中的工时。',parameters:{headerId:{type:'string',description:'工时编号；没有指定则传空字符串'}},output,execute:async(args,e)=>{if(!e.agent)throw fail('需要会话');e.signal.throwIfAborted();this.reviewClaimed(String(e.agent.id));const result=await this.read(String(e.agent.id),args.headerId);e.signal.throwIfAborted();return JSON.stringify(result)}}))
+    this.ctx.tools.register(defineTool({name:'oryh_timesheet_read',description:'读取当前工时菜单的表单版本、未保存表单、本人工时或经理审批队列、企业工时类型和项目。headerId 为空读取当前页面；非空只可查询返回列表中的工时。',parameters:{headerId:{type:'string',description:'工时编号；没有指定则传空字符串'}},output,execute:async(args,e)=>{if(!e.agent)throw fail('需要会话');e.signal.throwIfAborted();this.reviews.claimed(String(e.agent.id));const result=await this.read(String(e.agent.id),args.headerId);e.signal.throwIfAborted();return JSON.stringify(result)}}))
     this.ctx.tools.register(defineTool({name:'oryh_timesheet_propose',description:'生成工时建议，不写服务端。先 read 获取 revision，传 action 对象。新建表单：kind=create；编辑已打开的工时：kind=update,headerId，fields 中已有行保留 id，新增行不传 id，删除行从 entries 移除。优先更新整张表单，所有修改在页面统一保存。fields 为完整快照，保留未要求修改的内容。允许分步填写：未知字段保留空字符串，未填写小时保留 0，不必等所有内容齐全；正式保存会校验完整性。提交：kind=submit,headerId。添加明细：kind=add-line,headerId,line。编辑：kind=edit-line,headerId,entryId,line。删除明细：kind=delete-line,headerId,entryId。审批：kind=approve,headerId,todoId,decision,comment。只传该操作需要的字段。关联项目必须同时给出 project_id 与 project_name，名称逐字取自 read 的 projects；两者不一致会被拒绝，这是为了拦住编号解析错误。不关联项目时 project_id 与 project_name 都传空字符串。read 的 ambiguousProjects 列出同名项目，遇到时必须先反问用户是哪一个，不要自行挑选。日期为 YYYY-MM-DD，工时类型必须使用 read 返回的 name。create 和 update 自动更新业务栏的未保存表单，无需点击应用；保存、提交和审批仍需核对。成功回执里的 applied 是页面实际生效的内容（项目编号与名称、每日工时、合计），向用户复述必须依据它，不能复述本次调用的参数。不能声称已保存或执行。',parameters:{revision:{type:'integer',required:true},action:actionSpec},output,execute:async(args,e)=>{if(!e.agent)throw fail('需要会话');e.signal.throwIfAborted();const id=String(e.agent.id);const result=await this.propose(id,args.revision,args.action);if(args.action.kind==='create'||args.action.kind==='update'){try{
       const applied=await this.queue.wait<{message:string;applied:ReturnType<typeof appliedSummary>|undefined}>(id,'timesheet-form',{
         invalid:()=>this.states.get(id)?undefined:'页面已离开，填写已取消',
@@ -272,43 +178,6 @@ export class TimesheetChat {
       })
       return JSON.stringify(applied)
     }catch(error){if(this.proposals.get(id)?.id===result.proposalId)this.proposals.delete(id);throw error}}return JSON.stringify(result)}}))
-    this.ctx.tools.register(defineTool({name:'oryh_timesheet_review_result',description:'回报一次提交前的工时规范核对结论。只在收到"（提交动作触发）"的核对请求后调用，且必须先用 oryh_timesheet_read 读过实际内容。verdict=passed 表示未发现与企业工时流程要求冲突；verdict=flagged 表示存在冲突，message 用一两句话说明是哪一条、具体差多少，供用户判断。这不是保存或提交，用户仍需在页面确认。',
-      parameters:{verdict:{type:'string',required:true,enum:['passed','flagged']},message:{type:'string',required:true,description:'flagged 时说明冲突；passed 时可留空字符串'}},output,
-      execute:async(args,e)=>{if(!e.agent)throw fail('需要会话');const id=String(e.agent.id)
-        const current=this.reviews.get(id)
-        if(!current)return '当前没有待回报的核对请求，结论已忽略。'
-        // The page moved on while the agent was thinking; a verdict about the old document is noise.
-        if(!this.reviewLive(id))return '该核对请求已结束，结论已忽略。'
-        this.reviewSettled(id)
-        this.reviews.set(id,{...current,status:args.verdict==='passed'?'passed':'flagged',message:String(args.message??'')})
-        this.queue.changed(id)
-        return '核对结论已回报给页面，等待用户确认。'}}))
-    // A turn that dies takes the verdict with it. The failure itself is the only place the reason
-    // exists (a model quota error, say), and the page is blocked until something settles the review,
-    // so keep it for the status listener below to report.
-    this.ctx.on('agent/error',({agent,error}:{agent:{id:unknown};error:unknown})=>{
-      const id=String(agent.id)
-      if(this.reviewLive(id))this.reviewFailures.set(id,error instanceof Error?error.message:String(error))
-    })
-    // The queued -> reviewing transition rides the agent's own status events rather than a poll:
-    // every transition re-reads the inbox, which is what actually says whether our request is still
-    // waiting behind a conversation turn.
-    this.ctx.on('agent/status',({agent,status}:{agent:{id:unknown;inbox:{nextTurn:readonly {id:string}[]}};status?:string})=>{
-      const id=String(agent.id),current=this.reviews.get(id)
-      if(!current||!this.reviewLive(id))return
-      // Going idle after the review turn started means it ran and ended without reporting. Before
-      // submitting was gated on the verdict this only cost a stale label; now it is what stands
-      // between the user and a submit, so it has to settle rather than spin forever. The claim is
-      // read from our own state, not recomputed from the inbox: the request id can linger there
-      // after the driver has taken it, and this must not mistake a dead turn for a queued one.
-      if(status==='idle'&&current.status==='reviewing'){this.reviewFailed(id,this.reviewFailures.get(id)??'核对回合已结束但没有回报结论。');return}
-      const phase=this.reviewPhase(id,agent)
-      // Only ever forward: once the review turn has been claimed it is running, whatever the inbox
-      // still says.
-      if(phase===current.status||current.status==='reviewing')return
-      this.reviews.set(id,{...current,status:phase})
-      this.queue.changed(id)
-    })
-    this.ctx.effect(()=>()=>{this.states.clear();this.proposals.clear();this.reviews.clear();this.reviewMessages.clear()},'oryh timesheet suggestions')
+    this.ctx.effect(()=>()=>{this.states.clear();this.proposals.clear()},'oryh timesheet suggestions')
   }
 }

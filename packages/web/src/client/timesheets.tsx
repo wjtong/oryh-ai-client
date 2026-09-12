@@ -42,7 +42,7 @@ export function TimesheetPanel({connection,manager,active,navigationId,navigatio
   const norm=(()=>{
     if(review?.action.kind!=='submit')return undefined
     if(normError)return {phase:'unavailable' as const,message:normError}
-    const s=reviewState&&reviewState.headerId===review.action.headerId?reviewState:undefined
+    const s=reviewState&&reviewState.kind==='timesheet'&&reviewState.documentId===review.action.headerId?reviewState:undefined
     // Before the first frame arrives the review is already queued Host-side, so treat it as such.
     if(!s)return {phase:'queued' as const,message:''}
     // `unavailable` now also arrives from the Host, which is what settles a review whose turn died
@@ -53,7 +53,7 @@ export function TimesheetPanel({connection,manager,active,navigationId,navigatio
   const normRunning=norm?.phase==='queued'||norm?.phase==='reviewing'
   const normElapsed=normRunning&&normSince?Math.floor((Date.now()-normSince)/1000):0
   useEffect(()=>{if(!normRunning)return;const t=setInterval(()=>setNormTick(n=>n+1),1000);return()=>clearInterval(t)},[normRunning])
-  function normReset(){setNormError('');setNormSince(0);if(sessionId)void api.timesheetReviewClear(sessionId).catch(()=>{})}
+  function normReset(){setNormError('');setNormSince(0);if(sessionId)void api.reviewClear(sessionId).catch(()=>{})}
   useEffect(()=>{alive.current=true;void run(refresh);return()=>{alive.current=false}},[])
   useEffect(()=>{onDirtyChange(dirty || busy);return()=>onDirtyChange(false)},[dirty,busy,onDirtyChange])
   useEffect(()=>{if(!dirty)return;const warn=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue=''};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn)},[dirty])

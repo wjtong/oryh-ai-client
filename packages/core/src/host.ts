@@ -56,7 +56,8 @@ export class OryhClientHost {
   }
 
   /** Build a browser-safe expense workflow over the same verified connection and transport. */
-  createExpenseRemote(store: ExpenseStore): OryhExpenseRemote {
+  /** Concrete service, not the narrow Remote interface: the Host also installs its submit gate. */
+  createExpenseRemote(store: ExpenseStore) {
     return new ExpenseService(store, this.#http, id => this.#connections.requireVerified(id as ConnectionId),
       id => this.verifyConnection(id as ConnectionId))
   }

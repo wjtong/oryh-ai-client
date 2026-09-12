@@ -18,7 +18,7 @@ import type { OryhExpenseRemote } from '@oryh/ai-client-expenses'
 import type { ConnectionId } from '@oryh/ai-client-foundation'
 import type { OryhTimesheetRemote } from '@oryh/ai-client-timesheets'
 
-interface BusinessChatRemote { projectChatSync(request:ProjectChatState):Promise<void>;projectChatClear(sessionId:string):Promise<void>; chatPageSync(request:ChatPageRequest):Promise<void>; chatHomeClear(sessionId:string):Promise<void>; timesheetChatSync(request:TimesheetChatState):Promise<void>; skillSync(connectionId:string,force?:boolean):Promise<import('@oryh/ai-client-core/types').SkillSyncResult>; timesheetReviewStart(sessionId:string,headerId:string):Promise<void>; timesheetReviewClear(sessionId:string):Promise<void>; openCommands(request:ChatHomeRequest):CommandStreamHandle; todoDetail(connectionId: string, todoId: string): Promise<TodoDocument>; chatSelect(request: ChatSelection): Promise<ChatContextView>; chatClear(sessionId: string): Promise<void> }
+interface BusinessChatRemote { projectChatSync(request:ProjectChatState):Promise<void>;projectChatClear(sessionId:string):Promise<void>; chatPageSync(request:ChatPageRequest):Promise<void>; chatHomeClear(sessionId:string):Promise<void>; timesheetChatSync(request:TimesheetChatState):Promise<void>; skillSync(connectionId:string,force?:boolean):Promise<import('@oryh/ai-client-core/types').SkillSyncResult>; timesheetReviewStart(sessionId:string,headerId:string):Promise<void>; expenseReviewStart(sessionId:string,draftId:string):Promise<void>; reviewClear(sessionId:string):Promise<void>; openCommands(request:ChatHomeRequest):CommandStreamHandle; todoDetail(connectionId: string, todoId: string): Promise<TodoDocument>; chatSelect(request: ChatSelection): Promise<ChatContextView>; chatClear(sessionId: string): Promise<void> }
 export type BusinessRemote = BusinessChatRemote & OryhRecordRemote & OryhProjectRemote & OryhClientRemote & OryhExpenseRemote & OryhTimesheetRemote
 export const RemoteContext = createContext<BusinessRemote | undefined>(undefined)
 export function useOryhRemote(): BusinessRemote {
@@ -122,7 +122,8 @@ export function createOryhRemote(remote: ClientRemote): BusinessRemote {
     timesheetChatSync: request => unwrap(api.timesheetChatSync(request)),
     skillSync: (connectionId, force) => unwrap(api.skillSync({ ...connection(connectionId), ...(force ? { force } : {}) })),
     timesheetReviewStart: (sessionId, headerId) => unwrap(api.timesheetReviewStart({ sessionId, headerId })),
-    timesheetReviewClear: sessionId => unwrap(api.timesheetReviewClear({ sessionId })),
+    expenseReviewStart: (sessionId, draftId) => unwrap(api.expenseReviewStart({ sessionId, draftId })),
+    reviewClear: sessionId => unwrap(api.reviewClear({ sessionId })),
     openCommands: request => createCommandStream(remote, request),
     todoDetail: (id, todoId) => unwrap(api.todoDetail({ ...connection(id), todoId })),
     chatSelect: request => unwrap(api.chatSelect(request)),

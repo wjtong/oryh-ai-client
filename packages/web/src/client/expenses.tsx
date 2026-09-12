@@ -1,9 +1,11 @@
 import { useBusinessText } from './locale.js';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Badge, Button, Card, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Link, MessageBar, MessageBarBody, Select, Spinner, Text, Textarea, Title2 } from '@fluentui/react-components';
 import type { ConnectionSummary } from '@oryh/ai-client-core';
 import type { ExpenseDraft, ExpenseFields, ExpenseLine, ExpenseState } from '@oryh/ai-client-expenses';
 import { useOryhRemote } from './remote.js';
+import { useCommands } from './command-stream.js';
+import { BusinessSessionContext } from './todo-chat.js';
 import type { PageContext } from './workbench.js';
 function today(): string {
     const now = new Date();
@@ -48,6 +50,33 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
     const contextCallback = useRef(onContext);
     contextCallback.current = onContext;
     const lastNewRequest = useRef(0);
+    const sessionId = useContext(BusinessSessionContext), reviewState = useCommands().commands.review;
+    const [normError, setNormError] = useState(''), [normSince, setNormSince] = useState(0), [, setNormTick] = useState(0);
+    /**
+     * Where the pre-submit norm review stands, for a submit confirmation only.
+     *
+     * `expense_claim` carries a workflow definition, so submitting it goes through the same gate as
+     * a timesheet (docs/22): the verdict comes from the agent reading the tenant's own norms, and
+     * only `passed` enables 确认.
+     */
+    const norm = (() => {
+        if (selected?.confirmation?.action !== 'submit') return undefined;
+        if (normError) return { phase: 'unavailable' as const, message: normError };
+        const state = reviewState && reviewState.kind === 'expense' && reviewState.documentId === selected.id ? reviewState : undefined;
+        // Before the first frame arrives the review is already queued Host-side, so treat it as such.
+        if (!state) return { phase: 'queued' as const, message: '' };
+        return { phase: state.status, message: state.message ?? '' };
+    })();
+    const normRunning = norm?.phase === 'queued' || norm?.phase === 'reviewing';
+    const normElapsed = normRunning && normSince ? Math.floor((Date.now() - normSince) / 1000) : 0;
+    useEffect(() => { if (!normRunning) return; const timer = setInterval(() => setNormTick(n => n + 1), 1000); return () => clearInterval(timer); }, [normRunning]);
+    function normReset() { setNormError(''); setNormSince(0); if (sessionId) void remote.reviewClear(sessionId).catch(() => {}); }
+    async function normStart(draftId: string) {
+        setNormError(''); setNormSince(Date.now());
+        if (!sessionId) { setNormError('当前没有会话，无法进行规范核对。'); return; }
+        try { await remote.expenseReviewStart(sessionId, draftId); }
+        catch (e) { if (alive.current) setNormError(e instanceof Error ? e.message : '规范核对无法开始。'); }
+    }
     const editable = selected === undefined || selected.state === 'editing' || selected.state === 'review-create';
     useEffect(() => {
         alive.current = true;
@@ -222,6 +251,8 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
                         accept(value);
                         if (alive.current && value.confirmation)
                             setDialog(true);
+                        if (alive.current && value.confirmation?.action === 'submit')
+                            await normStart(selected.id);
                     });
                 }}>{selected.claimId ? t("text145") : t("text146")}</Button>}
         {selected && ['unknown-create', 'unknown-submit', 'created', 'submitted'].includes(selected.state) && <Button disabled={busy || dirty} onClick={() => { void run(async () => accept(await remote.expenseReconcile(connection.id, selected.id, selected.revision))); }}>{t("text147")}</Button>}
@@ -237,8 +268,7 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
                 }}>{t("text148")}</Button>}
       </div>
       {selected?.claimId && <div><Text>{t("text149")}{selected.claimId}{t("text150")}{selected.serverStatus}</Text><br /><Link href={`${connection.origin}/console/objects/expense_claim/${encodeURIComponent(selected.claimId)}`} target="_blank" rel="noreferrer">{t("text151")}</Link></div>}
-      <Dialog open={dialog} onOpenChange={(_, data) => { if (!busy)
-            setDialog(data.open); }}>
+      <Dialog open={dialog} onOpenChange={(_, data) => { if (!busy) { setDialog(data.open); if (!data.open) normReset(); } }}>
         <DialogSurface><DialogBody><DialogTitle>{selected?.confirmation?.action === 'submit' ? t("text152") : t("text153")}</DialogTitle>
           <DialogContent>
             <p>{connection.identity.tenant.name ?? connection.identity.tenant.slug} · {connection.identity.user.email}</p>
@@ -246,15 +276,23 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
             <ul>{fields.items.map((line, index) => <li key={index}>{line.expenseDate} · {categories.find(value => value.name === line.category)?.title ?? line.category} · {line.amount} · {line.merchant || t("text154")}{t("text155")}{line.invoiceNumber || t("text156")} · {line.attachment?.filename ?? t("text157")}{line.notes && <p>{line.notes}</p>}</li>)}</ul>
             <p>{selected?.confirmation?.action === 'submit' ? t("text158") : t("text159")}</p>
             <p>{t("text160")}</p>
+            {norm && <div className="oryh-ts-norm" data-phase={norm.phase}>
+              {(norm.phase === 'queued' || norm.phase === 'reviewing') && <p role="status">{norm.phase === 'queued' ? '排队中，等待当前对话完成…' : '正在按企业费用报销流程要求核对…'}{normElapsed >= 5 ? ` 已用时 ${normElapsed} 秒` : ''}</p>}
+              {norm.phase === 'passed' && <p role="status">未发现与企业费用报销流程要求冲突。</p>}
+              {norm.phase === 'flagged' && <><p role="alert">{norm.message || '核对发现与企业费用报销流程要求存在冲突。'}</p><p className="muted">不符合企业费用报销流程要求，无法提交。请返回修改后重新提交。</p></>}
+              {norm.phase === 'unavailable' && <><p role="alert">无法完成规范核对，因此不能提交：{norm.message}</p><Button size="small" appearance="primary" disabled={busy || !sessionId || !selected} onClick={() => { if (selected) void normStart(selected.id); }}>重新核对</Button></>}
+            </div>}
           </DialogContent>
-          <DialogActions><Button disabled={busy} onClick={() => setDialog(false)}>{t("text161")}</Button>
-            <Button appearance="primary" disabled={busy || !selected?.confirmation} onClick={() => {
+          <DialogActions><Button disabled={busy} onClick={() => { setDialog(false); normReset(); }}>{t("text161")}</Button>
+            <Button appearance="primary" disabled={busy || !selected?.confirmation || (selected.confirmation.action === 'submit' && norm?.phase !== 'passed')} onClick={() => {
                 if (selected?.confirmation)
                     void run(async () => {
-                        const value = await remote.expenseConfirm(connection.id, selected.id, selected.revision, selected.confirmation!.token);
+                        const value = await remote.expenseConfirm(connection.id, selected.id, selected.revision, selected.confirmation!.token, sessionId);
                         accept(value);
-                        if (alive.current)
+                        if (alive.current) {
                             setDialog(false);
+                            normReset();
+                        }
                     });
             }}>{t("text162")}{selected?.confirmation?.action === 'submit' ? t("text163") : t("text164")}</Button></DialogActions>
         </DialogBody></DialogSurface>
