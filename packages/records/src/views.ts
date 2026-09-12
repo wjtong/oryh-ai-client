@@ -1,4 +1,4 @@
-import type {RecordKind} from './record-contracts.js'
+import type {RecordKind} from './contracts.js'
 export const recordSpecs:Record<RecordKind,{query:string;title:string;summary:string;date:string;fields:Record<string,string>}>= {
  'sales-orders':{query:'keyword',title:'order_no',summary:'customer_name_snapshot',date:'order_date',fields:{order_no:'订单号',title:'订单名称',order_kind:'订单类型',status:'状态',customer_name_snapshot:'客户',store_name:'门店',order_date:'订单日期',promised_date:'承诺日期',currency:'币种',total_amount:'订单总额',payment_terms:'付款条件',delivery_terms:'交付条件',contract_no:'合同号',project_id:'项目编号',remarks:'备注'}},
  'inventory-items':{query:'facility',title:'product_code',summary:'facility',date:'received_at',fields:{product_code:'产品编码',product_id:'产品编号',sku_id:'SKU 编号',facility:'仓库',facility_id:'仓库编号',lot_id:'批次',bin_number:'库位',quantity_on_hand:'现存数量',available_to_promise:'可承诺数量',unit_cost:'单位成本',currency:'币种',status:'状态',received_at:'入库时间',expire_date:'到期日期'}},

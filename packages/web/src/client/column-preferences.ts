@@ -1,8 +1,8 @@
 import {useMemo, useSyncExternalStore} from 'react'
 import {createSnapshotStore} from '@deepseek-ai/dsh-client-store'
 import type {ConnectionSummary} from '@oryh/ai-client-core'
-import type {RecordKind} from '@oryh/ai-client-core/types'
-import {recordColumns, recordDefaultColumns} from '@oryh/ai-client-core/views'
+import type {RecordKind} from '@oryh/ai-client-records'
+import {recordColumns, recordDefaultColumns} from '@oryh/ai-client-records'
 import type {ProjectColumn} from '@oryh/dsh-host/types'
 import {defaultProjectColumns, projectColumnLabels} from './project-columns.js'
 

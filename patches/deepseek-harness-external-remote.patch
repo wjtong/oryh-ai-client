@@ -1,8 +1,8 @@
 diff --git a/packages/typert/generator/src/analyzer.ts b/packages/typert/generator/src/analyzer.ts
-index 79fcc7505d..d1e0accdd3 100644
+index f5d629a82f..c1b45aabd7 100644
 --- a/packages/typert/generator/src/analyzer.ts
 +++ b/packages/typert/generator/src/analyzer.ts
-@@ -1850,7 +1850,19 @@ class FaceAnalyzer {
+@@ -1936,7 +1936,19 @@ class FaceAnalyzer {
          && ts.isStringLiteral(current.name)
          && current.name.text === '@deepseek-ai/dsh-typert-protocol') return true
      }

@@ -2,39 +2,50 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { mkdir, readdir, readFile, open, unlink } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { Entry } from '@napi-rs/keyring'
-import { timesheetError, type TimesheetIntent } from './timesheet-contracts.js'
+import { expenseError, type ExpenseDraft } from './contracts.js'
 
-export interface TimesheetRecord extends TimesheetIntent { scope: string; digest: string; payload: Record<string, unknown>; path: `/${string}`; method: 'POST' | 'PATCH' | 'DELETE' }
-/** Compare-and-append store; each immutable revision permits at most one writer. */
-export interface TimesheetStore {
-  list(): Promise<TimesheetRecord[]>
-  append(record: TimesheetRecord, previousRevision: number): Promise<void>
+export interface ExpenseRecord extends ExpenseDraft {
+  archived?: boolean
+  scope: string
+  serverDigest?: string | undefined
 }
-export class MemoryTimesheetStore implements TimesheetStore {
-  private readonly records = new Map<string, TimesheetRecord>()
-  async list(): Promise<TimesheetRecord[]> { return structuredClone([...this.records.values()]) }
-  async append(record: TimesheetRecord, previousRevision: number): Promise<void> {
-    if ((this.records.get(record.id)?.revision ?? 0) !== previousRevision) throw timesheetError('记录已改变，请刷新后重试。')
+/** Compare-and-append store; each immutable revision permits at most one writer. */
+export interface ExpenseStore {
+  list(): Promise<ExpenseRecord[]>
+  append(record: ExpenseRecord, previousRevision: number): Promise<void>
+}
+export class MemoryExpenseStore implements ExpenseStore {
+  private readonly records = new Map<string, ExpenseRecord>()
+  async list(): Promise<ExpenseRecord[]> { return structuredClone([...this.records.values()]) }
+  async append(record: ExpenseRecord, previousRevision: number): Promise<void> {
+    if ((this.records.get(record.id)?.revision ?? 0) !== previousRevision) throw expenseError('草稿已改变，请刷新后重试。')
     this.records.set(record.id, structuredClone(record))
   }
 }
 
-/** AES-GCM snapshots, with a separate OS-keychain key for this data directory. */
-export class EncryptedRevisionStore<T extends {id:string;revision:number}> {
+/**
+ * AES-GCM snapshots, with a separate OS-keychain key for this data directory.
+ *
+ * This duplicates @oryh/ai-client-store's EncryptedRevisionStore almost exactly, differing
+ * only in the keychain service name and the wording and code of its errors. It could become
+ * a subclass, but that would change observable error text, so the duplication is moved
+ * verbatim here and recorded as a separate consolidation.
+ */
+export class EncryptedExpenseStore implements ExpenseStore {
   private readonly directory: string
-  constructor(directory: string, private readonly keyProvider?: () => Promise<Buffer>, private readonly keyService = 'ORYH AI Client Timesheet Encryption') { this.directory = resolve(directory) }
+  constructor(directory: string, private readonly keyProvider?: () => Promise<Buffer>) { this.directory = resolve(directory) }
 
   private async key(create: boolean): Promise<Buffer> {
     if (this.keyProvider !== undefined) return this.keyProvider()
     const account = createHash('sha256').update(this.directory).digest('hex')
-    const entry = new Entry(this.keyService, account)
+    const entry = new Entry('ORYH AI Client Expense Encryption', account)
     const existing = entry.getPassword()
     if (existing !== null) {
       const key = Buffer.from(existing, 'base64')
-      if (key.length !== 32) throw timesheetError('执行记录加密密钥无效。')
+      if (key.length !== 32) throw expenseError('费用草稿加密密钥无效。')
       return key
     }
-    if (!create) throw timesheetError('执行记录的加密密钥不可用，不能读取或覆盖记录。')
+    if (!create) throw expenseError('费用草稿的加密密钥不可用，不能读取或覆盖记录。')
     const lockPath = join(this.directory, '.key-initialization')
     const lock = await open(lockPath, 'wx', 0o600)
     try {
@@ -46,7 +57,7 @@ export class EncryptedRevisionStore<T extends {id:string;revision:number}> {
     } finally { await lock.close(); await unlink(lockPath) }
   }
 
-  async list(): Promise<T[]> {
+  async list(): Promise<ExpenseRecord[]> {
     let names: string[]
     try { names = await readdir(this.directory) } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return []
@@ -68,18 +79,18 @@ export class EncryptedRevisionStore<T extends {id:string;revision:number}> {
         const decipher = createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12))
         decipher.setAAD(Buffer.from(`${id}:${revision}`))
         decipher.setAuthTag(raw.subarray(12, 28))
-        const record = JSON.parse(Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8')) as T
+        const record = JSON.parse(Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8')) as ExpenseRecord
         if (record.id !== id || record.revision !== revision) throw new Error('Revision mismatch')
         return record
-      } catch { throw timesheetError('执行记录不完整或无法解密。为避免重复写入，已停止操作。') }
+      } catch { throw expenseError('费用执行记录不完整或无法解密。为避免重复写入，已停止操作。') }
     }))
   }
 
-  async append(record: T, previousRevision: number): Promise<void> {
-    if (!/^[a-f0-9-]{36}$/u.test(record.id) || record.revision !== previousRevision + 1) throw timesheetError('执行记录版本无效。')
+  async append(record: ExpenseRecord, previousRevision: number): Promise<void> {
+    if (!/^[a-f0-9-]{36}$/u.test(record.id) || record.revision !== previousRevision + 1) throw expenseError('费用记录版本无效。')
     await mkdir(this.directory, { recursive: true, mode: 0o700 })
     const current = (await this.list()).find(item => item.id === record.id)
-    if ((current?.revision ?? 0) !== previousRevision) throw timesheetError('记录已改变，请刷新后重试。')
+    if ((current?.revision ?? 0) !== previousRevision) throw expenseError('草稿已改变，请刷新后重试。')
     const key = await this.key(current === undefined)
     const nonce = randomBytes(12)
     const cipher = createCipheriv('aes-256-gcm', key, nonce)
@@ -87,7 +98,7 @@ export class EncryptedRevisionStore<T extends {id:string;revision:number}> {
     const content = Buffer.concat([cipher.update(JSON.stringify(record), 'utf8'), cipher.final()])
     let file
     try { file = await open(join(this.directory, `${record.id}.${record.revision}.enc`), 'wx', 0o600) }
-    catch { throw timesheetError('另一请求已修改记录，请刷新。') }
+    catch { throw expenseError('另一请求已修改草稿，请刷新。') }
     try { await file.writeFile(Buffer.concat([nonce, cipher.getAuthTag(), content])); await file.sync() }
     finally { await file.close() }
     // Make the revision's directory entry durable before permitting any remote write.
@@ -95,5 +106,3 @@ export class EncryptedRevisionStore<T extends {id:string;revision:number}> {
     try { await directory.sync() } finally { await directory.close() }
   }
 }
-
-export class EncryptedTimesheetStore extends EncryptedRevisionStore<TimesheetRecord> implements TimesheetStore {}

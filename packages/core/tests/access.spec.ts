@@ -1,7 +1,7 @@
 import {describe,it,expect,vi} from 'vitest'
 import {canAccessPage,hasPermission} from '../src/access.js'
 import {decodeIdentity,type OryhIdentity} from '../src/contracts.js'
-import {RecordService} from '../src/records.js'
+import {RecordService} from '@oryh/ai-client-records'
 import type {ConnectionSummary} from '../src/connections.js'
 const identity=(permissions:string[]=[],employeeId:string|null='e')=>({permissions,user:{id:'u',role:'admin',employeeId},tenant:{id:'t'}} as OryhIdentity)
 describe('server-granted business access',()=>{

@@ -1,14 +1,44 @@
-import {hasPermission} from './access.js'
-import {randomUUID} from 'node:crypto'
-import {connectionId} from './brand.js'
-import {OryhClientError} from './errors.js'
-import {object} from './expense-contracts.js'
-import type {ConnectionSummary} from './connections.js'
-import type {OryhHttpClient} from './http.js'
-import type {ProjectFields,ProjectIntent,OryhProjectRemote} from './project-contracts.js'
+import { OryhClientError, connectionId, type ConnectionId } from '@oryh/ai-client-foundation'
+import { hasPermission } from '@oryh/ai-client-pages'
+import { randomUUID } from 'node:crypto'
+import type { ProjectFields, ProjectIntent, OryhProjectRemote } from './contracts.js'
+
+/** The transport this service needs. Project creation writes, so the request shape is the full one. */
+export interface ProjectHttp {
+ request(connectionId:ConnectionId,request:{
+  readonly path:`/${string}`
+  readonly method?:'GET'|'POST'|'PATCH'|'DELETE'
+  readonly body?:unknown
+  readonly retryExpired?:boolean
+ }):Promise<unknown>
+}
+
+/** The connection facts this service reads; `ConnectionSummary` satisfies this shape. */
+export interface ProjectConnection {
+ readonly origin:string
+ readonly identity:{
+  readonly permissions?:readonly string[]
+  readonly user:{readonly id:string;readonly employeeId:string|null}
+  readonly tenant:{readonly id:string}
+ }
+}
+
 export interface ProjectRecord extends ProjectIntent {scope:string}
 export interface ProjectStore {list():Promise<ProjectRecord[]>;append(record:ProjectRecord,previousRevision:number):Promise<void>}
 const fail=(text:string)=>new OryhClientError(text,'request-failed')
+/**
+ * Narrow a response fragment to an object.
+ *
+ * Borrowed from the expense contracts before this domain was extracted, so a malformed
+ * project response reported an expense conflict. It now raises this service's own
+ * `request-failed`. No test or consumer observed the old code.
+ * @param value - decoded response fragment.
+ * @returns the value as a record.
+ */
+const object=(value:unknown):Record<string,unknown>=>{
+ if(value===null||typeof value!=='object'||Array.isArray(value))throw fail('项目数据无效。')
+ return value as Record<string,unknown>
+}
 export function validateProject(f:ProjectFields,complete=true){
  for(const [key,max]of [['project_name',200],['project_code',64],['client',200],['start_date',10],['end_date',10]] as const)if(typeof f[key]!=='string'||f[key].length>max)throw fail('项目字段格式或长度无效。')
  if(complete&&!f.project_name.trim())throw fail('请填写项目名称。')
@@ -16,7 +46,7 @@ export function validateProject(f:ProjectFields,complete=true){
  if(f.start_date&&f.end_date&&f.start_date>f.end_date)throw fail('结束日期不能早于开始日期。')
 }
 export class ProjectService implements OryhProjectRemote {
- constructor(private store:ProjectStore,private http:OryhHttpClient,private connection:(id:string)=>ConnectionSummary,private verify:(id:string)=>Promise<ConnectionSummary>){}
+ constructor(private store:ProjectStore,private http:ProjectHttp,private connection:(id:string)=>ProjectConnection,private verify:(id:string)=>Promise<ProjectConnection>){}
  private scope(id:string){const c=this.connection(id);return JSON.stringify([c.origin,c.identity.tenant.id,c.identity.user.id])}
  private guard(id:string,scope:string){if(this.scope(id)!==scope)throw fail('企业或用户身份已改变。')}
  async projectOptions(id:string){await this.verify(id);const scope=this.scope(id);const me=object(object(await this.http.request(connectionId(id),{path:'/auth/me'})).data);this.guard(id,scope);const p=me.permissions;return {canCreate:Array.isArray(p)&&['master_data.manage','users.manage'].some(v=>hasPermission({...this.connection(id).identity,permissions:p.filter((x):x is string=>typeof x==='string')},v))}}

@@ -119,18 +119,27 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .oryh-frame { --oryh-ground:var(--dsw-alias-bg-base,#fff); --oryh-line:var(--dsw-alias-border-l1,#e2e6eb); position:relative; display:grid; grid-template-columns:208px minmax(0,1fr) var(--oryh-chat-width,360px); grid-template-rows:48px minmax(0,1fr); height:100dvh; width:100%; overflow:hidden; background:var(--oryh-ground); color:var(--dsw-alias-label-primary,#26313c); }
 .oryh-frame[data-compact="true"] { grid-template-columns:56px minmax(0,1fr) var(--oryh-chat-width,360px); }
 .oryh-navigation { grid-row:1/-1; min-height:0; min-width:0; display:flex; flex-direction:column; border-right:1px solid var(--oryh-line); background:var(--dsw-alias-bg-layer-1,var(--oryh-ground)); }
-.oryh-brand { display:flex; align-items:center; gap:11px; padding:22px 16px; height:84px; }
-.oryh-brand > span { display:grid; place-items:center; border-radius:8px; background:#246b63; color:#fff; width:28px; height:28px; flex:none; font-size:19px; font-weight:650; }
-.oryh-brand strong { font-size:17px; letter-spacing:1px; }
-.oryh-brand small { display:block; font-size:10px; font-weight:400; letter-spacing:2px; margin-top:2px; opacity:.6; }
-.oryh-menu { display:grid; gap:5px; padding:0 10px 20px; }
+/* One compact row. The workbench name already sits in the top toolbar, so repeating it under the
+   logo only cost vertical space; the row is now the logo's own height rather than a fixed block. */
+.oryh-brand { display:flex; align-items:center; padding:12px 16px 10px; flex:none; }
+.oryh-logo { height:20px; width:auto; display:block; color:#11110f; }
+body[data-ds-dark-theme] .oryh-logo { color:#f4f4f2; }
+/* border-box so the height written by the resizer is the height actually occupied; with the
+   default content-box the padding made every drag and key step land short. */
+.oryh-menu { display:grid; gap:5px; padding:0 10px 12px; align-content:start; overflow-y:auto; min-height:0; flex:0 1 auto; box-sizing:border-box; }
 .oryh-menu button { display:flex; align-items:center; gap:11px; border:0; border-radius:6px; background:transparent; color:inherit; font:inherit; font-size:13px; padding:11px 12px; text-align:left; cursor:pointer; }
 .oryh-menu button[aria-current] { background:#246b6318; color:#246b63; font-weight:600; }
 body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; background:#86c9bb18; }
 .oryh-menu button:hover { background:#8882; }
-.oryh-native-heading { font-size:10px; letter-spacing:1px; opacity:.6; padding:14px 20px 8px; border-top:1px solid var(--oryh-line); }
+.oryh-native-heading { font-size:10px; letter-spacing:1px; opacity:.6; padding:14px 20px 8px; border-top:1px solid var(--oryh-line); flex:none; }
 .oryh-native-sidebar { flex:1; min-height:0; position:relative; }
-.oryh-frame[data-compact="true"] .oryh-brand { padding:20px 14px; }
+/* Sits in the flow between the menu and the session heading, so it never overlaps either. */
+.oryh-menu-resizer { flex:none; height:9px; margin:-4px 0; cursor:row-resize; touch-action:none; position:relative; z-index:2; }
+.oryh-menu-resizer::after { content:""; position:absolute; left:10px; right:10px; top:4px; height:2px; border-radius:2px; background:transparent; }
+.oryh-menu-resizer:hover::after,.oryh-menu-resizer:focus-visible::after,.oryh-frame[data-resizing-menu="true"] .oryh-menu-resizer::after { background:var(--dsw-alias-label-primary,#497c88); }
+.oryh-menu-resizer:focus-visible { outline:2px solid currentColor; outline-offset:-2px; }
+.oryh-frame[data-resizing-menu="true"] { user-select:none; cursor:row-resize; }
+.oryh-frame[data-compact="true"] .oryh-brand { padding:12px 0 10px; justify-content:center; }
 .oryh-frame[data-compact="true"] .oryh-menu { padding:0 5px 16px; }
 .oryh-frame[data-compact="true"] .oryh-menu button { justify-content:center; padding:12px 0; }
 .oryh-frame[data-compact="true"] .oryh-native-heading { text-align:center; padding:12px 0 6px; }
@@ -179,6 +188,30 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 .oryh-timesheets fieldset { border: 1px solid #a0a0a055; border-radius: 6px; margin-block: 14px; padding: 16px; min-width: 0; }
 .oryh-timesheets label { display: flex; flex-direction: column; gap: 6px; margin-block: 8px; }
 .oryh-ts-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; }
+/*
+ * One entry per line. The old equal-share grid gave every field at least 180px, so an hours box
+ * was as wide as a task. Flex with a per-field basis sizes each to what it holds and still wraps
+ * on a narrow business pane, with no container query needed.
+ */
+.oryh-ts-line { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 10px; }
+.oryh-ts-line > label { flex: 1 1 7rem; min-width: 0; gap: 3px; margin-block: 0; font-size: 11px; }
+.oryh-ts-line > label[data-field="date"] { flex: 0 0 8.5rem; }
+.oryh-ts-line > label[data-field="hours"] { flex: 0 0 4.25rem; }
+.oryh-ts-line > label[data-field="type"] { flex: 0 1 6.5rem; }
+.oryh-ts-line > label[data-field="project"] { flex: 1 1 7rem; }
+.oryh-ts-line > label[data-field="task"] { flex: 1.4 1 8rem; }
+.oryh-ts-line > label[data-field="notes"] { flex: 1 1 7rem; }
+/* Qualified with .oryh-timesheets on purpose: the generic field rules below this block have the
+   same specificity, so an unqualified selector here would lose on source order alone. */
+.oryh-timesheets .oryh-ts-line input, .oryh-timesheets .oryh-ts-line select, .oryh-timesheets .oryh-ts-line textarea { padding: 6px 7px; font-size: 13px; }
+.oryh-ts-line > label[data-field="hours"] input { text-align: right; font-variant-numeric: tabular-nums; }
+/* A one-row note still grows when the user drags it; it just no longer opens three lines tall,
+   which was what made the notes field twice the height of every other control on the row. */
+.oryh-timesheets .oryh-ts-line textarea { min-height: 0; height: 2.31rem; }
+.oryh-ts-line-actions { flex: 0 0 auto; padding-bottom: 2px; }
+/* Flat grouping: the per-entry border and padding cost more room than the number is worth. */
+.oryh-ts-line-group { border: 0; border-top: 1px solid #a0a0a055; border-radius: 0; margin-block: 0; padding: 10px 0 2px; }
+.oryh-ts-line-group > legend { padding: 0; font-size: 11px; opacity: .55; font-variant-numeric: tabular-nums; }
 .oryh-timesheets input, .oryh-timesheets select, .oryh-timesheets textarea { box-sizing: border-box; min-width: 0; font: inherit; color: inherit; background: transparent; border: 1px solid #a0a0a080; border-radius: 4px; padding: 8px; }
 .oryh-timesheets select option { color: #222; background: #fff; }
 .oryh-timesheets textarea { min-height: 72px; resize: vertical; }
@@ -324,3 +357,51 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 .oryh-chat-resizer:hover::after,.oryh-chat-resizer:focus-visible::after,.oryh-frame[data-resizing="true"] .oryh-chat-resizer::after { background:var(--dsw-alias-label-primary,#497c88); }
 .oryh-frame[data-resizing="true"] { user-select:none; cursor:col-resize; }
 @media(max-width:850px) { .oryh-chat-resizer { display:none; } }
+
+/*
+ * Hide the Harness conversation header's breadcrumb title.
+ *
+ * It shows the session's own auto-generated title, which for a long-lived session keeps naming
+ * whatever the first message was — stale and confusing beside a business workbench that already
+ * names the current page in its top toolbar.
+ *
+ * This overrides another plugin's UI, which is not something to do lightly. Two things keep it as
+ * contained as possible: it is scoped to our own chat seat, and it matches the STABLE half of the
+ * CSS-module class. Those classes are emitted as `[hash]_[local]`, so `_1tRJmG_crumbs` keeps
+ * `crumbs` across rebuilds while the hash changes with content. If upstream renames the local
+ * class the rule simply stops matching and the title returns — a visible, harmless regression
+ * rather than a broken layout. The sibling tabs (Chat / Trajectory) are deliberately untouched.
+ */
+.oryh-chat-content nav[class*="_crumbs"] { display:none; }
+
+/*
+ * Reclaiming vertical space from two embedded Harness surfaces.
+ *
+ * Same containment rules as the breadcrumb rule above: scoped to our own seats, and matched on the
+ * STABLE half of the `[hash]_[local]` CSS-module names. A rename upstream makes a rule stop
+ * matching, which restores the original chrome rather than breaking the layout.
+ */
+
+/* The session sidebar's logo row repeats the build name and carries a second collapse toggle; the
+   frame's own toolbar toggle already collapses this column. Worth 60px. */
+.oryh-native-sidebar [class*="_logoRow"] { display:none; }
+
+/* Fold the conversation header's two rows into one: tabs on the left, actions pushed to the right.
+   Puts Chat/Trajectory, the log action and the sidebar toggle on a single line. The min-height and
+   the tabs' top margin were both sized for the two-row original, so folding the rows without
+   clearing them would have kept every pixel this was meant to save. */
+.oryh-chat-content header[class*="_header"] { display:flex; align-items:center; gap:10px; min-height:0; padding-block:6px; }
+.oryh-chat-content header[class*="_header"] > div[class*="_tabs"] { order:1; flex:1 1 auto; min-width:0; border-bottom:0; margin-top:0; }
+.oryh-chat-content header[class*="_header"] > div[class*="_titleRow"] { order:2; flex:0 0 auto; margin-left:auto; }
+
+/* The overflow menu holds exactly one action, so the button reads as a download control instead of
+   an anonymous ellipsis. The glyph is masked from the button's own colour, so it stays correct in
+   both themes. It still opens that one-item menu: the button belongs to the session-log-export
+   plugin, and only its own code could turn the menu into a direct action. */
+.oryh-chat-content button[class*="_moreButton"] > svg { display:none; }
+.oryh-chat-content button[class*="_moreButton"]::before {
+  content:""; width:16px; height:16px; display:block; background:currentColor;
+  -webkit-mask:var(--oryh-download-glyph) center/16px 16px no-repeat;
+  mask:var(--oryh-download-glyph) center/16px 16px no-repeat;
+}
+.oryh-frame { --oryh-download-glyph:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5v8m0 0 3-3m-3 3-3-3' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/><path d='M2.5 11v1.5a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V11' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'/></svg>"); }

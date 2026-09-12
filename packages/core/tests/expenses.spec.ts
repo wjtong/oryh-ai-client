@@ -3,7 +3,8 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ConnectionRegistry, MemoryCredentialVault, OryhHttpClient, ExpenseService, MemoryExpenseStore, EncryptedExpenseStore, type ExpenseStore, type ExpenseFields } from '../src/index.js'
+import { ConnectionRegistry, MemoryCredentialVault, OryhHttpClient } from '../src/index.js'
+import { ExpenseService, MemoryExpenseStore, EncryptedExpenseStore, type ExpenseStore, type ExpenseFields } from '@oryh/ai-client-expenses'
 import { jsonResponse } from './fixtures.js'
 
 const fields: ExpenseFields = { title: '客户拜访交通费', claimDate: '2026-09-08', currency: 'CNY', items: [

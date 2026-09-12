@@ -1,12 +1,26 @@
-import {requirePage} from './access.js'
-import type {RecordKind,RecordQuery,RecordPage,BusinessRecord,OryhRecordRemote,ProductSearch,ProductOptions,ProductOption} from './record-contracts.js'
-import type {ConnectionSummary} from './connections.js'
-import type {OryhHttpClient} from './http.js'
-import type {ConnectionId} from './brand.js'
-import {OryhClientError} from './errors.js'
-import {recordSpecs as specs} from './record-views.js'
-
+import {OryhClientError,type ConnectionId} from '@oryh/ai-client-foundation'
+import {requirePage} from '@oryh/ai-client-pages'
+import type {RecordKind,RecordQuery,RecordPage,BusinessRecord,OryhRecordRemote,ProductSearch,ProductOptions,ProductOption} from './contracts.js'
+import {recordSpecs as specs} from './views.js'
 import {inventoryProductQuery} from './inventory-product-query.js'
+
+/**
+ * The transport this service needs: one versioned GET inside an existing connection scope.
+ * Declared structurally rather than imported, so this package does not depend on the core.
+ */
+export interface RecordHttp {
+ request(connectionId:ConnectionId,request:{readonly path:`/${string}`}):Promise<unknown>
+}
+
+/** The connection facts this service reads; `ConnectionSummary` satisfies this shape. */
+export interface RecordConnection {
+ readonly origin:string
+ readonly identity:{
+  readonly permissions?:readonly string[]
+  readonly user:{readonly id:string;readonly employeeId:string|null}
+  readonly tenant:{readonly id:string}
+ }
+}
 
 const fail=()=>new OryhClientError('业务查询参数或返回数据无效。','request-failed')
 export function decodeRecordPage(kind:RecordKind,body:unknown,page:number):RecordPage{
@@ -21,10 +35,10 @@ export function decodeRecordPage(kind:RecordKind,body:unknown,page:number):Recor
  return {rows,page,pages:Math.max(1,envelope.meta!.pages as number),total:envelope.meta!.total as number,fetchedAt:new Date().toISOString()}
 }
 export class RecordService implements OryhRecordRemote {
- constructor(private http:OryhHttpClient,private verify:(id:string)=>Promise<ConnectionSummary>,private current:(id:string)=>ConnectionSummary){}
+ constructor(private http:RecordHttp,private verify:(id:string)=>Promise<RecordConnection>,private current:(id:string)=>RecordConnection){}
  async productSearch(q:ProductSearch):Promise<ProductOptions>{
   if(typeof q.query!=='string'||q.query.length>200||!Number.isSafeInteger(q.page)||q.page<1||q.ids!==undefined&&(!Array.isArray(q.ids)||q.ids.length>50||q.ids.some(id=>typeof id!=='string'||!id||id.length>200)||new Set(q.ids).size!==q.ids.length))throw fail()
-  const c=await this.verify(q.connectionId),scope=(v:ConnectionSummary)=>JSON.stringify([v.origin,v.identity.tenant.id,v.identity.user.id])
+  const c=await this.verify(q.connectionId),scope=(v:RecordConnection)=>JSON.stringify([v.origin,v.identity.tenant.id,v.identity.user.id])
   const read=async(path:`/${string}`)=>{if(scope(c)!==scope(this.current(q.connectionId)))throw fail();const body=await this.http.request(q.connectionId as ConnectionId,{path});if(scope(c)!==scope(this.current(q.connectionId)))throw fail();return body}
   requirePage(c.identity,'inventory-item-details')
   const decode=(value:unknown):ProductOption=>{const p=value as Record<string,unknown>;if(!p||typeof p.id!=='string'||typeof p.name!=='string')throw fail();return {id:p.id,name:p.name,code:typeof p.product_code==='string'?p.product_code:''}}
@@ -38,7 +52,7 @@ export class RecordService implements OryhRecordRemote {
   if(!Object.hasOwn(specs,q.kind)||!Number.isSafeInteger(q.page)||q.page<1||typeof q.query!=='string'||q.query.length>200)throw fail()
   if(q.productIds!==undefined&&(q.kind!=='inventory-item-details'||!Array.isArray(q.productIds)||q.productIds.length>50||q.productIds.some(id=>typeof id!=='string'||!id||id.length>200)||new Set(q.productIds).size!==q.productIds.length||!!q.productCode?.trim()))throw fail()
   if(q.productCode!==undefined&&(q.kind!=='inventory-item-details'||typeof q.productCode!=='string'||q.productCode.length>200))throw fail()
-  const c=await this.verify(q.connectionId),scope=(v:ConnectionSummary)=>JSON.stringify([v.origin,v.identity.tenant.id,v.identity.user.id])
+  const c=await this.verify(q.connectionId),scope=(v:RecordConnection)=>JSON.stringify([v.origin,v.identity.tenant.id,v.identity.user.id])
   requirePage(c.identity,q.kind)
   const params=new URLSearchParams({page:String(q.page),size:'25'});if(q.query.trim())params.set(specs[q.kind].query,q.query.trim())
   const read=async(path:`/${string}`)=>{if(scope(c)!==scope(this.current(q.connectionId)))throw new OryhClientError('企业连接已变化，请重新查询。','cross-connection-result');return this.http.request(q.connectionId as ConnectionId,{path})}

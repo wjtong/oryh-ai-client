@@ -1,5 +1,6 @@
 import { describe,expect,it } from 'vitest'
-import { ConnectionRegistry, MemoryCredentialVault, OryhHttpClient, TodoDetailService } from '../src/index.js'
+import { ConnectionRegistry, MemoryCredentialVault, OryhHttpClient } from '../src/index.js'
+import { TodoDetailService } from '@oryh/ai-client-todos'
 import { jsonResponse } from './fixtures.js'
 async function setup(){
  const registry=new ConnectionRegistry(),vault=new MemoryCredentialVault()

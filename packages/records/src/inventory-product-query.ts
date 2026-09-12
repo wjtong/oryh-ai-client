@@ -1,5 +1,5 @@
-import {OryhClientError} from './errors.js'
-import type {RecordQuery} from './record-contracts.js'
+import {OryhClientError} from '@oryh/ai-client-foundation'
+import type {RecordQuery} from './contracts.js'
 type Row=Record<string,unknown>&{id:string}
 /** Existing tenant-scoped GETs, fully collected before client-side pagination. */
 export async function inventoryProductQuery(q:RecordQuery,read:(path:`/${string}`)=>Promise<unknown>){

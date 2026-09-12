@@ -1,4 +1,4 @@
-import { OryhClientError } from './errors.js'
+import { OryhClientError } from '@oryh/ai-client-foundation'
 export interface TimesheetLine { work_date: string; hours: number; work_type: string; project_id: string; task: string; notes: string }
 export interface TimesheetFields { period_start: string; period_end: string; source_report_text: string; entries: TimesheetLine[] }
 export interface TimesheetHeader { id: string; employee_id: string; period_start: string; period_end: string; status: string; source_report_text: string }

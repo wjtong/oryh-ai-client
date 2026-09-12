@@ -1,7 +1,8 @@
 import { useBusinessText } from './locale.js';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Badge, Button, Card, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Link, MessageBar, MessageBarBody, Select, Spinner, Text, Textarea, Title2 } from '@fluentui/react-components';
-import type { ConnectionSummary, ExpenseDraft, ExpenseFields, ExpenseLine, ExpenseState } from '@oryh/ai-client-core';
+import type { ConnectionSummary } from '@oryh/ai-client-core';
+import type { ExpenseDraft, ExpenseFields, ExpenseLine, ExpenseState } from '@oryh/ai-client-expenses';
 import { useOryhRemote } from './remote.js';
 import type { PageContext } from './workbench.js';
 function today(): string {

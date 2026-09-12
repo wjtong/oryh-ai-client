@@ -1,20 +1,37 @@
-import {requirePermission} from './access.js'
+import { OryhClientError, connectionId, type ConnectionId } from '@oryh/ai-client-foundation'
+import { requirePermission } from '@oryh/ai-client-pages'
 import { createHash, randomUUID } from 'node:crypto'
-import { connectionId } from './brand.js'
-import type { ConnectionSummary } from './connections.js'
-import { OryhClientError } from './errors.js'
-import type { OryhHttpClient } from './http.js'
-import { expenseError, object, parseExpenseFields, type ExpenseDraft, type ExpenseFields, type OryhExpenseRemote } from './expense-contracts.js'
-import type { ExpenseRecord, ExpenseStore } from './expense-store.js'
+import { expenseError, object, parseExpenseFields, type ExpenseDraft, type ExpenseFields, type OryhExpenseRemote } from './contracts.js'
+import type { ExpenseRecord, ExpenseStore } from './store.js'
+
+/** The transport this service needs. Expenses write, so the request shape is the full one. */
+export interface ExpenseHttp {
+  request(connectionId: ConnectionId, request: {
+    readonly path: `/${string}`
+    readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+    readonly body?: unknown
+    readonly retryExpired?: boolean
+  }): Promise<unknown>
+}
+
+/** The connection facts this service reads; `ConnectionSummary` satisfies this shape. */
+export interface ExpenseConnection {
+  readonly origin: string
+  readonly identity: {
+    readonly permissions?: readonly string[]
+    readonly user: { readonly id: string; readonly employeeId: string | null }
+    readonly tenant: { readonly id: string }
+  }
+}
 
 /** Deterministic expense workflow. Writes consume a version-bound, expiring confirmation. */
 export class ExpenseService implements OryhExpenseRemote {
   private readonly uploads = new Map<string, { id: string; filename: string; sha256: string }>()
   constructor(
     private readonly store: ExpenseStore,
-    private readonly http: OryhHttpClient,
-    private readonly connection: (id: string) => ConnectionSummary,
-    private readonly verify: (id: string) => Promise<ConnectionSummary>,
+    private readonly http: ExpenseHttp,
+    private readonly connection: (id: string) => ExpenseConnection,
+    private readonly verify: (id: string) => Promise<ExpenseConnection>,
   ) {}
 
   private scope(id: string): string {
@@ -46,12 +63,16 @@ export class ExpenseService implements OryhExpenseRemote {
     return view
   }
   async expenseList(id: string): Promise<ExpenseDraft[]> {
+    // Await verification first: a concurrent re-verification revokes the registry entry until
+    // `/auth/me` returns, and a bare `scope()` would throw inside that window.
+    await this.verify(id)
     const scope = this.scope(id)
     const records = await this.store.list()
     this.guard(id, scope)
     return records.filter(row => row.scope === scope && !row.archived).map(row => this.view(row)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
   async expenseOptions(id: string) {
+    await this.verify(id)
     const scope = this.scope(id)
     const body = object(await this.http.request(connectionId(id), { path: '/type-options?family=expense_category&status=active' }))
     this.guard(id, scope)
@@ -64,6 +85,7 @@ export class ExpenseService implements OryhExpenseRemote {
   }
   async expenseSave(id: string, input: { id?: string; revision?: number; fields: ExpenseFields }): Promise<ExpenseDraft> {
     const fields = parseExpenseFields(input.fields, false)
+    await this.verify(id)
     const scope = this.scope(id)
     const previous = (await this.store.list()).filter(row => row.scope === scope)
     for (const line of fields.items) {
@@ -188,6 +210,7 @@ export class ExpenseService implements OryhExpenseRemote {
       message: '已从 ORYH 重新读取并核对记录。' }))
   }
   async expenseUpload(id: string, input: { filename: string; contentType: string; contentBase64: string }) {
+    await this.verify(id)
     const scope = this.scope(id)
     if (typeof input.filename !== 'string' || input.filename.length === 0 || input.filename.length > 255
       || !['application/pdf', 'image/png', 'image/jpeg'].includes(input.contentType)
@@ -206,6 +229,7 @@ export class ExpenseService implements OryhExpenseRemote {
     return receipt
   }
   async expenseDelete(id: string, draftId: string, revision: number): Promise<void> {
+    await this.verify(id)
     const record = await this.read(id, draftId, revision)
     if (!['editing', 'review-create', 'submitted'].includes(record.state)) throw expenseError('未决申请必须先核对结果，不能归档。')
     await this.next(id, record, { archived: true, confirmation: undefined })

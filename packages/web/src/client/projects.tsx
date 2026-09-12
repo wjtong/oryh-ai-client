@@ -1,11 +1,13 @@
 import {PreferenceDetails} from './view-preferences.js'
 import {useContext,useEffect,useRef,useState} from 'react'
 import {Button,Dialog,DialogSurface,DialogBody,DialogTitle,DialogContent,DialogActions} from '@fluentui/react-components'
-import type {ConnectionSummary,ProjectFields,ProjectIntent} from '@oryh/ai-client-core/types'
+import type {ConnectionSummary} from '@oryh/ai-client-core/types'
+import type {ProjectFields,ProjectIntent} from '@oryh/ai-client-projects'
 import type {ChatNavigation} from '@oryh/dsh-host/types'
 import type {PageContext} from './workbench.js'
 import {BusinessPage} from './business-page.js'
 import {BusinessSessionContext} from './todo-chat.js'
+import {useCommands} from './command-stream.js'
 import {useOryhRemote} from './remote.js'
 const blank=():ProjectFields=>({project_name:'',project_code:'',client:'',start_date:'',end_date:''})
 const labels:Record<keyof ProjectFields,string>={project_name:'项目名称',project_code:'项目编码',client:'客户',start_date:'开始日期',end_date:'结束日期'}
@@ -27,10 +29,14 @@ export function ProjectPanel({columns,onColumns,connection,active,navigation,onD
  useEffect(()=>{
   if(!active||!editor||!sessionId)return
   let live=true,timer:ReturnType<typeof setTimeout>|undefined
-  async function poll(){try{const p=await api.projectChatPoll({sessionId:sessionId!,connectionId:connection.id});if(live&&p&&p.revision===version.current.revision&&p.id!==seen.current&&!busy&&!review){seen.current=p.id;setFields(p.fields);setReview(undefined)}}catch{}if(live)timer=setTimeout(()=>void poll(),350)}
-  async function sync(){try{await api.projectChatSync({sessionId:sessionId!,connectionId:connection.id,pageKey,revision,fields,busy:busy||Boolean(review),...(opened?{navigationId:opened}:{})});if(live)void poll()}catch{if(live)timer=setTimeout(()=>void sync(),350)}}
+  async function sync(){try{await api.projectChatSync({sessionId:sessionId!,connectionId:connection.id,pageKey,revision,fields,busy:busy||Boolean(review),...(opened?{navigationId:opened}:{})})}catch{if(live)timer=setTimeout(()=>void sync(),350)}}
   void sync();return()=>{live=false;if(timer)clearTimeout(timer)}
  },[api,active,editor,sessionId,connection.id,pageKey,revision])
+ const suggestion=useCommands().commands.project
+ useEffect(()=>{
+  if(!active||!editor||!sessionId||!suggestion||suggestion.revision!==version.current.revision||suggestion.id===seen.current||busy||review)return
+  seen.current=suggestion.id;setFields(suggestion.fields);setReview(undefined)
+ },[active,editor,sessionId,suggestion,busy,review])
  useEffect(()=>()=>{if(sessionId)void api.projectChatClear(sessionId).catch(()=>{})},[api,sessionId,active,editor])
  const open=()=>{if(canCreate){setEditor(true);setFields(blank());setReview(undefined);setError('')}else setError('当前账号没有创建项目的主数据管理权限。')}
  return <section className="oryh-projects" aria-busy={busy}>

@@ -134,10 +134,9 @@ describe('OperationExecutor', () => {
     const connections = new ConnectionRegistry()
     const connection = connections.add({
       origin: 'https://oryh.example',
-      identity: {permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],
+      identity: {
         ...identity('employee-1'),
-        permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],
-    user: {
+        user: {
           ...identity('employee-1').user,
           employeeId: null,
         },

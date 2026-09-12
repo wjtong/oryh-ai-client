@@ -1,9 +1,32 @@
-import { connectionId } from './brand.js'
-import type { ConnectionSummary } from './connections.js'
-import type { OryhHttpClient } from './http.js'
-import { OryhClientError } from './errors.js'
-import { object } from './expense-contracts.js'
+import { OryhClientError, connectionId, type ConnectionId } from '@oryh/ai-client-foundation'
+
 export interface TodoDocument { todoId: string; title: string; entityType: string; entityId: string; fetchedAt: string; sections: { name: string; fields: { name: string; value: string }[] }[] }
+
+/** The transport this service needs: one versioned GET inside an existing connection scope. */
+export interface TodoHttp {
+  request(connectionId: ConnectionId, request: { readonly path: `/${string}` }): Promise<unknown>
+}
+
+/** The connection facts this service reads; `ConnectionSummary` satisfies this shape. */
+export interface TodoConnection {
+  readonly identity: { readonly user: { readonly employeeId: string | null } }
+}
+
+/**
+ * Narrow a response fragment to an object.
+ *
+ * This used to be imported from the expense contracts, so a malformed todo response
+ * reported an expense conflict. The code is now `invalid-response`, which this service
+ * already raises for a mismatched linked document. No test or consumer observed the old
+ * code, so this is a deliberate correction rather than a silent change.
+ * @param value - decoded response fragment.
+ * @returns the value as a record.
+ */
+const object = (value: unknown): Record<string, unknown> => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new OryhClientError('待办数据无效。', 'invalid-response')
+  return value as Record<string, unknown>
+}
+
 const routes: Record<string,{path:string;root:string}>={
   purchase_request:{path:'purchase-requests',root:'request'}, purchase_order:{path:'purchase-orders',root:'po'},
   sales_quotation:{path:'sales-quotations',root:'quotation'}, sales_order:{path:'sales-orders',root:'order'},
@@ -20,7 +43,7 @@ function project(value:unknown, path:string, output:TodoDocument['sections'],dep
   for(const [key,v]of entries)if(['items','entries','approval_records','quotation','request','order','po','header','claim','product','sku','adjustments'].includes(key))project(v,`${path}/${key}`,output,depth+1)
 }
 export class TodoDetailService {
-  constructor(private http:OryhHttpClient,private connection:(id:string)=>ConnectionSummary,private verify:(id:string)=>Promise<ConnectionSummary>){}
+  constructor(private http:TodoHttp,private connection:(id:string)=>TodoConnection,private verify:(id:string)=>Promise<TodoConnection>){}
   async read(id:string,todoId:string):Promise<TodoDocument>{
     await this.verify(id)
     const c=this.connection(id),scope=JSON.stringify(c.identity),employee=c.identity.user.employeeId

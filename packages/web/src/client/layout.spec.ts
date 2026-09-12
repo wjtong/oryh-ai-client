@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import { registerFrame } from './layout.js'
@@ -7,34 +7,59 @@ import { createFrameStore } from './layout-store.js'
 import { presentTheme } from './theme.js'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 
+type PanelSource = { getSnapshot: () => { activePanelId: string | null }; subscribe: (fn: () => void) => () => void }
+
 describe('external ORYH root composition', () => {
   beforeEach(()=>localStorage.clear())
   it('owns compatible slots, wires layout actions, and releases them on unload', async () => {
     const ctx = new Context()
     const slots = new SlotCore()
     // Real public slot core; renderer service is the transport of the same register contract.
+    // provideRoot belongs to the renderer registry, so the core records the contribution instead.
+    const hooks: Record<string, unknown>[] = []
+    Object.assign(slots, { provideRoot: (contribution: { hooks: Record<string, unknown> }) => {
+      hooks.push(contribution.hooks)
+      return () => { hooks.splice(hooks.indexOf(contribution.hooks), 1) }
+    } })
     ctx.provide('slots', slots as never)
     const fiber = ctx.plugin({ apply: registerFrame })
     await fiber.await()
     expect(slots.entriesOfSlot('root')).toHaveLength(1)
     expect(slots.spec('oryh.business')).toEqual({ kind: 'single', scope: 'root' })
-    expect(slots.spec('conversation')).toEqual({ kind: 'single', scope: 'session-maybe' })
-    expect(slots.spec('rightbar')).toEqual({ kind: 'single', scope: 'session' })
-    const instance = createFrameStore().create()
+    expect(slots.spec('main')).toEqual({ kind: 'keyed', scope: 'root' })
+    expect(slots.spec('rightbar')).toEqual({ kind: 'single', scope: 'root' })
     const entry = slots.entriesOfSlot('root')[0]!
-    entry.inject!(instance.actions)
+    const instance = (entry.store as ReturnType<typeof createFrameStore>).create()
     ctx.layout.toggleSidebar()
-    expect(instance.store.getSnapshot().collapsed).toBe(false)
+    expect(instance.getSnapshot().collapsed).toBe(false)
     ctx.layout.openRightbar(true, true)
-    expect(instance.store.getSnapshot().rightbarFullscreen).toBe(true)
+    expect(instance.getSnapshot().rightbarFullscreen).toBe(true)
     ctx.layout.closeRightbar()
-    expect(instance.store.getSnapshot().rightbarShown).toBe(false)
+    expect(instance.getSnapshot().rightbarShown).toBe(false)
+    // The native sidebar reads panel selection through this standard hook.
+    const panels = hooks[0]!.panelInfo as PanelSource
+    expect(panels.getSnapshot().activePanelId).toBeNull()
+    expect(() => ctx.layout.selectPanel('absent' as never)).toThrow(/not registered/)
+    const removePanel = slots.register({ name: 'main', key: 'conversation' } as never, () => null)
+    ctx.layout.selectPanel('conversation' as never)
+    expect(panels.getSnapshot().activePanelId).toBe('conversation')
+    // A panel disappearing with its plugin returns the centre to the Conversation.
+    // Slot subscriptions are microtask-batched, so retention lands after the disposer returns.
+    removePanel()
+    await vi.waitFor(() => { expect(panels.getSnapshot().activePanelId).toBeNull() })
+    expect(() => ctx.layout.selectPanel('conversation' as never)).toThrow(/not registered/)
+    const superseded = ctx.layout.beginNavigation()
+    const pending = ctx.layout.beginNavigation()
+    expect(superseded.aborted).toBe(true)
+    expect(pending.aborted).toBe(false)
     const stale = slots.register({ name: 'oryh.business' }, () => null)
     await fiber.dispose()
     expect(ctx.get('layout')).toBeUndefined()
     expect(slots.entriesOfSlot('root')).toHaveLength(0)
     expect(slots.spec('oryh.business')).toBeUndefined()
-    expect(slots.spec('conversation')).toBeUndefined()
+    expect(slots.spec('main')).toBeUndefined()
+    expect(hooks).toHaveLength(0)
+    expect(pending.aborted).toBe(true)
     expect(() => stale()).not.toThrow()
     const replacement = ctx.plugin({ apply: registerFrame })
     await replacement.await()

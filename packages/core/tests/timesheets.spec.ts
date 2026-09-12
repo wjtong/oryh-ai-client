@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ConnectionRegistry, MemoryCredentialVault, OryhHttpClient, MemoryTimesheetStore, EncryptedTimesheetStore, validateTimesheet, type TimesheetFields } from '../src/index.js'
-import { TimesheetService } from '../src/timesheets.js'
+import { ConnectionRegistry, MemoryCredentialVault, OryhHttpClient } from '../src/index.js'
+import { MemoryTimesheetStore, EncryptedTimesheetStore, TimesheetService, validateTimesheet, type TimesheetFields } from '@oryh/ai-client-timesheets'
 import { jsonResponse } from './fixtures.js'
 const fields:TimesheetFields={period_start:'2026-09-07',period_end:'2026-09-11',source_report_text:'原始工时',entries:[{work_date:'2026-09-08',hours:7.25,work_type:'regular',project_id:'',task:'测试任务',notes:'真实记录'}]}
 function setup(){

@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe,it,expect,vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type { OryhClientController,TodoDetailService } from '@oryh/ai-client-core'
+import type { OryhClientController } from '@oryh/ai-client-core'
+import type { TodoDetailService } from '@oryh/ai-client-todos'
 import { BusinessChat } from '../src/business-chat.js'
-const connectionId='c' as import('@oryh/ai-client-core').ConnectionId
-async function setup(api?:import('@oryh/ai-client-core/types').OryhTimesheetRemote){
+const connectionId='c' as import('@oryh/ai-client-foundation').ConnectionId
+async function setup(api?:import('@oryh/ai-client-timesheets').OryhTimesheetRemote){
  const directory=await mkdtemp(join(tmpdir(),'oryh-chat-'))
  const agent={id:'s',status:'idle',session:{header:{isSeeded:false,parentSession:undefined as string|undefined}}}
  const identity={id:connectionId,origin:'https://oryh.example',identity:{permissions:['master_data.manage','expense.submit_own','timesheet.submit_own','approval.record','order.submit_own','inventory.manage'],tenant:{id:'tenant'},user:{id:'user',employeeId:'employee'}}}
@@ -34,27 +35,27 @@ describe('chat-first navigation',()=>{
  it('allows only the issued navigation during an active model turn and awaits the actual form',async()=>{const f=await setup();try{
   await f.chat.select({sessionId:'s',connectionId,homeOnly:true});f.agent.status='running'
   const pending=f.chat.openTimesheet('s',new AbortController().signal)
-  await new Promise(r=>setTimeout(r,0));const n=await f.chat.homePoll({sessionId:'s',connectionId});expect(n).toBeDefined()
+  await new Promise(r=>setTimeout(r,0));const n=f.chat.snapshot('s').navigation;expect(n).toBeDefined()
   await expect(f.chat.select({sessionId:'s',connectionId,timesheetPage:'page',navigationId:'fake'})).rejects.toThrow(/正在回答/)
   await f.chat.select({sessionId:'s',connectionId,timesheetPage:'page',navigationId:n!.id})
   await f.chat.timesheet.sync({sessionId:'s',connectionId,pageKey:'page',navigationId:n!.id,revision:1,manager:false,fields:{period_start:'',period_end:'',source_report_text:'',entries:[]}})
-  expect(await pending).toContain('表单已打开');expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeUndefined()
+  expect(await pending).toContain('表单已打开');expect(f.chat.snapshot('s').navigation).toBeUndefined()
  }finally{await f.close()}})
  it('refuses navigation when enterprise identity changes',async()=>{const f=await setup();try{await f.chat.select({sessionId:'s',connectionId,homeOnly:true});f.identity.identity.user.employeeId='other';await expect(f.chat.openTimesheet('s',new AbortController().signal)).rejects.toThrow(/身份/)}finally{await f.close()}})
- it('cancels pending navigation on abort',async()=>{const f=await setup();try{await f.chat.select({sessionId:'s',connectionId,homeOnly:true});const c=new AbortController();c.abort();await expect(f.chat.openTimesheet('s',c.signal)).rejects.toThrow();expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeUndefined()}finally{await f.close()}})
+ it('cancels pending navigation on abort',async()=>{const f=await setup();try{await f.chat.select({sessionId:'s',connectionId,homeOnly:true});const c=new AbortController();c.abort();await expect(f.chat.openTimesheet('s',c.signal)).rejects.toThrow();expect(f.chat.snapshot('s').navigation).toBeUndefined()}finally{await f.close()}})
 })
 
 
 describe('open existing timesheet navigation',()=>{
  it.each([false,true])('validates the target before navigation and awaits the matching detail (manager=%s)',async(manager)=>{
   const calls:unknown[]=[]
-  const api={timesheetDetail:async(...args:unknown[])=>{calls.push(args);return {header:{id:'header'},canEdit:!manager}}} as unknown as import('@oryh/ai-client-core/types').OryhTimesheetRemote
+  const api={timesheetDetail:async(...args:unknown[])=>{calls.push(args);return {header:{id:'header'},canEdit:!manager}}} as unknown as import('@oryh/ai-client-timesheets').OryhTimesheetRemote
   const f=await setup(api)
   try{
    await f.chat.select({sessionId:'s',connectionId,homeOnly:true});f.agent.status='running'
    const pending=f.chat.openTimesheet('s',new AbortController().signal,'header',manager?'todo':'')
-   await new Promise(r=>setTimeout(r,0));await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
-  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+   await new Promise(r=>setTimeout(r,0));await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+  const n=(f.chat.snapshot('s').navigation)!
    expect(calls).toEqual([[connectionId,'header',manager?'todo':undefined]])
    expect(n.headerId).toBe('header');expect(n.manager).toBe(manager)
    await expect(f.chat.select({sessionId:'s',connectionId,timesheetPage:'page',navigationId:n.id,manager:!manager})).rejects.toThrow(/正在回答/)
@@ -64,8 +65,8 @@ describe('open existing timesheet navigation',()=>{
   }finally{await f.close()}
  })
  it('does not publish navigation for an inaccessible record',async()=>{
-  const api={timesheetDetail:async()=>{throw Error('没有权限')}} as unknown as import('@oryh/ai-client-core/types').OryhTimesheetRemote
-  const f=await setup(api);try{await f.chat.select({sessionId:'s',connectionId,homeOnly:true});await expect(f.chat.openTimesheet('s',new AbortController().signal,'other')).rejects.toThrow('没有权限');expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeUndefined()}finally{await f.close()}
+  const api={timesheetDetail:async()=>{throw Error('没有权限')}} as unknown as import('@oryh/ai-client-timesheets').OryhTimesheetRemote
+  const f=await setup(api);try{await f.chat.select({sessionId:'s',connectionId,homeOnly:true});await expect(f.chat.openTimesheet('s',new AbortController().signal,'other')).rejects.toThrow('没有权限');expect(f.chat.snapshot('s').navigation).toBeUndefined()}finally{await f.close()}
  })
 })
 
@@ -79,8 +80,8 @@ describe('visible todo navigation',()=>{
    f.agent.status='running'
    const pending=f.chat.openTodo('s',1,'v1',new AbortController().signal)
    await new Promise(r=>setTimeout(r,0))
-   await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
-  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+   await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+  const n=(f.chat.snapshot('s').navigation)!
    expect(n.todoId).toBe('second-on-server');expect(n.target).toBe('todo')
    await expect(f.chat.select({sessionId:'s',connectionId,todoId:'first-on-server',navigationId:n.id})).rejects.toThrow(/正在回答/)
    const selected=await f.chat.select({sessionId:'s',connectionId,todoId:n.todoId!,navigationId:n.id})
@@ -102,7 +103,7 @@ describe('visible todo navigation',()=>{
    await f.chat.select({sessionId:'s',connectionId,visibleTodos,listRevision:'v1'})
    f.setRead(async()=>{throw Error('不属于当前员工')})
    await expect(f.chat.openTodo('s',1,'v1',new AbortController().signal)).rejects.toThrow(/不属于/)
-   expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeUndefined()
+   expect(f.chat.snapshot('s').navigation).toBeUndefined()
   }finally{await f.close()}
  })
 })
@@ -159,8 +160,8 @@ describe('live page background and navigation',()=>{
    f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'list-projects',context:{key:'list',title:'项目',detail:'筛选',scope:'当前页',content:'项目甲'}})
    expect(f.chat.currentPage('s').context?.content).toBe('项目甲')
    const pending=f.chat.navigate('s','my-expense-claims',new AbortController().signal)
-   await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
-    const command=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+   await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+    const command=(f.chat.snapshot('s').navigation)!
    expect(command.target).toBe('page')
    f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'my-expense-claims',navigationId:command.id,context:{key:'expenses',title:'费用',detail:'',scope:'',content:'费用乙'}})
    expect(JSON.parse(await pending).context.content).toBe('费用乙')
@@ -200,8 +201,8 @@ it('changes project columns only after matching page acknowledgement',async()=>{
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'list-projects',context})
   await expect(f.chat.configureProjectColumns('s',['name','password'],new AbortController().signal)).rejects.toThrow(/列配置/)
   const pending=f.chat.configureProjectColumns('s',['name','createdAt'],new AbortController().signal)
-  await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
-  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+  await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+  const n=(f.chat.snapshot('s').navigation)!
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'list-projects',navigationId:n.id,context:{...context,columns:['name','createdAt']}})
   expect(await pending).toContain('显示列已更新')
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:3,page:'timesheets'})
@@ -217,8 +218,8 @@ for(const kind of ['sales-orders','inventory-items','inventory-item-details','sh
    f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:kind,context})
    for(const columns of [[],['password'],['__proto__'],['id','id']])await expect(f.chat.configureRecordColumns('s',columns,new AbortController().signal)).rejects.toThrow(/列配置/)
    const pending=f.chat.configureRecordColumns('s',['id'],new AbortController().signal)
-   await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
-  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+   await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+  const n=(f.chat.snapshot('s').navigation)!
    expect(n).toMatchObject({target:'columns',page:kind,columns:['id']})
    f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:kind,navigationId:n.id,context})
    expect(await pending).toContain('显示列已更新')
@@ -236,8 +237,8 @@ it('adds the inventory query field only after acknowledgement and validates fiel
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'inventory-item-details',context})
   await expect(f.chat.configureInventoryFilters('s',['password'],undefined,new AbortController().signal)).rejects.toThrow(/配置无效/)
   const pending=f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal)
-  await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
-  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+  await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+  const n=(f.chat.snapshot('s').navigation)!
   expect(n).toMatchObject({target:'filters',queryFields:['product_code']})
   expect(n).not.toHaveProperty('productCode')
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'inventory-item-details',navigationId:n.id,context:{...context,queryFields:['product_code']}})
@@ -255,8 +256,8 @@ it('hydrates multi-product selections before sending them to the page',async()=>
   await expect(f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal,['a','a'])).rejects.toThrow(/选择无效/)
   const pending=f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal,['a','b'])
   await new Promise(r=>setTimeout(r,0))
-  await vi.waitFor(async()=>expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeDefined())
-  const n=(await f.chat.homePoll({sessionId:'s',connectionId}))!
+  await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+  const n=(f.chat.snapshot('s').navigation)!
   expect(n.products).toEqual(products)
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'inventory-item-details',navigationId:n.id,context:{...context,queryFields:['product_code'],productIds:['a','b']}})
   expect(await pending).toContain('查询栏已更新')
@@ -269,6 +270,95 @@ it('does not queue Chat navigation after the server revokes the required grant',
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos'})
   f.identity.identity.permissions=[]
   await expect(f.chat.navigate('s','inventory-items',new AbortController().signal)).rejects.toThrow('权限')
-  expect(await f.chat.homePoll({sessionId:'s',connectionId})).toBeUndefined()
+  expect(f.chat.snapshot('s').navigation).toBeUndefined()
  }finally{await f.close()}
+})
+
+describe('command stream',()=>{
+ it('opens with a baseline, republishes the whole set on change, and re-baselines a reconnect',async()=>{
+  const f=await setup();try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   const controller=new AbortController()
+   const frames=f.chat.commands({sessionId:'s',connectionId},controller.signal)[Symbol.asyncIterator]()
+   expect(await frames.next()).toEqual({value:{type:'baseline',commands:{}},done:false})
+   const pending=frames.next()
+   const navigating=f.chat.openTimesheet('s',new AbortController().signal)
+   const update=(await pending).value
+   expect(update.type).toBe('update')
+   const command=update.commands.navigation!
+   expect(command).toBeDefined()
+   // A reconnect re-opens the stream: its baseline still carries the command the page never saw.
+   const reopened=f.chat.commands({sessionId:'s',connectionId},new AbortController().signal)[Symbol.asyncIterator]()
+   expect((await reopened.next()).value).toEqual({type:'baseline',commands:{navigation:command}})
+   controller.abort()
+   await f.chat.select({sessionId:'s',connectionId,timesheetPage:'page',navigationId:command.id})
+   await f.chat.timesheet.sync({sessionId:'s',connectionId,pageKey:'page',navigationId:command.id,revision:1,manager:false,fields:{period_start:'',period_end:'',source_report_text:'',entries:[]}})
+   expect(await navigating).toContain('表单已打开')
+   expect(f.chat.snapshot('s').navigation).toBeUndefined()
+  }finally{await f.close()}
+ })
+ // Drives the Host until a command is actually pending, so the change provably lands
+ // while no consumer is awaiting the queue — the window a `wake`-only handoff loses.
+ const settled=async(chat:BusinessChat,until:()=>boolean)=>{
+  for(let tick=0;tick<1000&&!until();tick++)await new Promise(resolve=>{setImmediate(resolve)})
+  if(!until())throw new Error('the Host never reached the expected snapshot')
+ }
+ it('delivers a command issued between frames, without waiting for a further change',async()=>{
+  const f=await setup();try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   const controller=new AbortController()
+   const frames=f.chat.commands({sessionId:'s',connectionId},controller.signal)[Symbol.asyncIterator]()
+   expect((await frames.next()).value).toEqual({type:'baseline',commands:{}})
+   // Nothing is awaiting the stream here: next() is called only once the Host already holds it.
+   const tool=new AbortController()
+   const navigating=f.chat.openTimesheet('s',tool.signal).catch(()=>undefined)
+   await settled(f.chat,()=>f.chat.snapshot('s').navigation!==undefined)
+   const update=(await frames.next()).value
+   expect(update.type).toBe('update')
+   expect(update.commands.navigation).toBeDefined()
+   controller.abort();tool.abort();await navigating
+  }finally{await f.close()}
+ })
+ it('coalesces changes across a slow consumer into the current whole set',async()=>{
+  const f=await setup();try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   const controller=new AbortController()
+   const frames=f.chat.commands({sessionId:'s',connectionId},controller.signal)[Symbol.asyncIterator]()
+   await frames.next()
+   const firstTool=new AbortController(),secondTool=new AbortController()
+   const first=f.chat.openTimesheet('s',firstTool.signal).catch(()=>undefined)
+   await settled(f.chat,()=>f.chat.snapshot('s').navigation!==undefined)
+   const superseded=f.chat.snapshot('s').navigation!.id
+   // A second command on the same lane replaces the first while the consumer is still idle.
+   const second=f.chat.openTimesheet('s',secondTool.signal).catch(()=>undefined)
+   await settled(f.chat,()=>f.chat.snapshot('s').navigation!.id!==superseded)
+   const update=(await frames.next()).value
+   expect(update.commands).toEqual(f.chat.snapshot('s'))
+   expect(update.commands.navigation!.id).not.toBe(superseded)
+   controller.abort();firstTool.abort();secondTool.abort();await Promise.all([first,second])
+  }finally{await f.close()}
+ })
+ it('ends the subscription when cancelled while waiting and while a frame is in flight',async()=>{
+  const f=await setup();try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   const waiting=new AbortController()
+   const idle=f.chat.commands({sessionId:'s',connectionId},waiting.signal)[Symbol.asyncIterator]()
+   await idle.next()
+   const pending=idle.next()
+   waiting.abort()
+   expect((await pending).done).toBe(true)
+   // Cancelled in the same window the notification fix covers: a frame is out, none requested.
+   const processing=new AbortController()
+   const busy=f.chat.commands({sessionId:'s',connectionId},processing.signal)[Symbol.asyncIterator]()
+   await busy.next()
+   processing.abort()
+   expect((await busy.next()).done).toBe(true)
+  }finally{await f.close()}
+ })
+ it('refuses a session that is not bound to the enterprise',async()=>{
+  const f=await setup();try{
+   const stream=f.chat.commands({sessionId:'s',connectionId},new AbortController().signal)
+   await expect((async()=>{for await(const frame of stream)return frame})()).rejects.toThrow(/尚未绑定/)
+  }finally{await f.close()}
+ })
 })

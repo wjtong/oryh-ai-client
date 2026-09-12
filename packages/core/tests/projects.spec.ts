@@ -1,8 +1,7 @@
 import {describe,it,expect} from 'vitest'
 import {ConnectionRegistry,MemoryCredentialVault,OryhHttpClient} from '../src/index.js'
-import {ProjectService,validateProject,type ProjectRecord,type ProjectStore} from '../src/projects.js'
+import {ProjectService,validateProject,type ProjectFields,type ProjectRecord,type ProjectStore} from '@oryh/ai-client-projects'
 import {jsonResponse} from './fixtures.js'
-import type {ProjectFields} from '../src/project-contracts.js'
 const fields:ProjectFields={project_name:'项目测试',project_code:'QA-1',client:'客户',start_date:'2026-09-01',end_date:'2026-09-30'}
 async function fixture(){
  const registry=new ConnectionRegistry(),vault=new MemoryCredentialVault(),c=registry.add({origin:'https://oryh.example',identity:{user:{id:'u',email:'u@example.invalid',role:'member',employeeId:'e'},tenant:{id:'t',slug:'test',name:'Test',environmentId:null}}})

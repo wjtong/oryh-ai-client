@@ -14,16 +14,30 @@ ORYH 客户端通过 DeepSeek Harness 的外部 Host 插件、Client 插件和 `
 
 ## 本机开发启动
 
-依赖当前机器的同级 Harness 源码，所有 DSH 导入均走公开包导出；`link:` 依赖仅用于本地开发，不是可发布到 npm 的依赖版本锁定。先在 Harness 仓库安装并构建，再在本仓库运行：
+依赖当前机器的同级 Harness 源码，所有 DSH 导入均走公开包导出；`link:` 依赖仅用于本地开发，不是可发布到 npm 的依赖版本锁定。
+
+从干净工作区开始的完整顺序如下。**第 2、3 步不能省**：外部 Remote 补丁尚未进入上游，而且生成器是从构建产物运行的，只改源码不重建等于没打补丁（`scripts/check-dsh-patch.mjs` 会直接拦住）。
 
 ```sh
+# 1. Harness 依赖
+pnpm -C ../deepseek-harness install
+
+# 2. 应用外部 Remote 补丁（版本基线见 patches/deepseek-harness-external-remote.json）
+git -C ../deepseek-harness apply patches/deepseek-harness-external-remote.patch
+
+# 3. 构建 Harness —— 必须在打补丁之后，产物才带上修复
+pnpm -C ../deepseek-harness build
+
+# 4. 本仓库
 pnpm install
 pnpm run verify
 pnpm run profile:install
 pnpm start
 ```
 
-开发环境使用 Node.js 24 与项目声明的 pnpm 11.19.0。`verify` 构建 Host、生成严格 Remote 产物、构建 Client 插件并运行类型检查与测试。
+补丁与 Harness 版本是耦合的：升级 DSH 后 hunk 会移位（0.1.5-rc.1 → rc.2 时就从 `analyzer.ts:1850` 移到了 `:1936`），需要重新导出补丁并同步更新 `patches/deepseek-harness-external-remote.json` 里的版本与 commit。守卫会在版本与基线不符时给出警告，在**执行中的生成器产物**缺少修复时直接失败。
+
+开发环境使用 Node.js 24 与项目声明的 pnpm 11.19.0。`verify` 构建 Host、生成严格 Remote 产物、构建 Client 插件并运行类型检查与测试；生成步骤会断言产物里同时存在普通 Remote 与流式 Remote 描述符，避免"生成成功但什么都没产出"被当成通过。
 
 `start` 调用正式 `dsh --profile oryh-web --port 4173`。默认 Harness home 为 `~/Library/Application Support/ORYH AI Client/harness`，可用 `DSH_HOME` 覆盖。启动时由 Harness 自动用授权链接打开默认浏览器，直接显示三栏工作台。若换用其他浏览器或看到认证提示，需在目标浏览器重新打开当前 CLI 输出的完整授权链接；仅访问根地址不能完成首次认证。
 
@@ -85,6 +99,7 @@ ORYH 的核心定位是 agent-native 企业事实与控制层。不同员工仍�
 - [ADR-0005：分离账号认证、设备授权、本地解锁和高风险 step-up](docs/adr/0005-separate-account-auth-device-grant-local-unlock-and-step-up.md)
 - [ADR-0006：采用能力派生工作空间、业务线程投影和分类 Operation](docs/adr/0006-capability-derived-workspaces-and-business-thread-projections.md)
 - [ADR-0007：采用 DSH 0.1.2 Web Profile 与类型化 Remote 集成](docs/adr/0007-dsh-web-profile-and-typed-remotes.md)
+- [ADR-0008：领域保持为库，不拆为可独立启停的业务插件](docs/adr/0008-domain-libraries-not-independent-plugins.md)
 
 ## 当前基线决定
 
@@ -105,7 +120,7 @@ ORYH 的核心定位是 agent-native 企业事实与控制层。不同员工仍�
 
 ## 源码基线
 
-ORYH：`/Users/wtong/git/calwbiz`。Harness：`/Users/wtong/git/deepseek-harness`，`0.1.3-alpha.2` / `c389f96bf3`，外加本次外部 Remote 符号识别兼容补丁。该补丁尚未发布上游；本仓库保留可审查副本，见 [迁移记录](docs/14-dsh-plugin-migration.md)。
+ORYH：`/Users/wtong/git/calwbiz`。Harness：`/Users/wtong/git/deepseek-harness`，`0.1.5-rc.2` / `c291e7961a`，外加本次外部 Remote 符号识别兼容补丁。该补丁仍未进入上游发布，需在本机 DSH 工作区重新应用并重建后才生效；本仓库保留可审查副本，见 [迁移记录](docs/14-dsh-plugin-migration.md)。
 
 模型与聊天配置见 [配置模型并开始聊天](docs/15-model-configuration.md)。左下角「模型与设置」复用原生 Models 页面，支持 Base URL、API key、协议和模型目录。
 

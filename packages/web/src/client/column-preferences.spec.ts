@@ -3,7 +3,7 @@ import {beforeEach, expect, it, vi} from 'vitest'
 import {act, createElement} from 'react'
 import {createRoot} from 'react-dom/client'
 import type {ConnectionSummary} from '@oryh/ai-client-core'
-import {recordDefaultColumns} from '@oryh/ai-client-core/views'
+import {recordDefaultColumns} from '@oryh/ai-client-records'
 import {columnPreferenceScope, createColumnPreference, useColumnPreferences} from './column-preferences.js'
 
 const connection = {origin:'https://example.test', identity:{tenant:{id:'tenant-a'},user:{id:'user-a'}}} as ConnectionSummary

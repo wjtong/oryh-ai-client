@@ -1,13 +1,48 @@
-import {hasPermission,requirePermission,requirePage} from './access.js'
-import { OryhClientError } from './errors.js'
+import { OryhClientError, connectionId, type ConnectionId } from '@oryh/ai-client-foundation'
+import { hasPermission, requirePermission, requirePage } from '@oryh/ai-client-pages'
 import { createHash, randomUUID } from 'node:crypto'
-import { connectionId } from './brand.js'
-import type { ConnectionSummary } from './connections.js'
-import type { OryhHttpClient } from './http.js'
-import { object } from './expense-contracts.js'
-import { timesheetError as fail, validateTimesheet, type OryhTimesheetRemote, type TimesheetAction, type TimesheetDetail, type TimesheetHeader, type TimesheetIntent, type TimesheetLine } from './timesheet-contracts.js'
-import type { TimesheetRecord, TimesheetStore } from './timesheet-store.js'
+import { timesheetError as fail, validateTimesheet, type OryhTimesheetRemote, type TimesheetAction, type TimesheetDetail, type TimesheetHeader, type TimesheetIntent, type TimesheetLine } from './contracts.js'
+import type { TimesheetRecord, TimesheetStore } from './store.js'
+
+/**
+ * The transport this service needs. Wider than a read-only domain: timesheets write, so
+ * the request shape carries method, body and the replay opt-out. Declared structurally so
+ * this package does not depend on the core.
+ */
+export interface TimesheetHttp {
+  request(connectionId: ConnectionId, request: {
+    readonly path: `/${string}`
+    readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+    readonly body?: unknown
+    readonly retryExpired?: boolean
+  }): Promise<unknown>
+}
+
+/** The connection facts this service reads; `ConnectionSummary` satisfies this shape. */
+export interface TimesheetConnection {
+  readonly origin: string
+  readonly identity: {
+    readonly permissions?: readonly string[]
+    readonly user: { readonly id: string; readonly employeeId: string | null }
+    readonly tenant: { readonly id: string }
+  }
+}
+
 const str = (v: unknown) => typeof v === 'string' ? v : ''
+/**
+ * Narrow an ORYH response fragment to an object.
+ *
+ * This used to be imported from the expense contracts, so a malformed timesheet response
+ * reported an expense conflict. Extracting the domain made that cross-domain borrow
+ * untenable, and the error is now a timesheet one. No test or consumer observed the old
+ * code, so this is a deliberate correction rather than a silent behaviour change.
+ * @param value - decoded response fragment.
+ * @returns the value as a record.
+ */
+const object = (value: unknown): Record<string, unknown> => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw fail('工时数据无效。')
+  return value as Record<string, unknown>
+}
 const rows = (v: unknown): Record<string, unknown>[] => { if (!Array.isArray(v)) throw fail('工时响应格式无效。'); return v.map(object) }
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex')
 const header = (r: Record<string, unknown>): TimesheetHeader => ({ id: str(r.id), employee_id: str(r.employee_id), period_start: str(r.period_start), period_end: str(r.period_end), status: str(r.status), source_report_text: str(r.source_report_text) })
@@ -26,7 +61,7 @@ export class TimesheetService implements OryhTimesheetRemote {
     await prior
     try { return await fn() } finally { release() }
   }
-  constructor(private store: TimesheetStore, private http: OryhHttpClient, private connection: (id: string) => ConnectionSummary, private verify: (id: string) => Promise<ConnectionSummary>) {}
+  constructor(private store: TimesheetStore, private http: TimesheetHttp, private connection: (id: string) => TimesheetConnection, private verify: (id: string) => Promise<TimesheetConnection>) {}
   private scope(id: string) { const c = this.connection(id); if (!c.identity.user.employeeId) throw fail('当前账号未关联员工。'); return JSON.stringify([c.origin,c.identity.tenant.id,c.identity.user.id,c.identity.user.employeeId]) }
   private guard(id: string, scope: string) { if (this.scope(id) !== scope) throw fail('企业或员工身份已改变，请重新核对。') }
   private async get(id: string, path: `/${string}`) { const scope = this.scope(id); const r = object(await this.http.request(connectionId(id), { path })); this.guard(id, scope); return r }
@@ -35,6 +70,7 @@ export class TimesheetService implements OryhTimesheetRemote {
   private async todos(id: string) { const employee=this.connection(id).identity.user.employeeId; return (await this.list(id, `/todos?employee_id=${encodeURIComponent(employee ?? '')}&status=open&entity_type=timesheet_header`)).filter(r=>r.employee_id===employee && r.entity_type==='timesheet_header' && r.status==='open' && r.todo_type==='approval') }
   async timesheetQueue(id: string) { requirePage((await this.verify(id)).identity,'timesheet-approvals'); return (await this.todos(id)).map(r=>({id:str(r.id),entity_id:str(r.entity_id),title:str(r.title),description:str(r.description)})) }
   async timesheetOptions(id: string) {
+    await this.verify(id)
     const scope=this.scope(id)
     const [types,projects,definitions,permissions]=await Promise.all([this.list(id,'/type-options?family=work_type&status=active'),this.list(id,'/projects'),this.list(id,'/workflow-definitions?entity_kind=builtin&object_type=timesheet_header'),this.permissions(id)])
     this.guard(id,scope)
@@ -71,7 +107,9 @@ export class TimesheetService implements OryhTimesheetRemote {
     return {...d,canEdit:!todoId && d.header.employee_id===this.connection(id).identity.user.employeeId && rules.editableStates.includes(d.header.status) && hasPermission({...this.connection(id).identity,permissions:Array.isArray(grants)?grants.filter((v):v is string=>typeof v==='string'):[]},'timesheet.submit_own')}
   }
   private view(r: TimesheetRecord): TimesheetIntent { const {scope:_s,digest:_d,payload:_p,path:_path,method:_m,...v}=r; return v.state==='executing'?{...v,state:'unknown',message:'写入结果尚未确认，请先核对。'}:v }
-  async timesheetHistory(id: string) { const scope=this.scope(id); const r=await this.store.list(); this.guard(id,scope); return r.filter(r=>r.scope===scope).map(r=>this.view(r)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)) }
+  // Await verification like every sibling read: a concurrent re-verification revokes the
+  // registry entry until `/auth/me` returns, and a bare `scope()` would throw inside that window.
+  async timesheetHistory(id: string) { await this.verify(id); const scope=this.scope(id); const r=await this.store.list(); this.guard(id,scope); return r.filter(r=>r.scope===scope).map(r=>this.view(r)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)) }
   private async next(id: string, r: TimesheetRecord, changes: Partial<TimesheetRecord>) { this.guard(id,r.scope); const n={...r,...changes,revision:r.revision+1,updatedAt:new Date().toISOString()}; await this.store.append(n,r.revision); this.guard(id,r.scope); return n }
   private async read(id: string,intentId: string,revision: number) { const scope=this.scope(id); const r=(await this.store.list()).find(r=>r.scope===scope && r.id===intentId && r.revision===revision); this.guard(id,scope); if (!r) throw fail('操作已改变，请刷新。'); return r }
   private async context(id: string, a: TimesheetAction) {

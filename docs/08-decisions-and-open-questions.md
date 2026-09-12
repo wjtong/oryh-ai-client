@@ -41,6 +41,8 @@
 | D-024 | 开放 todo 和业务线程通过状态式重新读取收敛；推送/通知只降低延迟，不作为真相源 | [技术架构](04-technical-architecture.md#74-工作空间业务线程与状态收敛) |
 | D-025 | 当前通用审批仍是 approval fact 与 todo completion 两步；客户端以 todo 为入口并处理部分成功，但不把它宣称为服务端原子保证 | [安全设计](05-security-and-privacy.md#92-部分成功) |
 | D-026 | DSH `0.1.2-alpha.1` 的 `oryh-web` Profile、Connection/Gateway/Remote、Client Modules/slots 和 `oryh-business` preset 是客户端 Web 基线；业务 Remote 不另建通用 IPC/HTTP proxy | [ADR-0007](adr/0007-dsh-web-profile-and-typed-remotes.md) |
+| D-027 | 工作台整体交付：领域是编译期库，不拆为可独立启停的业务插件；不抽 `dsh-connections`/`dsh-workbench`，不引入动态领域注册框架 | [ADR-0008](adr/0008-domain-libraries-not-independent-plugins.md) |
+| D-028 | 菜单可见性只是入口展示，业务授权始终在服务层执行；将来若有按租户的模块启停，它是独立于用户权限的第二个轴，不并入页面登记表 | [ADR-0008](adr/0008-domain-libraries-not-independent-plugins.md) |
 
 ## 3. 建议等待批准
 

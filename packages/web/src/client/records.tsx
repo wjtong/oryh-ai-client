@@ -1,10 +1,10 @@
 import {useViewPreference,textPreference,pagePreference,productPreference,queryFieldsPreference,PreferenceDetails} from './view-preferences.js'
 import {ProductPicker} from './product-picker.js'
-import {recordColumns,recordDefaultColumns} from '@oryh/ai-client-core/views'
+import {recordColumns,recordDefaultColumns} from '@oryh/ai-client-records'
 import type {ChatNavigation} from '@oryh/dsh-host/types'
 import {useEffect,useRef,useState} from 'react'
 import {Button,Field,Input} from '@fluentui/react-components'
-import type {RecordKind,RecordPage,BusinessRecord,ProductOption} from '@oryh/ai-client-core/types'
+import type {RecordKind,RecordPage,BusinessRecord,ProductOption} from '@oryh/ai-client-records'
 import type {PageContext} from './workbench.js'
 import {useOryhRemote} from './remote.js'
 export const recordTitles:Record<RecordKind,string>={'sales-orders':'销售订单','inventory-items':'库存余额','inventory-item-details':'库存流水',shipments:'Shipment · 收发货'}

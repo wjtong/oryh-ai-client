@@ -10,4 +10,4 @@ Generated Remote descriptors mount through the public Gateway and wait for `remo
 
 The current upstream renderer has a root-gap error during development hot replacement. The Profile disables `client-hmr`; save drafts, stop the server, build and restart when upgrading. Normal plugin unload/re-register is covered by public SlotCore/Cordis lifecycle tests.
 
-Chat-driven queries and fields are not enabled. The native conversation is the only chat; this package sends no business context to Sessions or model tools. See [migration](../../docs/14-dsh-plugin-migration.md).
+The native conversation is the only chat. Chat-driven navigation, list columns, inventory query fields and form filling are enabled: this package syncs the current page, its list or detail context and unsaved form fields to the Host through the generated Remote, and applies the commands the Host issues, acknowledging each with the command id so the waiting tool can confirm the page actually changed. Saving, submitting and approving still require the user to confirm in the page. See [migration](../../docs/14-dsh-plugin-migration.md).
