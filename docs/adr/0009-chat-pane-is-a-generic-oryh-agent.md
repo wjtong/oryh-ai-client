@@ -27,9 +27,10 @@ ORYH 对通用 agent 已有现成接入方案（见 calwbiz `docs/manual/connect
 1. **Chat 栏按通用 ORYH agent 对待。** 客户端下载与其它通用 agent 完全相同的 personal bundle，落到相同位置（`<agentsHome>/skills`，默认 `~/.agents/skills`），保持 ORYH 渲染进去的原始文件，**不**做"内存解析＋剥离 `ORYH_API_KEY`"的兼容适配。
 2. **`skill` 与 `bash` 进入 agent 的工具允许列表**（`business-chat.ts` 的 `tools.restrict({allow})`）。`skill` 让模型看见 catalog 并按名装载；`bash` 让 skill 的脚本步骤真的能跑。
 3. **不在 host plane 重新打开 `skill-filesystem` / `tool-skill` / `tool-bash`。** 这三行被 `dsh-web-app` 的 profile 有意停用，因为**agent preset 自带**它们。在 host plane 再注册一个 `skill` 工具会遮蔽 preset 注册的那一个，而 `tool-skill` 发布 catalog 的前置条件正是"当前 scope 看到的 `skill` 就是我注册的那个定义"——于是 catalog 永远不会发布，模型拿着 `skill` 工具却不知道有哪些 skill。真正挡住这两个工具的是我们自己的允许列表。
-4. **安装时把 skill 提升到扫描根。** ORYH 发的是 `<company>/<skill>/SKILL.md`；Harness 的 `skill-filesystem` 只扫一层，找 `<root>/<skill>/SKILL.md`。整包放进去会被读成"一个没有 SKILL.md 的 skill"，什么都发现不了。安装时把每个 skill 目录提到根，公司容器下的散文件（`README.md` 等）不安装。这是安全的：ORYH 已经用雇主名给每个 skill 命名，这正是一个 agent 能同时服务两家公司的前提。
+4. **安装时把 skill 提升到扫描根。** ORYH 发的是 `<company>/<skill>/SKILL.md`；Harness 的 `skill-filesystem` 只扫一层，找 `<root>/<skill>/SKILL.md`。整包放进去，公司容器里没有 `SKILL.md`，会被静默跳过，什么都发现不了。安装时把每个 skill 目录提到根，公司容器下的散文件（`README.md` 等）不安装。这是安全的：ORYH 已经用雇主名给每个 skill 命名，这正是一个 agent 能同时服务两家公司的前提。
 5. **同步以服务端清单为准。** 先比 `/my/skills/manifest`，不同才下载；本地 `.oryh-manifest.json` 记录"这次装的是哪份授权、写了哪些目录"。只整目录替换自己写过的目录——角色变更收回的 skill 必须真的消失，而 skills 根是与用户其它 agent 共享的，不属于本 bundle 的目录一律不碰。
-6. **多租户/共享主机下 `<agentsHome>` 必须按 uid 隔离。** bundle 里有该人的 `ORYH_API_KEY`，同一个 skills 根就是同一个人。[docs/21](../21-s0-acceptance.md) S0-2 的 per-uid 由"可选"变为"必须"。
+6. **客户端独占安装，ORYH 的 `*-skill-sync` 技能不安装。** 那个技能是给通用 agent 的安装器；在这里客户端就是安装器，装着它等于有两个安装器，而它按 ORYH 的原始目录结构解压，本客户端扫描不到。用户在 Chat 里要求更新技能时走 `oryh_skill_sync` 工具。这是对"原样安装 ORYH 发来的 bundle"的唯一一处有意偏离。
+7. **多租户/共享主机下 `<agentsHome>` 必须按 uid 隔离。** bundle 里有该人的 `ORYH_API_KEY`，同一个 skills 根就是同一个人。[docs/21](../21-s0-acceptance.md) S0-2 的 per-uid 由"可选"变为"必须"。
 
 ## 边界（本决定没有放松的部分）
 
@@ -55,7 +56,7 @@ ADR-0002 中与本 ADR 无关的条款（access/refresh token 不进模型请求
 
 - Chat 栏获得与其它通用 agent 相同的能力面：租户管理员改一句话，这里立刻跟上，客户端不发版本；
 - 业务逻辑留在 Skills，符合 ORYH 的哲学——不把"一周 30 小时"这类规则翻译成客户端代码；
-- 与 ORYH 既有方案完全一致，不再维护一条只有本客户端走的兼容路径。
+- 与 ORYH 既有方案基本一致（唯一偏离是 §6 的 `*-skill-sync`），不再维护一条只有本客户端走的兼容路径。
 
 负面与待办：
 

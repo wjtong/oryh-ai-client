@@ -79,6 +79,18 @@ describe('ORYH skill bundle', () => {
     expect(await readFile(join(root, 'oryh-connect/SKILL.md'), 'utf8')).toBe('kept')
   })
 
+  it('withholds ORYH\'s own installer skill, because this client is the installer', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
+    const service = new SkillBundleService(http(bundle({
+      'calwbiz-acme/calwbiz-acme-skill-sync/SKILL.md': 'a second installer',
+      'calwbiz-acme/calwbiz-acme-timesheet-submit/SKILL.md': 'hours',
+    })).client, root)
+    const result = await service.sync(connectionId)
+    await expect(readFile(join(root, 'calwbiz-acme-skill-sync/SKILL.md'), 'utf8')).rejects.toThrow()
+    expect(await readFile(join(root, 'calwbiz-acme-timesheet-submit/SKILL.md'), 'utf8')).toBe('hours')
+    expect(result.skills).toEqual(['calwbiz-acme-timesheet-submit'])
+  })
+
   it('refuses an archive entry that would escape the skills directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
     for (const name of ['../escaped.md', 'oryh-acme/../../escaped.md', '/etc/passwd', 'a\\b.md']) {

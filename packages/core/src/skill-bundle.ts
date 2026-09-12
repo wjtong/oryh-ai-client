@@ -84,6 +84,21 @@ export function installPath(entry: string, skillDirs: ReadonlySet<string>): stri
   return segments.length < 3 ? undefined : segments.slice(1).join('/')
 }
 
+/**
+ * Whether this client refuses to install a skill.
+ *
+ * ORYH ships a `*-skill-sync` skill so a generic agent can install and refresh its own bundle. Here
+ * the client is the installer, so that skill is a second one — and it extracts into ORYH's nested
+ * layout, which this scanner cannot read (see `installPath`). Withholding it keeps a single owner of
+ * what is on disk, and keeps the agent from spending a turn following it to a `manifest.json` this
+ * layout deliberately does not keep. `oryh_skill_sync` is the door instead.
+ * @param skill - installed directory name, which ORYH keeps equal to the skill name.
+ * @returns whether the skill is withheld from this install.
+ */
+export function withheld(skill: string): boolean {
+  return skill.endsWith('-skill-sync')
+}
+
 export class SkillBundleService {
   /**
    * @param http - authenticated ORYH transport; the credential never leaves it.
@@ -149,7 +164,7 @@ export class SkillBundleService {
     const skillDirs = new Set(archived.flatMap(name => name.split('/').length === 2 && name.endsWith('/SKILL.md') ? [topLevel(name)] : []))
     const planned = archived.flatMap(name => {
       const target = installPath(name, skillDirs)
-      return target === undefined ? [] : [[name, target] as const]
+      return target === undefined || withheld(topLevel(target)) ? [] : [[name, target] as const]
     })
     if (planned.length === 0) throw new OryhClientError('ORYH 返回的技能包里没有可安装的技能。', 'invalid-response')
     // Validate every destination before writing any of them: a partially applied bundle is worse

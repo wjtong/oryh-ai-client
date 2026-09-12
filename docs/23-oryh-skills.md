@@ -39,7 +39,9 @@ sync(connectionId, force?)
 - **工作台挂载时**，[`workbench.tsx`](../packages/web/src/client/workbench.tsx) 调用 `remote.skillSync(connection.id)`。因为先比清单，装好之后这是一次廉价的空操作。失败是静默的：没有 skill 工作台照常工作，在这里弹错比让 Chat 少知道一点更糟。
 - **用户在 Chat 里要求更新时**，agent 调用 `oryh_skill_sync` 工具（`force`：显式的"更新技能"必须重新下载，哪怕清单没变——轮换过的 key 会改变文件内容而不改变清单）。
 
-安装由客户端独占。ORYH 自己也发了一个 `*-skill-sync` 技能——那是给通用 agent 用的安装器，在这里是第二个安装器：它按 ORYH 的原始目录结构解压（见 §4），本客户端的扫描器读不到。系统提示因此明确指向 `oryh_skill_sync`。
+安装由客户端独占，`*-skill-sync` **不安装**。ORYH 发这个技能，是让通用 agent 能自己装自己的 bundle；在这里它是第二个安装器，而且会按 ORYH 的原始目录结构解压（见 §4），本客户端的扫描器读不到。装着它的代价实测是：agent 会先跟着它去找一个本布局并不保留的 `manifest.json`，白跑几步才回到 `oryh_skill_sync`。`withheld()` 因此按名字后缀把它挡在安装之外，系统提示同时指向 `oryh_skill_sync`。
+
+这是对"原样安装 ORYH 发来的 bundle"的一处有意偏离，也是唯一一处。
 
 安全约束：
 
@@ -65,7 +67,7 @@ Harness 的 `skill-filesystem` **只扫一层**，找 `<root>/<skill>/SKILL.md`�
 
 - 顶层目录自己带 `SKILL.md` → 原样安装（共享的 connect skill）；
 - 否则是公司容器，第二段才是 skill 目录，提到根；
-- 容器下的散文件（`README.md`、`withheld.json`、ORYH 自己的 `manifest.json`）描述的是 bundle 而不是 skill，不安装——留着就得保留容器目录，而容器目录里的 skill 仍然在扫描深度之外。代价是 ORYH 自带的 `*-skill-sync` 技能找不到它要的 `manifest.json`，见 §3。
+- 容器下的散文件（`README.md`、`withheld.json`、ORYH 自己的 `manifest.json`）描述的是 bundle 而不是 skill，不安装——留着就得保留容器目录，而容器目录里的 skill 仍然在扫描深度之外。ORYH 自带的 `*-skill-sync` 技能要的正是这个 `manifest.json`，而那个技能本就不安装，见 §3。
 
 这样做是安全的：ORYH 已经用雇主名给每个 skill 命名（`calwbiz-jc-medical-*`），这正是一个 agent 能同时服务两家公司的前提。
 
@@ -105,4 +107,6 @@ zstd -d -c ~/Library/Application\ Support/ORYH\ AI\ Client/harness/sessions/*/se
 
 - **`ORYH_API_KEY` 明文落在用户自己的 `~/.agents/skills` 下。** 这是 ORYH 对所有通用 agent 的既有姿态。ADR-0002 §9 提到的"服务端提供无凭据 canonical skill 内容"仍值得推动。
 - **`<agentsHome>` 必须按 uid 隔离。** 同一个 skills 根就是同一个人的凭据。见 [docs/21](21-s0-acceptance.md) S0-2。
+- **少装一个技能。** `*-skill-sync` 不安装（§3）。除此之外 bundle 原样落盘。
+- **已装好的客户端不会自动补上这个改动**：挂载时的同步先比清单，清单没变就不下载。让它生效要一次强制同步——在 Chat 里说"更新技能"即可。
 - **catalog 目前是该机器上全部 skill**（本次实测 69 条，含用户自己装的其它 agent 技能），不只是 ORYH 的那 36 个。如果噪音成为问题，再考虑按 `.oryh-manifest.json` 收窄。
