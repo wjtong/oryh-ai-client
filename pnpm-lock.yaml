@@ -35,6 +35,9 @@ importers:
       '@napi-rs/keyring':
         specifier: 1.3.0
         version: 1.3.0
+      '@oryh/ai-client-pages':
+        specifier: workspace:*
+        version: link:../pages
 
   packages/dsh-bundle:
     dependencies:
@@ -77,6 +80,9 @@ importers:
       '@oryh/ai-client-core':
         specifier: workspace:*
         version: link:../core
+      '@oryh/ai-client-pages':
+        specifier: workspace:*
+        version: link:../pages
       zod:
         specifier: ^4.4.3
         version: 4.5.4
@@ -87,6 +93,8 @@ importers:
       '@deepseek-ai/dsh-typert-registry':
         specifier: link:../../../deepseek-harness/packages/typert/registry
         version: link:../../../deepseek-harness/packages/typert/registry
+
+  packages/pages: {}
 
   packages/web:
     dependencies:
@@ -129,6 +137,9 @@ importers:
       '@oryh/ai-client-core':
         specifier: workspace:*
         version: link:../core
+      '@oryh/ai-client-pages':
+        specifier: workspace:*
+        version: link:../pages
       '@oryh/ai-client-workspace':
         specifier: workspace:*
         version: link:../workspace

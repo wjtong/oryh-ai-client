@@ -273,13 +273,15 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 
 第 2–6 步的方案原本只存在于对话里，仓库中没有任何记录，这本身是个风险：多步结构性重构如果只靠记忆推进，无法核对是否偏离原方案。本节按压缩前的要点重建，并用当前代码的实测结果补全细节。**若与原方案不符，以用户更正为准，不要按本节直接施工。**
 
-**页面标识的散落情况（实测）。** 四张互不相同的页面表：`OPERATIONS`（core/operations.ts，3 页，title/description/method/path）、`layout.tsx:87` 的 pages 数组（9 页加 settings，id/文案 key/图标）、`workbench.tsx:46` 的 pages 记录（3 页，title/description/icon）、`business-chat.ts:106` 的 names 映射（10 页，id→中文名，旁边另有 capabilities 三元表达式）。六处字面量 id 列表：`AccessPage`、`app.tsx:46`、`oryh_navigate` 工具的 enum、`ChatPageRequest['page']`、`saved-operations.ts:218`、`BusinessView`。七处以上 switch：`controller.ts` 四处、`OperationExecutor` 一处、`business-chat.ts` 的 pageSync 命令→页面三元与 pageData 分发。其中 `core/remote.ts` 的两个 switch 每个 case 主体完全相同，属于纯噪音，无论采用哪种方案都应删除。
+**页面标识的散落情况（实测）。** 四张互不相同的页面表：`OPERATIONS`（core/operations.ts，3 页，title/description/method/path）、`layout.tsx:87` 的 pages 数组（9 页加 settings，id/文案 key/图标）、`workbench.tsx:46` 的 pages 记录（3 页，title/description/icon）、`business-chat.ts:106` 的 names 映射（10 页，id→中文名，旁边另有 capabilities 三元表达式）。六处字面量 id 列表：`AccessPage`、`app.tsx:46`、`oryh_navigate` 工具的 enum、`ChatPageRequest['page']`、`saved-operations.ts:218`、`BusinessView`。七处以上 switch：`controller.ts` 四处、`OperationExecutor` 一处、`business-chat.ts` 的 pageSync 命令→页面三元与 pageData 分发。其中 `core/remote.ts` 的两个 switch 每个 case 主体看起来完全相同，最初被判断为纯噪音。**实测后更正**：`OryhClientController.execute`/`reuse` 只公开三个字面量重载，联合类型那一条是实现签名、外部不可调用，因此这两个 switch 的作用是把联合窄化到字面量以命中重载，直接删除会导致类型检查失败。这是操作重载的类型问题，与页面标识无关，不在第 2 步处理；要收掉需要另加一条公开的联合重载，属于独立改动。
 
-**第 2 步：抽出 `@oryh/dsh-connections` 与 `@oryh/dsh-workbench`，引入页面登记表。** 一条记录描述一个页面：id、文案 key、图标、访问规则（identity → boolean）、可选的确定性操作（method/path/decoder）、Host 侧能力与提示语、客户端组件。`canAccessPage` 的 switch 变成遍历登记表。
+**第 2 步：抽出 `@oryh/dsh-connections` 与 `@oryh/dsh-workbench`，引入页面登记表。** 一条记录描述一个页面：id、模型可见的中文名、访问规则（identity → boolean），后续可再加确定性操作（method/path/decoder）与 Host 侧能力提示语。`canAccessPage` 的 switch 变成遍历登记表。
+
+菜单文案 key、图标与客户端组件**不进登记表**：登记表必须保持 React-free（否则 React 会进入 core 的依赖图），而文案 key 只有客户端会读、Host 从不使用。客户端改为用 `Record<PageId, …>` 按 id 映射展示信息，顺序与 id 仍来自登记表；这样漏配一个页面或写错 key 是编译错误，比把 key 放进登记表再强制类型转换更安全。
 
 放置位置需要先定：登记表必须同时被 core（access/operations）、dsh-host（工具 enum、capabilities）与 web（侧边栏、workbench、app）引用，因此只能落在三者共同的底层——core 内的新模块，或一个新的最小包。另需注意 Host 那半不只是命名问题：`bindingPage`/`assertPage`/`assertSelectionPage` 是从绑定状态反推页面 id，登记表必须暴露对应的推导钩子，否则只收敛了客户端，Host 的散落原样保留。
 
-退出条件：`canAccessPage` 的 switch 消失；`app.tsx:46` 与 `layout.tsx` 的 pages 数组由登记表生成；`oryh_navigate` 的 enum 由登记表生成；`core/remote.ts` 两个恒等 switch 删除；`pnpm run verify` 全绿；两条 E2E 基线回放与上一节一致。
+退出条件：`canAccessPage` 的 switch 消失；`app.tsx:46` 的字面量页面列表与 `layout.tsx` 的 pages 数组由登记表生成；`oryh_navigate` 的 enum 由登记表生成；`business-chat.ts` 的页面中文名映射由登记表提供；`pnpm run verify` 全绿；两条 E2E 基线回放与上一节一致。（原先还列了"删除 `core/remote.ts` 两个恒等 switch"，经实测更正后移出本步，理由见上。）
 
 **第 3 步：records 试点。** 先迁 `sales-orders`、`inventory-items`、`inventory-item-details`、`shipments` 四个只读列表，用真实业务域验证登记表的形状。只读页面出错代价最小，适合作为第一块。
 
@@ -290,3 +292,33 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 **第 6 步（可选）：agent preset。** 把工具白名单与提示词收进 preset。
 
 每一步都以 `pnpm run verify` 全绿加两条 E2E 基线回放作为退出条件；基线不一致时必须先解释差异来源，再决定是否属于回归（如第 1 步中产品编码位置的差异，经轨迹确认来自模型选择而非通道）。
+
+### 第 2 步：页面登记表与 `@oryh/ai-client-pages`（2026-09-12）
+
+新增零依赖包 `@oryh/ai-client-pages`（`packages/pages`），作为 core、dsh-host 与 web 共同的底层。
+
+**依赖环的规避。** 登记表的访问规则需要身份类型，而 `OryhIdentity` 在 core；但 core 必须依赖登记表（`access.ts`、`operations.ts` 正是被替换的对象），直接引用就形成 `pages → core → pages`。解法是登记表只声明它真正读取的最小结构：`{ readonly permissions?: readonly string[]; readonly user: { readonly employeeId: string | null } }`，`OryhIdentity` 结构上满足它。注意 `exactOptionalPropertyTypes: true` 下可选属性要逐字对齐，`permissions` 的 optional 与 readonly 都不能省。
+
+**搬什么、不搬什么。** 纯谓词 `hasPermission`、`canAccessPage` 迁入登记表；抛错的 `requirePage`、`requirePermission` 留在 core——它们抛 `OryhClientError`，跟着搬会把环从另一个方向接上。`hasPermission` 必须一起搬：它带着"`inventory.manage` 蕴含 `shipment.manage`"这条业务规则，登记表的访问规则要调用它，留在 core 就得复制一份。
+
+`core/src/access.ts` 改为从登记表再导出这两个谓词，而 `core/src/index.ts` 本来就是 `export * from './access.js'`，因此**全部 11 处引用一行未改**，迁移不是破坏性的。`packages/core/tests/access.spec.ts` 未经改动仍然通过，这是行为未变的证据——刻意不去动它，否则就成了为迁移而改的测试。
+
+**菜单文案 key 与图标不进登记表。** 登记表必须 React-free（否则 React 进入 core 的依赖图），而文案 key 只有客户端会读、Host 从不使用；放进登记表就得在 `t()` 处强制类型转换，再补一个运行时测试兜底。改为客户端持有 `Record<PageId, { label: OryhKey; icon }>`，顺序与 id 仍来自 `PAGES`：漏配页面或写错 key 直接是编译错误，强于"强转 + 测试"。实测也证明了这一点——`settings` 的文案 key 是 `text15`，而从 `workbench.tsx` 的用法容易误推成 `text17`。
+
+**收掉的重复。** `canAccessPage` 的 switch 变成遍历登记表；`app.tsx:46` 的十个字面量页面 id 变成 `allowedPages(identity)`；`layout.tsx` 手排的十项数组改由 `PAGES` 生成；`oryh_navigate` 的 enum 变成 `pageIds()`；`business-chat.ts` 的页面中文名映射变成 `pageById(id)?.title`。原先的四张页面表只剩一张——客户端的展示映射，且由编译器强制完整。
+
+验证：`pnpm run verify` 通过，Pages 6、Core 87、Workspace 9、Host 41、Client 23，esbuild 无警告。`pnpm --filter @oryh/dsh-host... build` 的范围自动从 2 个包变成 3 个，无需改构建脚本。
+
+### 第 2 步的基线回放与一个模型缺陷（2026-09-12）
+
+重启客户端后回放两条基线；侧边栏十个菜单项标签与改造前完全一致（各页面的文案 key 原样保留，标签若有漂移即说明映射写错）。
+
+**库存流水加产品列：通过。** 显示列偏好已持久化，页面开局就带着产品编码，先取消勾选还原成原五列再发指令。轨迹参数为 `oryh_record_columns{"columns":["product_code","reason","inventory_item_id","quantity_on_hand_diff","available_to_promise_diff","effective_at"]}`，携带完整六列顺序；模型自己把 `product_code` 放在首位，页面原样渲染，勾选区同步为六列，行值 PT-HEAD、PT-MOTOR 为真实数据。模型还正确复述了刚被重置的五列，说明 `oryh_current_page` 读到的是实时页面。与第 1 步结论一致：位置差异来自模型选择，登记表没有重排。
+
+**工时：通道通过，但模型把项目选错了。** 导航与打开表单正常（从"库存流水"跨页切到"我的工时"，出现同步成功才显示的提示语），五条明细的日期、每天 8 小时、正常工时、任务"产线调试"、合计 40 小时均与基线一致。但用户明确说"项目选装配产线自动化技改"，轨迹里模型的叙述也写着"项目：装配产线自动化技改"，它发出的 `project_id` 却是 `7ef94480…`（JC-900 量产导入），不是 `577eaa44…`（装配产线自动化技改）。
+
+这不是本次改造的回归：错误值产生在模型的工具参数里，页面原样渲染了收到的内容；Host 的校验只能确认 `project_id` 在可用项目列表内，无法判断用户想要哪一个；本次改动也没有触及 `oryh_timesheet_read` 的选项或 `oryh_timesheet_propose` 的校验；控制台错误计数全程停在 200。
+
+**更值得单独修的是后半段**：模型随后对用户总结说五条明细的项目都是"装配产线自动化技改"，与表单实际内容不符。一个结构性原因是 `oryh_timesheet_propose` 的回执只有 `{"message":"右侧工时表单已更新，尚未保存。"}`，不含实际写入内容，模型只能照自己的意图复述，于是"有效但选错"的编号被当成正确的讲了回去。让回执带上实际生效的项目名称等字段，可以把总结锚定在真实结果上。这条与通道改造无关，单独记录。
+
+副作用：库存流水的持久化列顺序仍是产品编码在首位，与本次回放前相同。

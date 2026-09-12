@@ -5,7 +5,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { IconChecklist, IconReceipt, IconFolder, IconSettings, IconLayoutSidebarLeftCollapse, IconMessage } from '@tabler/icons-react'
+import { PAGES, type PageId } from '@oryh/ai-client-pages'
 import { createFrameStore, type BusinessView, type FrameIdentity } from './layout-store.js'
+import type { OryhKey } from './locale.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -13,6 +15,24 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 type FrameProps = PropsRuntime<'root'> & PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'shell.overlay' | 'oryh.business'> & PropsStore<ReturnType<typeof createFrameStore>> & PropsLocale<'oryh'>
+
+/**
+ * Menu presentation for each registered page. The registry owns identity, order and
+ * access; only the icon and the locale key live here, because neither belongs in a
+ * React-free package the Host also reads. Missing or misspelled entries fail to compile.
+ */
+const menu: Record<PageId, { label: OryhKey; icon: typeof IconChecklist }> = {
+  'my-open-todos': { label: 'text8', icon: IconChecklist },
+  'my-expense-claims': { label: 'text10', icon: IconReceipt },
+  timesheets: { label: 'tsMine', icon: IconChecklist },
+  'timesheet-approvals': { label: 'tsApprovals', icon: IconChecklist },
+  'list-projects': { label: 'text12', icon: IconFolder },
+  'sales-orders': { label: 'salesOrders', icon: IconReceipt },
+  'inventory-items': { label: 'inventoryItems', icon: IconFolder },
+  'inventory-item-details': { label: 'inventoryDetails', icon: IconChecklist },
+  shipments: { label: 'shipments', icon: IconReceipt },
+  settings: { label: 'text15', icon: IconSettings },
+}
 
 /** Provide exactly one root, and retract service, panel source and child declarations together. */
 export function registerFrame(ctx: Context): void {
@@ -84,23 +104,11 @@ function Frame({ useStore, actions, renderSlot, t }: FrameProps) {
   const chatWidth = Math.min(state.chatWidth,maxChatWidth)
   const drag = useRef<{x:number;width:number;pointer:number}|undefined>(undefined)
   const [dragging,setDragging] = useState(false)
-  const pages = [
-    ['my-open-todos', 'text8', IconChecklist],
-    ['my-expense-claims', 'text10', IconReceipt],
-    ['timesheets', 'tsMine', IconChecklist],
-    ['timesheet-approvals', 'tsApprovals', IconChecklist],
-    ['list-projects', 'text12', IconFolder],
-    ['sales-orders','salesOrders',IconReceipt],
-    ['inventory-items','inventoryItems',IconFolder],
-    ['inventory-item-details','inventoryDetails',IconChecklist],
-    ['shipments','shipments',IconReceipt],
-    ['settings', 'text15', IconSettings],
-  ] as const
   return <div ref={root} className="oryh-frame" data-compact={compact} data-focus={state.focus} data-chat={state.chatVisible} data-resizing={dragging} style={{'--oryh-chat-width':`${chatWidth}px`} as CSSProperties}>
     <aside className="oryh-navigation" aria-label={t('businessNavigation')}>
       <div className="oryh-brand"><span>O</span>{!compact && <strong>ORYH <small>{t('workbench')}</small></strong>}</div>
       <nav className="oryh-menu" aria-label={t('text14')}>
-        {pages.filter(([page])=>page==='settings'||state.identity?.allowedPages?.includes(page)).map(([page, label, Icon]) => <button key={page} title={t(label)} aria-label={t(label)} aria-current={state.page === page ? 'page' : undefined} onClick={() => actions.navigate(page)}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>)}
+        {PAGES.filter(page=>page.id==='settings'||state.identity?.allowedPages?.includes(page.id)).map(page => {const {label, icon: Icon} = menu[page.id]; return <button key={page.id} title={t(label)} aria-label={t(label)} aria-current={state.page === page.id ? 'page' : undefined} onClick={() => actions.navigate(page.id)}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>})}
       </nav>
       <div className="oryh-native-heading">{compact ? 'DS' : t('sessionsSettings')}</div>
       <div className="oryh-native-sidebar">{renderSlot('sidebar', { collapsed: compact, width: sidebarWidth })}</div>

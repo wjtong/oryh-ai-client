@@ -1,4 +1,4 @@
-import {canAccessPage} from '@oryh/ai-client-core/access';
+import {allowedPages} from '@oryh/ai-client-pages';
 import {PreferenceScope} from './view-preferences.js';
 import {columnPreferenceScope} from './column-preferences.js';
 import type { BusinessView, FrameIdentity } from './layout-store.js';
@@ -43,12 +43,12 @@ export function App({ dark, page, onIdentity }: { dark: boolean; page: BusinessV
     },[selectedConnection?.id,remote]);
     const activeConnection=selectedConnection;
     const permittedConnection=verified&&activeConnection&&verified.id===activeConnection.id&&columnPreferenceScope(verified)===columnPreferenceScope(activeConnection)?verified:undefined;
-    const allowedPages=permittedConnection?['my-open-todos','my-expense-claims','timesheets','timesheet-approvals','list-projects','sales-orders','inventory-items','inventory-item-details','shipments','settings'].filter(p=>canAccessPage(permittedConnection.identity,p)):['settings'];
-    const allowedKey=allowedPages.join(',');
+    const permittedPages=permittedConnection?allowedPages(permittedConnection.identity):['settings'];
+    const allowedKey=permittedPages.join(',');
     const company = activeConnection ? tenantName(activeConnection) : undefined;
     const email = activeConnection?.identity.user.email;
     useEffect(() => {
-        onIdentity(company && email ? { company, email, allowedPages } : undefined);
+        onIdentity(company && email ? { company, email, allowedPages: permittedPages } : undefined);
         return () => onIdentity(undefined);
     }, [company, email, onIdentity,allowedKey]);
     const apply = useCallback(async (action: () => Promise<void>, nextBusy: BusyAction) => {
