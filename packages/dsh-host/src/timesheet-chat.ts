@@ -94,7 +94,7 @@ export class TimesheetChat {
     const counts=new Map<string,number>()
     for(const p of options.projects)counts.set(p.name,(counts.get(p.name)??0)+1)
     const ambiguousProjects=[...counts].filter(([,count])=>count>1).map(([name])=>name)
-    return {revision:s.revision,manager:s.manager,today:new Date().toLocaleDateString('en-CA'),options,ambiguousProjects,records,detail,form:s.fields,localEdits:s.localEdits,pendingSuggestion:this.proposals.get(id)?.action,notice:'表单是未保存的用户输入。建议需在中间栏应用或核对确认，不代表已保存。'+(ambiguousProjects.length?'注意：有同名项目，必须先向用户确认是哪一个，不要自行挑选。':'')}
+    return {revision:s.revision,manager:s.manager,today:new Date().toLocaleDateString('en-CA'),options,ambiguousProjects,records,detail,form:s.fields,localEdits:s.localEdits,pendingSuggestion:this.proposals.get(id)?.action,notice:'表单是未保存的用户输入。建议需在中间栏应用或核对确认，不代表已保存。'+(ambiguousProjects.length?`注意：名称“${ambiguousProjects.join('”“')}”各自对应多个不同项目；只有当用户要的正是其中之一时才必须先反问是哪一个，其余项目名称唯一，不必反问。`:'')}
   }
   async propose(id:string,revision:number,input:unknown):Promise<{message:string;proposalId:string;projects:{id:string;name:string}[]}>{
     await this.binding(id,true,true)

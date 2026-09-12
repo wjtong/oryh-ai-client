@@ -71,7 +71,9 @@ describe('timesheet suggestions',()=>{
   f.api.timesheetOptions=async()=>({workTypes:[{name:'normal',title:'正常工时'}],projects:[{id:'p',name:'项目'},{id:'q',name:'项目'}],editableStates:['draft'],submitStates:['draft'],requirements:[]})
   const read=await f.chat.read('s')
   expect(read.ambiguousProjects).toEqual(['项目'])
-  expect(read.notice).toContain('同名项目')
+  // Only the duplicated name is called out; a tenant can have many unique projects alongside it.
+  expect(read.notice).toContain('“项目”')
+  expect(read.notice).toContain('不必反问')
  })
  it('reports the page content in the receipt rather than echoing the requested fields',async()=>{
   const f=setup();await f.chat.sync(f.state)
