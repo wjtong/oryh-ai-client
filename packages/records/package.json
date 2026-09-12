@@ -1,7 +1,7 @@
 {
-  "name": "@oryh/ai-client-pages",
+  "name": "@oryh/ai-client-records",
   "version": "0.1.0",
-  "description": "Dependency-free ORYH business page registry shared by the core, the Host plugin and the client.",
+  "description": "ORYH read-only business record lists: contracts, view metadata and the tenant-scoped query service.",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -14,8 +14,10 @@
   "files": [
     "lib/"
   ],
+  "sideEffects": false,
   "dependencies": {
-    "@oryh/ai-client-foundation": "workspace:*"
+    "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-pages": "workspace:*"
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",

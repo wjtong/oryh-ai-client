@@ -1,5 +1,7 @@
 /** The one registry of ORYH business pages, shared by the core, the Host plugin and the client. */
 
+import { OryhClientError } from '@oryh/ai-client-foundation'
+
 /**
  * The identity fields page rules read.
  *
@@ -123,4 +125,24 @@ export function canAccessPage(identity: PageIdentity, page: string): boolean {
  */
 export function allowedPages(identity: PageIdentity): PageId[] {
   return PAGES.filter(page => page.access(identity)).map(page => page.id)
+}
+
+/**
+ * Refuse a page this identity may not open.
+ * @param identity - authenticated identity.
+ * @param page - candidate page id.
+ * @throws when the page is unregistered or not permitted.
+ */
+export function requirePage(identity: PageIdentity, page: string): void {
+  if (!canAccessPage(identity, page)) throw new OryhClientError('当前账号没有此业务功能的访问权限。', 'request-failed')
+}
+
+/**
+ * Refuse an operation this identity may not perform.
+ * @param identity - authenticated identity.
+ * @param verb - permission verb.
+ * @throws when the verb is not granted.
+ */
+export function requirePermission(identity: PageIdentity, verb: string): void {
+  if (!hasPermission(identity, verb)) throw new OryhClientError('当前账号没有执行此操作的权限。', 'request-failed')
 }

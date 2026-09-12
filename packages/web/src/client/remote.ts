@@ -1,4 +1,4 @@
-import type {OryhRecordRemote} from '@oryh/ai-client-core/types'
+import type {OryhRecordRemote} from '@oryh/ai-client-records'
 import type {ProjectChatState} from '@oryh/dsh-host/types'
 import type {OryhProjectRemote} from '@oryh/ai-client-core/types'
 import type { ChatPageRequest, ChatHomeRequest } from '@oryh/dsh-host/types'

@@ -285,6 +285,14 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 
 **第 3 步：records 试点。** 先迁 `sales-orders`、`inventory-items`、`inventory-item-details`、`shipments` 四个只读列表，用真实业务域验证登记表的形状。只读页面出错代价最小，适合作为第一块。
 
+抽包深度已定为**窄结构接口 + 下沉 errors**（2026-09-12 用户选择）。实测依据：`host.ts` 已经是组合根，五个领域服务都只接收 `http` 与 `verify`/`current` 两个回调，所以 `RecordService` 只需自己声明最小结构接口——`request(id, { path: \`/${string}\` })` 与 `{ origin, identity }`；注意 `OryhRequest.path` 是模板字面量类型而不是 `string`，写成 `string` 会在注入点而不是包内报错。唯一真正的值依赖是 `OryhClientError`。
+
+为此新增零依赖包 `@oryh/ai-client-foundation`（`packages/foundation`），装 `errors.ts` 与 `brand.ts`。它必须位于 core 与 records 之下，因为每个领域服务都抛 `OryhClientError`。`brand.ts` 的品牌基于 `unique symbol`，core 只能**再导出**不能重新声明，否则两侧的标识类型互不兼容，所有 `id as ConnectionId` 都会失效。
+
+连带结果：第 2 步把 `requirePage`/`requirePermission` 留在 core，只是因为 `OryhClientError` 当时在 core；errors 下沉后该约束消失，抛错守卫可以并入 `pages`（`pages` 转而依赖 foundation），使访问策略只有一个家，`core/access.ts` 退化为纯再导出。
+
+关于 `@oryh/dsh-connections` 与 `@oryh/dsh-workbench`：第 2 步的标题提到这两个包，但正文与退出条件从未定义它们装什么，实际也没有抽出。records 试点正是同一个抽包动作，因此先用它验证模式，再回头定义这两个包的边界。
+
 **第 4 步：timesheets。** 工时是唯一同时涉及导航命令、表单建议、审批队列和回执等待的域，是登记表最强的压力测试。
 
 **第 5 步：projects、todos、expenses，并删除旧包。** 全部迁完再删，避免中途出现两套并存的事实来源。
@@ -322,3 +330,31 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 **更值得单独修的是后半段**：模型随后对用户总结说五条明细的项目都是"装配产线自动化技改"，与表单实际内容不符。一个结构性原因是 `oryh_timesheet_propose` 的回执只有 `{"message":"右侧工时表单已更新，尚未保存。"}`，不含实际写入内容，模型只能照自己的意图复述，于是"有效但选错"的编号被当成正确的讲了回去。让回执带上实际生效的项目名称等字段，可以把总结锚定在真实结果上。这条与通道改造无关，单独记录。
 
 副作用：库存流水的持久化列顺序仍是产品编码在首位，与本次回放前相同。
+
+### 第 3 步：records 抽包与 `@oryh/ai-client-foundation`（2026-09-12）
+
+新增两个包：`@oryh/ai-client-foundation`（`packages/foundation`，零依赖）装 `errors.ts` 与 `brand.ts`——每个领域服务都抛 `OryhClientError`，所以它必须位于 core 与各领域包之下；`@oryh/ai-client-records`（`packages/records`）装 `contracts`、`views`、`service`、`inventory-product-query` 与两个 spec，只依赖 foundation 与 pages。
+
+**破环靠窄结构接口。** `RecordService` 原本依赖 core 的 `OryhHttpClient`、`ConnectionSummary`、`OryhClientError` 与 `requirePage`，而 `host.ts` 又构造它，直接抽出就是 `core → records → core`。实测发现 `host.ts` 已是组合根，五个领域服务都只接收 `http` 与两个回调，因此 records 自己声明 `RecordHttp`（只有 `request(id,{path})`）与 `RecordConnection`（只有 `origin` 与 `identity`），`host.ts:66` 注入真实对象靠方法参数双变性通过。注意 `OryhRequest.path` 是模板字面量 `` `/${string}` `` 而不是 `string`，声明错了会在注入点而非包内报错。
+
+**`brand.ts` 只能再导出，不能重新声明。** 品牌基于 `declare const ORYH_ID: unique symbol`；core 若重新声明，两侧的 `ConnectionId` 互不兼容，所有 `id as ConnectionId` 都会失效。
+
+**抛错守卫并入 `pages`。** 第 2 步把 `requirePage`/`requirePermission` 留在 core，只因 `OryhClientError` 当时在 core；errors 下沉后该约束消失，两者迁入 `pages`，`core/access.ts` 退化为纯再导出，访问策略只剩一个家。
+
+**迁移不是破坏性的。** core 的 `record-contracts.ts`、`record-views.ts`、`records.ts`、`errors.ts`、`brand.ts`、`access.ts` 全部改为再导出，`@oryh/ai-client-core/views` 与 `export * from './index.js'` 原样可用；`packages/core/tests/access.spec.ts` 一行未改仍然通过，是行为未变的见证。
+
+**兼容 shim 会掩盖没搬干净的引用。** 重指 web 与 dsh-host 的导入后构建全绿——但那只说明 shim 还在，并不说明依赖边真的移动了。用 grep 扫一遍，又找出四处仍从 core 取记录符号的位置（`web/remote.ts`、`web/product-picker.tsx`、`business-chat.ts:162`、`dsh-host/remote.ts`）。**结论：带兼容 shim 的搬迁，编译器无法告诉你边有没有移动，只能靠文本扫描核对。**
+
+**浏览器包体。** web 改为从 records 包根导入（原先是 `core/views` 子路径），而包根会再导出 service，因此给 records 加上 `"sideEffects": false`，让打包器能安全摇掉 `RecordService`。esbuild 无警告。
+
+验证：`pnpm run verify` 通过；`@oryh/dsh-host...` 的构建范围自动从 4/8 变成 5/9。测试守恒：Core 87 → 73、Records 14，73+14=87，说明测试是搬走而不是丢失（我先前估成 72/15，是把 `records.spec.ts` 数成 10 项，实际 9 项）。
+
+### 第 3 步的基线回放（2026-09-12）
+
+**库存流水加产品列：通过。** 先取消勾选还原成原五列再发指令。轨迹参数为 `oryh_record_columns{"columns":["product_code","reason","inventory_item_id","quantity_on_hand_diff","available_to_promise_diff","effective_at"]}`，携带完整六列顺序；模型自己把 `product_code` 放在首位，抽包后的 `recordColumns`/`recordSpecs` 没有重排。模型还正确复述了刚被重置的五列，说明可用列目录（现由 records 包提供）正确。另外页面加载时 `/api/oryh/recordList` 就已返回 200，抽出的 `RecordService` 经真实 Host 可用。
+
+**工时：通过，且项目填对了。** 从"库存流水"跨页切到"我的工时"并打开新建工时单，五条明细为 09-14 至 09-18、每天 8 小时、正常工时、任务"产线调试"、合计 40 小时，项目为 `577eaa44…`（装配产线自动化技改），与原始基线完全一致。**第 2 步回放中填错项目（JC-900 量产导入）这次没有复现**，印证了当时的判断：那是模型的非确定性，不是系统性缺陷。但 `oryh_timesheet_propose` 的回执仍不含实际写入内容，该改进建议依然成立。
+
+全程控制台错误计数停在 203，新增的 3 条来自杀掉旧服务到重新导航之间的窗口。未保存、未提交，随后放弃未保存修改。
+
+遗留（不在第 3 步范围内）：`records.tsx` 的 `recordTitles` 与登记表标题重复且已漂移（`Shipment · 收发货` vs `Shipment 收发货`）；`records.tsx` 从 `workbench.tsx` 导入 `PageContext`、而 `workbench` 又导入 `RecordPanel`，是一处仅类型的循环引用；`@oryh/dsh-connections` 与 `@oryh/dsh-workbench` 的边界仍待定义。

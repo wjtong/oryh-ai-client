@@ -25,7 +25,9 @@
   },
   "dependencies": {
     "@napi-rs/keyring": "1.3.0",
-    "@oryh/ai-client-pages": "workspace:*"
+    "@oryh/ai-client-foundation": "workspace:*",
+    "@oryh/ai-client-pages": "workspace:*",
+    "@oryh/ai-client-records": "workspace:*"
   },
   "files": [
     "lib/"

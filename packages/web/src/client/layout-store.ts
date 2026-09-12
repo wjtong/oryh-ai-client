@@ -3,7 +3,7 @@ import {createViewPreference} from './view-preferences.js'
 import { defineStore } from '@deepseek-ai/dsh-client-store'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { OperationId } from '@oryh/ai-client-core/types'
-export type BusinessView = OperationId | import('@oryh/ai-client-core/types').RecordKind | 'settings' | 'timesheets' | 'timesheet-approvals'
+export type BusinessView = OperationId | import('@oryh/ai-client-records').RecordKind | 'settings' | 'timesheets' | 'timesheet-approvals'
 export interface FrameIdentity { company: string; email: string; allowedPages?: string[] }
 export interface FrameState {
   identity?: FrameIdentity | undefined

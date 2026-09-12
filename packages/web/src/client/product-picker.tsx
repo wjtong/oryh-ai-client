@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react'
 import {Button,Dialog,DialogSurface,DialogBody,DialogTitle,DialogContent,DialogActions,Input} from '@fluentui/react-components'
-import type {ProductOption,ProductOptions} from '@oryh/ai-client-core/types'
+import type {ProductOption,ProductOptions} from '@oryh/ai-client-records'
 import {useOryhRemote} from './remote.js'
 const SearchIcon=()=> <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
 export function ProductPicker({connectionId,value,onChange}:{connectionId:string;value:ProductOption[];onChange:(value:ProductOption[])=>void}){

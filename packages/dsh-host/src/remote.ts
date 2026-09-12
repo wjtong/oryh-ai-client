@@ -1,4 +1,4 @@
-import type {OryhRecordRemote,RecordQuery,RecordPage,ProductSearch,ProductOptions} from '@oryh/ai-client-core/types'
+import type {OryhRecordRemote,RecordQuery,RecordPage,ProductSearch,ProductOptions} from '@oryh/ai-client-records'
 import type {OryhProjectRemote,ProjectIntent,ProjectOptions} from '@oryh/ai-client-core/types'
 import type {ProjectPrepareRequest,ProjectChatState} from './types.js'
 import type { ChatPageRequest, ChatHomeRequest, CommandFrame } from './types.js'

@@ -1,6 +1,6 @@
 import {requirePage,requirePermission} from '@oryh/ai-client-core/access'
 import {pageById,pageIds} from '@oryh/ai-client-pages'
-import {recordColumns,recordSpecs} from '@oryh/ai-client-core/views'
+import {recordColumns,recordSpecs} from '@oryh/ai-client-records'
 import {ProjectChat} from './project-chat.js'
 import type {OryhProjectRemote} from '@oryh/ai-client-core/types'
 import { createHash, randomUUID } from 'node:crypto'
@@ -141,7 +141,7 @@ export class BusinessChat {
     })}finally{this.queue.withdraw(id,command.id)}
   }
   async configureRecordColumns(id:string,columns:string[],signal:AbortSignal){
-    const p=this.currentPage(id),kind=p.page as import('@oryh/ai-client-core/types').RecordKind
+    const p=this.currentPage(id),kind=p.page as import('@oryh/ai-client-records').RecordKind
     if(!Object.hasOwn(recordSpecs,kind)||p.context?.key!==`${kind}:list`)throw new OryhClientError('请先打开销售订单、库存或收发货列表。','request-failed')
     const allowed=recordColumns(kind)
     if(!columns.length||columns.length>Object.keys(allowed).length||new Set(columns).size!==columns.length||columns.some(c=>!Object.hasOwn(allowed,c)))throw new OryhClientError('列配置无效，请选择当前列表支持的字段，至少保留一列。','request-failed')
@@ -159,7 +159,7 @@ export class BusinessChat {
     if(p.page!=='inventory-item-details'||p.context?.key!=='inventory-item-details:list')throw new OryhClientError('请先打开库存流水列表。','request-failed')
     if(fields.length>1||fields.some(f=>f!=='product_code')||productCode!==undefined&&(typeof productCode!=='string'||productCode.length>200||!fields.includes('product_code')))throw new OryhClientError('查询字段配置无效；支持增加产品编码查询。','request-failed')
     if(productIds!==undefined&&(!Array.isArray(productIds)||productIds.length>50||productIds.some(v=>typeof v!=='string'||!v||v.length>200)||new Set(productIds).size!==productIds.length||productCode!==undefined||!fields.includes('product_code')))throw new OryhClientError('产品选择无效。','request-failed')
-    let products:import('@oryh/ai-client-core/types').ProductOption[]|undefined
+    let products:import('@oryh/ai-client-records').ProductOption[]|undefined
     const home=this.homes.get(id)!
     if(productIds!==undefined)products=(await this.ctx.oryhRecords.productSearch({connectionId:home.connectionId,query:'',page:1,ids:productIds})).rows
     else if(productCode!==undefined){
