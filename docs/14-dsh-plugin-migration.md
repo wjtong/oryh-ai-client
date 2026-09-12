@@ -1,5 +1,7 @@
 # DSH 插件迁移
 
+重构评审建议见 [plugin-split 重构评审（2026-09-12）](18-plugin-split-review-2026-09-12.md)。该文档记录待处理建议与验收条件，不代表改动已实施。
+
 本次将已有传统业务功能迁入正式 DSH Profile。用户要求发生冲突时优先满足 Harness 的插件要求；聊天协作业务能力仍是后续工作，不能标记为已完成。
 
 ## 实际组合
@@ -249,9 +251,22 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 
 客户端：新增 `command-stream.tsx`。`CommandStream` provider 先 `chatSelect({homeOnly:true})` 绑定会话、再开流，卸载时 dispose 并 `chatHomeClear`；顺序不能颠倒，Host 对未绑定会话直接拒绝，而拒绝是终态不会重试。四个视图改用 `useCommands()` 读同一份快照。provider 放在 `workbench.tsx`，因为只有那里同时拿得到 `connection` 和全部四个消费者；`sessionId` 走 props 而不是 `BusinessSessionContext`，否则 command-stream 与 todo-chat 形成运行时循环引用。
 
-**外部插件只能引用 Harness 的类型，不能引用它的值。** 最初直接 `import { RemoteSnapshotStream, RemoteStreamCarrierError }`，四个工程 `tsc` 全部通过，但 esbuild 警告 `Import "RemoteSnapshotStream" will always be undefined because .../gateway/lib/client.js has no exports`。原因是 DSH 客户端包以 `window.__ModuleLoader__.load({id, factory})` 分发，不是 ESM 模块；`build-dsh-client.mjs` 只把 react、cordis、dsh-client-store 列为 external，其余全部打包，于是值引用在运行时是 undefined，`new RemoteSnapshotStream(...)` 会直接抛错。类型检查发现不了这一类问题，只有 esbuild 警告会提示。已全仓审计：客户端源码其余非类型的 `@deepseek-ai` 引用只有 `dsh-client-store`（在 external 名单内）与 layout.spec 的两个（spec 不进 bundle），没有同类隐患。这一条与"转发事件是封闭白名单"、"自定义 SessionEventMap 会破坏会话重载"属于同一类外部插件边界。
+**跨插件值引用是被显式管控的，不是不可能——原先的结论过宽（2026-09-12 更正）。** 最初直接 `import { RemoteSnapshotStream, RemoteStreamCarrierError }`，四个工程 `tsc` 全部通过，但 esbuild 警告 `Import "RemoteSnapshotStream" will always be undefined because .../gateway/lib/client.js has no exports`。当时据此记为"外部插件只能引用 Harness 的类型，不能引用它的值"。评审指出这条过宽，复核后确认评审正确，真实情况是：
 
-代价：`ctx.remote.$stream` 是服务方法可以照常使用，但 `RemoteStreamCarrierError` 是类、拿不到，没有它就无法把"正常结束"标记为可重试。因此重连循环自行实现，固定 1 秒重开，放弃了 DSH 依 Connection generation 调度重试的节奏。若该类将来可达，应换回官方实现。
+核对版本为本机 Harness `0.1.5-rc.2` / `c291e7961a`，`@deepseek-ai/dsh-api-gateway` 同版本。证据链：
+
+- `RemoteSnapshotStream` 确实是公开导出（`packages/api/gateway/src/client/index.ts:45`，`lib/types/client/index.d.ts:15`），并且**存在于构建产物**：`lib/client.js` 结尾是 `exports.RemoteSnapshotStream = RemoteSnapshotStream; return module.exports`。
+- 该产物没有任何 ESM `export`，整体是 `window.__ModuleLoader__.load({ id: "@deepseek-ai/dsh-api-gateway", factory: (require) => {...} })`。
+- 加载器对注册与请求两侧都做 `stripClientSuffix`（`packages/client/modules/src/client/manifest.ts:202`），`'…/client'` 会归一成裸包名，因此 `require('@deepseek-ai/dsh-api-gateway/client')` **能**命中上面那个工厂。
+- Harness 自己的客户端预设有一道 `dsh-client-bundle-purity` 门禁：未申报的 `@deepseek-ai` 值引用直接构建报错，申报途径是包清单里的 `dsh.client.external`（`packages/client/tsdown.client.ts`）。也就是说平台把这件事设计成"需申报"，不是"禁止"。
+
+因此警告的**真实原因是我们自己的构建配置**：`scripts/build-dsh-client.mjs:9` 的 external 名单只有 react、cordis、dsh-client-store，没有 gateway，于是 esbuild 把那个 `__ModuleLoader__.load` 注册文件当普通模块内联，而它没有 ESM 导出，具名导入自然是 undefined。我们的 web 包也没有 `tsdown.config.ts`，不走 Harness 预设，所以既没吃到门禁报错，也没拿到 external 归一。
+
+尚未证明的部分（恢复复用的条件）：`PLATFORM_MODULES` 基线不含 gateway、`PRELOADED_CLIENT_EXTERNALS` 为空，而我们自建 bundle 不经预设，所以"把 `@deepseek-ai/dsh-api-gateway/client` 加入 external 后运行时 require 能被应答"仍需一次真实验证——加载器 `mode` 进入 `live` 后模块表不在全局上，控制台无法取证，只能改配置后重建验证。另有一处类型陷阱：裸包名的类型指向 Host 半边（`lib/types/index.d.ts`，不导出 `RemoteSnapshotStream`），所以源码应写 `/client` 子路径（类型正确），运行时由 `stripClientSuffix` 归一。
+
+当前代价（未变）：重连循环仍是自行实现，固定 1 秒重开，没有 DSH 依 Connection generation 调度重试的节奏。但原因要改记为"external 未申报、尚未验证"，而不是"平台不允许"。这一条先前被归到"转发事件是封闭白名单""自定义 SessionEventMap 会破坏会话重载"那一类外部插件边界里，现在看归类是错的。
+
+已全仓审计：客户端源码其余非类型的 `@deepseek-ai` 引用只有 `dsh-client-store`（在 external 名单内）与 layout.spec 的两个（spec 不进 bundle），所以今天没有重复运行时实例的隐患。
 
 验证：`pnpm run verify` 通过，Core 87、Workspace 9、Host 41、Client 23，esbuild 无警告。Host 新增流测试：开流发 baseline、变更后发整集、重连的 baseline 仍携带页面未消费的命令、未绑定会话被拒。
 
@@ -430,3 +445,38 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 **没有向上游提交。** DSH 那个仓的 origin 是 `deepseek-ai/deepseek-harness` 上游本身，当前分支是 `master`，而该仓明显走 PR 流程（近期提交清一色是 `Merge pull request #NNNN`）。直接向上游 master 推送既是外部可见的动作，也绕过了它自己的流程，因此补丁留在本仓：风险降为零，"DSH 树被重置就丢失"这个问题也解决了。
 
 DSH 树里另有三个未跟踪的说明文件（`.agents/notes/implemented/bug-fix/2026-09-08-external-plugin-remote-symbols.*`），未纳入补丁；将来若要上游化，那几份说明可以一并带上。这仍是待办：本仓固化只是止血，不等于修复已经进入上游。
+
+## 对评审意见的回应（2026-09-12）
+
+评审稿见 [18-plugin-split-review-2026-09-12.md](18-plugin-split-review-2026-09-12.md)，基线 `plugin-split` / `7c11b42`。该文自述是建议稿、不是实施指令。本节只记录已经动手的部分，其余仍是待办。
+
+### 已修：命令流的通知丢失窗口（评审 §1）
+
+评审说得对，这是我写的真缺陷，而且我自己的测试看不见它。
+
+`BusinessChat.commands()` 原先只用一个 `wake` 回调做交接：生成器 `yield` 一帧之后挂起，此时 `wake` 是 `undefined`；若消费者还在处理这一帧时 `changed()` 触发，回调执行 `wake?.()` 等于空操作，**这次变化没有留下任何待处理痕迹**。消费者随后请求下一帧，生成器转去等待，直到下一次无关变化才醒——对应的现象是命令迟迟不下发、工具等待超时。整集快照只保证重连能恢复，不能消除这个窗口。
+
+改法是加一个 `dirty` 标记与 `wake` 并存：变化先置位 `dirty`，下一轮若已置位就不等待、直接发帧。清位放在读快照**之前**而不是之后——变化若正好落在读快照期间，代价是多发一帧冗余（整集幂等，无害），而清位放在之后则会真的丢掉它。多次变化自然合并成一帧。
+
+验证按评审给的三条验收写了三个测试，都落在 `tests/business-chat.spec.ts` 的 `command stream` 里：
+
+1. 消费 baseline 后、请求下一帧**前**发布命令，下一帧仍能收到，无需后续变化唤醒。
+2. 消费者迟缓期间连续两次同 lane 命令，一帧给出与 `snapshot()` 一致的当前整集。
+3. 等待中取消、以及刚发出一帧尚未请求下一帧时取消，两种窗口都能结束订阅。
+
+**这三个测试先被证伪过再被证明有效**：临时撤掉 `dirty` 判断后，前两个超时失败，而原有的那条流测试（"开流发 baseline、变更后发整集、重连 re-baseline"）**照样通过**。原因是它在发布命令之前就先调用了 `frames.next()`，正好是唯一不会丢通知的顺序——所以旧测试对这个窗口结构性失明。恢复 `dirty` 后全部通过。
+
+顺带核对了两件事，都没有问题：`queue.changed` 是 navigation / timesheet / project 三个来源唯一的通知通道（子对象暂存与清除都调它），所以单个 `subscribe` 覆盖整份快照；`expiresAt` 与 `timeoutMs` 逐一配对（15000/15000、10000/10000），超时必定伴随 `finally` 里的 `withdraw` 从而触发 `changed`，不存在"命令因时间流逝过期却无人通知"的第二个缺口。
+
+验证：`pnpm run verify` 通过，Host 44（新增 3）。
+
+### 已更正：Harness 值引用的限制被我记过宽（评审 §5）
+
+见上文"跨插件值引用是被显式管控的"。结论：评审正确，我错；真实原因是 `build-dsh-client.mjs` 的 external 名单，不是平台不允许。运行时可用性仍需一次重建验证，尚未做。
+
+### 未做（仍是待办）
+
+- §2 异常分类与绑定生命周期：`remote.ts` 把 baseline 前任何异常当终态、`command-stream.tsx` 每 500ms 无差别重试绑定，确实是一对相反的错误，都是我写的。需要统一连接状态与可取消退避，并补客户端流适配器测试。
+- §3 工时选错项目：同意按正确性缺陷跟踪，工时业务基线在此之前不应记为全部通过。
+- §4 领域库还是独立业务插件：这是产品决策，不该由我替用户定。在定下来之前不动 `dsh-connections` / `dsh-workbench` 的边界。
+- §5 补丁守卫只看源码注释、以及干净环境构建验证。

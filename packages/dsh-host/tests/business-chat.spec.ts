@@ -297,6 +297,64 @@ describe('command stream',()=>{
    expect(f.chat.snapshot('s').navigation).toBeUndefined()
   }finally{await f.close()}
  })
+ // Drives the Host until a command is actually pending, so the change provably lands
+ // while no consumer is awaiting the queue — the window a `wake`-only handoff loses.
+ const settled=async(chat:BusinessChat,until:()=>boolean)=>{
+  for(let tick=0;tick<1000&&!until();tick++)await new Promise(resolve=>{setImmediate(resolve)})
+  if(!until())throw new Error('the Host never reached the expected snapshot')
+ }
+ it('delivers a command issued between frames, without waiting for a further change',async()=>{
+  const f=await setup();try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   const controller=new AbortController()
+   const frames=f.chat.commands({sessionId:'s',connectionId},controller.signal)[Symbol.asyncIterator]()
+   expect((await frames.next()).value).toEqual({type:'baseline',commands:{}})
+   // Nothing is awaiting the stream here: next() is called only once the Host already holds it.
+   const tool=new AbortController()
+   const navigating=f.chat.openTimesheet('s',tool.signal).catch(()=>undefined)
+   await settled(f.chat,()=>f.chat.snapshot('s').navigation!==undefined)
+   const update=(await frames.next()).value
+   expect(update.type).toBe('update')
+   expect(update.commands.navigation).toBeDefined()
+   controller.abort();tool.abort();await navigating
+  }finally{await f.close()}
+ })
+ it('coalesces changes across a slow consumer into the current whole set',async()=>{
+  const f=await setup();try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   const controller=new AbortController()
+   const frames=f.chat.commands({sessionId:'s',connectionId},controller.signal)[Symbol.asyncIterator]()
+   await frames.next()
+   const firstTool=new AbortController(),secondTool=new AbortController()
+   const first=f.chat.openTimesheet('s',firstTool.signal).catch(()=>undefined)
+   await settled(f.chat,()=>f.chat.snapshot('s').navigation!==undefined)
+   const superseded=f.chat.snapshot('s').navigation!.id
+   // A second command on the same lane replaces the first while the consumer is still idle.
+   const second=f.chat.openTimesheet('s',secondTool.signal).catch(()=>undefined)
+   await settled(f.chat,()=>f.chat.snapshot('s').navigation!.id!==superseded)
+   const update=(await frames.next()).value
+   expect(update.commands).toEqual(f.chat.snapshot('s'))
+   expect(update.commands.navigation!.id).not.toBe(superseded)
+   controller.abort();firstTool.abort();secondTool.abort();await Promise.all([first,second])
+  }finally{await f.close()}
+ })
+ it('ends the subscription when cancelled while waiting and while a frame is in flight',async()=>{
+  const f=await setup();try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   const waiting=new AbortController()
+   const idle=f.chat.commands({sessionId:'s',connectionId},waiting.signal)[Symbol.asyncIterator]()
+   await idle.next()
+   const pending=idle.next()
+   waiting.abort()
+   expect((await pending).done).toBe(true)
+   // Cancelled in the same window the notification fix covers: a frame is out, none requested.
+   const processing=new AbortController()
+   const busy=f.chat.commands({sessionId:'s',connectionId},processing.signal)[Symbol.asyncIterator]()
+   await busy.next()
+   processing.abort()
+   expect((await busy.next()).done).toBe(true)
+  }finally{await f.close()}
+ })
  it('refuses a session that is not bound to the enterprise',async()=>{
   const f=await setup();try{
    const stream=f.chat.commands({sessionId:'s',connectionId},new AbortController().signal)

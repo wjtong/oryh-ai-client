@@ -193,14 +193,24 @@ export class BusinessChat {
     if(!home||home.connectionId!==r.connectionId)throw new OryhClientError('会话尚未绑定企业。','request-failed')
     signal.throwIfAborted()
     let wake:(()=>void)|undefined
-    const off=this.queue.subscribe(r.sessionId,()=>{wake?.();wake=undefined})
+    // A change arriving while the consumer is still processing the previous frame must
+    // not be lost: `wake` is undefined across that window, so the flag records the change
+    // and the next iteration emits at once instead of waiting for a further one. Changes
+    // coalesce rather than queue — every frame carries the whole set.
+    let dirty=false
+    const off=this.queue.subscribe(r.sessionId,()=>{dirty=true;wake?.();wake=undefined})
     const stop=()=>{wake?.();wake=undefined}
     signal.addEventListener('abort',stop,{once:true})
     try{
+      dirty=false
       yield {type:'baseline',commands:this.snapshot(r.sessionId)}
       while(!signal.aborted){
-        await new Promise<void>(resolve=>{wake=resolve})
+        if(!dirty)await new Promise<void>(resolve=>{wake=resolve})
         if(signal.aborted)return
+        // Cleared before the snapshot is read, never after: a change landing while the
+        // snapshot is taken sets the flag again and costs one redundant frame, whereas
+        // clearing afterwards would drop it.
+        dirty=false
         // The binding is re-read each time: a session that left its page stops receiving commands.
         if(this.homes.get(r.sessionId)?.connectionId!==r.connectionId)return
         yield {type:'update',commands:this.snapshot(r.sessionId)}
