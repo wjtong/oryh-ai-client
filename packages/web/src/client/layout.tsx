@@ -168,8 +168,10 @@ function Frame({ useStore, actions, renderSlot, t }: FrameProps) {
       onPointerCancel={()=>{drag.current=undefined;setDragging(false)}} onLostPointerCapture={()=>{drag.current=undefined;setDragging(false)}}
       onDoubleClick={()=>actions.setChatWidth(360)}
       onKeyDown={e=>{const widths:Record<string,number>={ArrowLeft:chatWidth+20,ArrowRight:chatWidth-20,Home:280,End:maxChatWidth};if(e.key in widths){e.preventDefault();actions.setChatWidth(Math.min(maxChatWidth,widths[e.key]!))}}}/>}
+    {/* No header of our own: the conversation's own row already carries the tabs and actions, and
+        a second bar above it only repeated what the top toolbar says. The section keeps its label
+        for assistive tech. */}
     <section id="oryh-chat-panel" className="oryh-chat-seat" aria-label={t('assistant')}>
-      <header><strong>{t('assistant')}</strong><span>{t('nativeChat')}</span></header>
       <div className="oryh-chat-content">{renderSlot('main', {}, { entryKey: state.panelInfo.activePanelId ?? 'conversation' })}</div>
     </section>
     <div className="oryh-artifact-seat">{renderSlot('rightbar', { width: Math.min(640, state.viewport), viewportWidth: state.viewport, canShow: state.viewport >= 700 })}</div>
