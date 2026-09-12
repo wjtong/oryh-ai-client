@@ -421,9 +421,11 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 
 ### 把 typert 补丁固化进本仓（2026-09-12）
 
-`check-dsh-patch.mjs` 一直会在构建首步检查生成器源码里的标记，缺失即失败并打印"重新应用"的命令——**但它指向的 `patches/deepseek-harness-external-remote.patch` 从来不存在**。守卫能发现问题，给出的补救命令却必然失败；这是之前写这个脚本时留下的缺口。
+⚠️ **更正（本节初版有错）。** 初版写的是"`check-dsh-patch.mjs` 指向的 `patches/deepseek-harness-external-remote.patch` 从来不存在"。这是错的：该文件自 `777e2a0` 起就在仓库里。我只看到脚本引用了这个路径，就断定它缺失——而验证只需要一条 `ls`。这与本文档里批评模型"照自己的意图复述"是同一种错误，只不过这次是我犯的。
 
-现在把 DSH 工作区里未提交的那份修改导出到正是那个路径（`analyzer.ts` 14 行 + 对应 spec 29 行），并用 `git apply --check --reverse` 验证它与 DSH 树的当前状态逐字对应——补丁文件如果应用不上，比没有更糟，因为守卫会第二次把人引向死路。
+实际情况是这个补丁**过期**了。原文件针对升级前的 `analyzer.ts`，hunk 落在第 1850 行；本次会话把 DSH 升到 0.1.5-rc.2 之后，同一段代码移到了第 1936 行。`git apply` 对上下文有一定容错，未必一定失败，但补丁已不再与目标树对应，而且没有任何东西验证过它。
+
+重新导出后用 `git apply --check --reverse` 验证，确认与当前 DSH 树逐字对应。**所以这次改动的价值是刷新了一个被 DSH 升级弄过期的补丁，不是补上一个不存在的文件。** 顺带得到一条规律：`patches/` 下的补丁与被链接的 DSH 版本是耦合的，每次升级 DSH 都应重新导出并用 `--check --reverse` 验证一次，否则守卫指向的补救手段会悄悄失效。
 
 **没有向上游提交。** DSH 那个仓的 origin 是 `deepseek-ai/deepseek-harness` 上游本身，当前分支是 `master`，而该仓明显走 PR 流程（近期提交清一色是 `Merge pull request #NNNN`）。直接向上游 master 推送既是外部可见的动作，也绕过了它自己的流程，因此补丁留在本仓：风险降为零，"DSH 树被重置就丢失"这个问题也解决了。
 
