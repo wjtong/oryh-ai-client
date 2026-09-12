@@ -1,7 +1,9 @@
 # ADR-0002：凭据不得进入模型上下文
 
-状态：接受
+状态：接受；§5 与"必须有窄业务工具"一条已被 [ADR-0009](0009-chat-pane-is-a-generic-oryh-agent.md) 取代（2026-09-12）
 日期：2026-08-19
+
+> **2026-09-12 修订。** Chat 栏被确认为一个通用 ORYH agent，按 ORYH 对所有通用 agent 的既有方案装载 skill bundle：原样落盘到 `<agentsHome>/skills`，保留 ORYH 渲染进去的 `ORYH_API_KEY`。下述 §5 的"仅 Host 内存解析、剥离认证字段、原始 ZIP 与 Markdown 不得落盘"，以及后果中的"通用 Bash/curl Skill 不能直接复用，必须有窄业务工具"，均由 [ADR-0009](0009-chat-pane-is-a-generic-oryh-agent.md) 取代。本 ADR 的其余条款——access/refresh token 与模型 key 不进入模型请求、Session、日志与遥测；多企业凭据由 Session scope 决定；不以正则清洗任意文本——继续有效。
 
 ## 背景
 
@@ -35,7 +37,7 @@ DSH 的本地 YAML credential provider 使用 owner-only 文件权限，但同�
 - 需要实现跨平台 Credential Provider；
 - 当前 bundle 适配器需要保持与 ORYH 模板精确一致，并在模板变化时安全拒绝；
 - ORYH 后端仍需提供无凭据 eligible Skill 内容，以移除这一临时兼容路径；
-- 通用 Bash/curl Skill 不能直接复用，必须有窄业务工具；
+- ~~通用 Bash/curl Skill 不能直接复用，必须有窄业务工具~~（[ADR-0009](0009-chat-pane-is-a-generic-oryh-agent.md) 取代：窄工具跟不上 skill 的更新节奏，也跑不动 skill 的脚本步骤）；
 - 本地高信任 Host 仍需严密保护和签名发布。
 
 ## 未选择的方案

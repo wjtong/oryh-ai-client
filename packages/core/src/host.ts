@@ -12,6 +12,7 @@ import type { CredentialVault } from './credentials.js'
 import { DeviceFlowConnector, type DeviceConnectionAttempt } from './device-flow.js'
 import type { Fetcher } from './http.js'
 import { OryhHttpClient } from './http.js'
+import { SkillBundleService } from './skill-bundle.js'
 import { OperationExecutor, type OperationResult } from './operations.js'
 
 /** Dependencies owned by a native shell or DSH Host integration. */
@@ -64,6 +65,8 @@ export class OryhClientHost {
   createProjectRemote(store:ProjectStore){return new ProjectService(store,this.#http,id=>this.#connections.requireVerified(id as ConnectionId),id=>this.verifyConnection(id as ConnectionId))}
   createTodoDetailRemote() { return new TodoDetailService(this.#http, id => this.#connections.requireVerified(id as ConnectionId), async id => { await this.#ready; await this.#verifications.get(id as ConnectionId); return this.#connections.requireVerified(id as ConnectionId) }) }
   createTimesheetRemote(store: TimesheetStore) { return new TimesheetService(store, this.#http, id => this.#connections.requireVerified(id as ConnectionId), id => this.verifyConnection(id as ConnectionId)) }
+  /** ORYH skill bundle installer; the credential stays inside the shared HTTP client. */
+  createSkillBundle(root: string) { return new SkillBundleService(this.#http, root) }
 
   /** Start browser-backed device authorization for one ORYH deployment. */
   async beginDeviceConnection(origin: string, clientName: string): Promise<DeviceConnectionAttempt> {

@@ -35,7 +35,8 @@ export function TimesheetPanel({connection,manager,active,navigationId,navigatio
   /**
    * Where the pre-submit norm review stands, for the submit dialog only.
    *
-   * The norms live in Skills, so the verdict can only come from the agent; this just reports it.
+   * The norms live on the server and in ORYH's Skills, so the verdict can only come from the agent;
+   * this just reports it.
    * A verdict about a different timesheet is ignored rather than shown against this one.
    */
   const norm=(()=>{

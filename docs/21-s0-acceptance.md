@@ -98,6 +98,8 @@ HTML 入口、boot manifest、插件 bundle、静态资源、CSS 与 sourcemap�
 
 **已有的一个实测点**：当前单个 runtime（含 ORYH Host 插件、全部领域服务、一个浏览器会话）空闲 **RSS ≈ 119MB，CPU ≈ 0.2%**。这是 macOS 上单次空闲测量，**不是容量模型**，仅用于确认数量级——按此底噪 20 身份空闲约 2.4GB，"单容器"并非显然不可行。
 
+> **2026-09-12 更新：per-uid 由"待验证的要求"变成硬前提。** 客户端现在按 ORYH 的既有方案下载 personal skill bundle，落到 `<agentsHome>/skills`（`DSH_AGENTS_HOME`，默认 `~/.agents/skills`），文件里带着**该人的 `ORYH_API_KEY` 明文**（见 [ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md)、[Skills 装载](23-oryh-skills.md)）。同一个 skills 根就是同一个人的凭据，共享该目录等于共享身份。多身份部署必须给每个身份独立的 `DSH_AGENTS_HOME`，并由 OS 目录权限强制，S0-2 下面"同 uid 场景能复现跨目录读取"这一判据因此必然成立——它现在读的是凭据，不只是会话数据。
+
 **步骤**
 
 1. 起 4 个身份：A1、A2（同租户不同用户）、B1（与 A1 同自然人、不同租户）、B3。

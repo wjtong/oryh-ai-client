@@ -14,6 +14,7 @@ DSH 当前 `dsh-v0.1.2-alpha.1`（`cd5ef81481`）已经把浏览器产品面明�
 1. 固定 DSH `0.1.2-alpha.1` 和对应 commit；升级必须重新审查本 ADR 所列公共面与 Profile 配置，不依赖未导出的 `src` 文件。
 2. 安装器创建 `oryh-web` Profile，按顺序叠加官方 `dsh-base`、`dsh-web-app` 与 `@oryh/dsh-bundle` patch layer。开发、测试和桌面 sidecar 都通过 `dsh --profile oryh-web` 启动；ORYH 不发布另一个 Node application bin，也不绕过 Profile Loader。
 3. `@oryh/dsh-bundle` 禁用默认 coding 工具与通用 workspace 表面，并让每个 ORYH Session 采用受限的 `oryh-business` agent preset。该 preset 使用 ORYH persona 和窄业务 Tool catalog，不启用 `ptc`、Bash、任意文件、终端、通用网络或自修改能力。
+   > **2026-09-12 修订（[ADR-0009](0009-chat-pane-is-a-generic-oryh-agent.md)）。** `skill` 与 `bash` 已进入允许列表：Chat 栏是一个通用 ORYH agent，ORYH 的业务逻辑以 skill 交付，而 skill 的步骤是"运行这个脚本"。其余收窄（`ptc`、终端、通用网络、自修改）不变，工具允许列表仍由 `business-chat.ts` 的 `tools.restrict({ allow })` 显式列举。
 4. ORYH 浏览器包以 DSH 的 `dsh.client`/`./client` 公共插件机制加入。复用 `client-connection`、Client Modules、UI renderer、slots、locale、conversation/chat 和 primitives 的稳定职责；ORYH 自己拥有根布局、业务导航、工作空间、业务卡、确认和业务线程。DSH 的 local Workspace Controller 只管理 Harness Session/工作目录，不能被误当作 ORYH 的业务工作空间。
 5. 浏览器到 Host 的业务调用采用 DSH Connection + Typert Gateway 上的 ORYH typed Remote controllers。`@oryh/dsh-api-remotes` 负责生成 Remote contribution 和事件选择；React 组件不能直连 ORYH REST、调用任意 `/api` endpoint 或使用手写 WebSocket/IPC 协议。Host 从已绑定的 Session 或受检查的 connection reference 解析租户，拒绝浏览器或模型指定的任意 tenant、origin、header 与 secret。
 6. DSH Connection 的启动 token、签名 cookie、loopback Host/Origin 检查和 Gateway stream 仅保护本地 UI 通道，不替代 ORYH device grant、refresh、step-up 或业务授权。ORYH access/refresh 仍只由 Host 的 OS credential provider 与 API transport 使用。

@@ -10,6 +10,7 @@ import type { TodoDetailRequest, ChatClearRequest } from './types.js'
 import type { OryhTimesheetRemote, TimesheetHeader, TimesheetTodo, TimesheetOptions, TimesheetDetail, TimesheetIntent } from '@oryh/ai-client-timesheets'
 import type { TimesheetDetailRequest, TimesheetActionRequest } from './types.js'
 import { OryhClientRemoteAdapter } from '@oryh/ai-client-core'
+import type { SkillBundleService, SkillSyncResult } from '@oryh/ai-client-core'
 import { OryhClientError } from '@oryh/ai-client-foundation'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -28,6 +29,7 @@ declare module '@deepseek-ai/cordis' {
     oryhProjects:OryhProjectRemote
     oryhChat: BusinessChat
     oryhTodoDetails: TodoDetailService
+    oryhSkills: SkillBundleService
     oryhAbort: () => void
     oryhClient: OryhClientController
     oryhTimesheets: OryhTimesheetRemote
@@ -38,7 +40,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Browser-only typed business API; no member is registered as an Agent tool. */
 export class OryhRemote extends TypertRemoteService {
-  static inject = ['typert', 'oryhClient', 'oryhExpenses', 'oryhTimesheets', 'oryhProjects', 'oryhRecords', 'oryhTodoDetails', 'oryhChat', 'oryhAbort', 'agents']
+  static inject = ['typert', 'oryhClient', 'oryhExpenses', 'oryhTimesheets', 'oryhProjects', 'oryhRecords', 'oryhTodoDetails', 'oryhChat', 'oryhAbort', 'agents', 'oryhSkills']
   private readonly api: OryhClientRemoteAdapter
   private closed = false
   private readonly active = new Set<Promise<unknown>>()
@@ -83,6 +85,8 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('todoDetail') todoDetail(request: TodoDetailRequest): Promise<TodoDocument> { return this.call(() => this.ctx.oryhTodoDetails.read(request.connectionId, request.todoId)) }
   @Remote('chatSelect') chatSelect(request: ChatSelection): Promise<ChatContextView> { return this.call(() => this.ctx.oryhChat.select(request)) }
   @Remote('chatClear') chatClear(request: ChatClearRequest): Promise<void> { return this.call(() => this.ctx.oryhChat.clear(request.sessionId)) }
+  /** Install or refresh the ORYH skill bundle for this connection's principal. */
+  @Remote('skillSync') skillSync(request: ConnectionRequest & { force?: boolean }): Promise<SkillSyncResult> { return this.call(() => this.ctx.oryhSkills.sync(request.connectionId, request.force === true)) }
   @Remote('timesheetChatSync') timesheetChatSync(request: TimesheetChatState): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.sync(request)) }
   /** Start the pre-submit norm review; it returns at once and reports over the command stream. */
   @Remote('timesheetReviewStart') timesheetReviewStart(request: { sessionId: string; headerId: string }): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.reviewStart(request.sessionId, request.headerId)) }

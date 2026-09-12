@@ -14,6 +14,7 @@ import type { BusinessView } from './layout-store.js';
 import { useText } from './locale.js';
 import { useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode, type KeyboardEvent } from 'react';
 import { Badge, Button, Textarea } from '@fluentui/react-components';
+import { useOryhRemote } from './remote.js';
 import { IconBuilding, IconChecklist, IconReceipt, IconFolder, IconSettings, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconMessage, IconX, IconArrowUp, IconArrowUpRight, IconChevronRight } from '@tabler/icons-react';
 import type { ConnectionSummary, OperationDefinition, OperationId } from '@oryh/ai-client-core';
 import { BusinessPage } from './business-page.js';
@@ -55,7 +56,13 @@ function WorkbenchContent({ page, connection, operations, onDirtyChange, setting
         'my-expense-claims': { title: t("text10"), description: t("text11"), icon: IconReceipt },
         'list-projects': { title: t("text12"), description: t("text13"), icon: IconFolder },
     };
+    const remote=useOryhRemote();
     const {recordViewColumns,projectColumns,setProjectColumns,setRecordColumns}=useColumnPreferences(connection);
+    // ORYH hands an agent its skills on approval and expects it to re-sync, because a tenant admin
+    // can redefine business logic at any time. The Host compares the server manifest first, so this
+    // is a cheap no-op once installed. Failure is deliberately silent: the workbench still works
+    // without skills, and a blocking error here would be worse than a Chat that knows less.
+    useEffect(()=>{void remote.skillSync(connection.id).catch(()=>{})},[remote,connection.id]);
     const [projectDirty,setProjectDirty]=useState(false);
     const [expenseDirty, setExpenseDirty] = useState(false);
     const [timesheetDirty, setTimesheetDirty] = useState(false);

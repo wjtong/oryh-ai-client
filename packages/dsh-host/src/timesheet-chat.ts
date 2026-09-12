@@ -78,8 +78,9 @@ export class TimesheetChat {
   /**
    * Ask the session's agent to check this timesheet against the enterprise norms before submitting.
    *
-   * The norms live in Skills, not in code, so the only way to apply them is to let the agent read
-   * them. `followup` is the right door: it queues the request as its own turn AND wakes an idle
+   * The norms live on the server — in the workflow definitions the agent reads, and in the ORYH
+   * Skills installed for this person (docs/23) — not in code, so the only way to apply them is to
+   * let the agent read them. `followup` is the right door: it queues the request as its own turn AND wakes an idle
    * driver. A bare `inbox.append` only queues — with the agent idle, which is the common case when
    * someone clicks submit, the message sits in the chat forever and no turn ever runs. Nothing here
    * blocks; progress reaches the page over the command stream. See docs/22.

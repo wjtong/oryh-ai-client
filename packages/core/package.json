@@ -26,9 +26,10 @@
     "@oryh/ai-client-pages": "workspace:*",
     "@oryh/ai-client-projects": "workspace:*",
     "@oryh/ai-client-records": "workspace:*",
-    "@oryh/ai-client-todos": "workspace:*",
     "@oryh/ai-client-store": "workspace:*",
-    "@oryh/ai-client-timesheets": "workspace:*"
+    "@oryh/ai-client-timesheets": "workspace:*",
+    "@oryh/ai-client-todos": "workspace:*",
+    "fflate": "^0.8.3"
   },
   "files": [
     "lib/"

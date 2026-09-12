@@ -13,6 +13,7 @@ export * from './host.js'
 export * from './operations.js'
 export * from './remote.js'
 export * from './saved-operations.js'
+export * from './skill-bundle.js'
 export * from './local-runtime.js'
 
 // The business domains now live in their own packages and are no longer re-exported here:

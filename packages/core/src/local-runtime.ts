@@ -37,6 +37,9 @@ export function createLocalOryhRuntime(dataDirectory = defaultOryhDataDirectory(
     projects:host.createProjectRemote(new EncryptedRevisionStore<ProjectRecord>(join(dataDirectory,'projects'),undefined,'ORYH AI Client Project Encryption')),
     timesheets: host.createTimesheetRemote(new EncryptedTimesheetStore(join(dataDirectory, 'timesheets'))),
     expenses: host.createExpenseRemote(new EncryptedExpenseStore(join(dataDirectory, 'expenses'))),
+    // ORYH's own convention, and the root Harness scans by default: skills are named per
+    // employer, so one agent can serve two companies out of the same directory.
+    skills: host.createSkillBundle(join(process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'), 'skills')),
   }
 }
 
