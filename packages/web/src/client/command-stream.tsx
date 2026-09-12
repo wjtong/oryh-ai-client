@@ -2,13 +2,23 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { CommandSnapshot } from '@oryh/dsh-host/types'
 import type { ConnectionId } from '@oryh/ai-client-foundation'
-import { useOryhRemote } from './remote.js'
+import { LocalRemoteError, useOryhRemote } from './remote.js'
 
-/** Published command state: the last full set the Host sent, plus any terminal failure. */
+/**
+ * Where the linkage stands, so a disconnect is never shown as a refusal.
+ *
+ * `idle` means no session is bound in this subtree at all; `reconnecting` keeps the last
+ * commands published while the carrier retries; `rejected` is terminal and publishes none.
+ */
+export type CommandStatus = 'idle' | 'connecting' | 'synced' | 'reconnecting' | 'rejected'
+
+/** Published command state: the last full set the Host sent, plus where the linkage stands. */
 export interface CommandState {
   /** Every command pending for the bound session. */
   readonly commands: CommandSnapshot
-  /** Set once the stream fails terminally; the last commands stay published. */
+  /** Connection state, so transient loss and a final refusal read differently. */
+  readonly status: CommandStatus
+  /** Set once the linkage fails terminally, whether binding or streaming. */
   readonly error?: string
 }
 
@@ -26,8 +36,14 @@ export interface CommandStreamHandle extends CommandStore {
   dispose(): Promise<void>
 }
 
-const idle: CommandState = { commands: {} }
-const unbound: CommandStore = { getSnapshot: () => idle, subscribe: () => () => {} }
+const nothingBound: CommandState = { commands: {}, status: 'idle' }
+const unbound: CommandStore = { getSnapshot: () => nothingBound, subscribe: () => () => {} }
+
+/** A static store for a binding that failed terminally, so views can report it. */
+function refused(message: string): CommandStore {
+  const state: CommandState = { commands: {}, status: 'rejected', error: message }
+  return { getSnapshot: () => state, subscribe: () => () => {} }
+}
 
 /** Unbound default: views outside a bound session simply see no commands. */
 export const CommandsContext = createContext<CommandStore>(unbound)
@@ -42,10 +58,18 @@ export function useCommands(): CommandState {
 }
 
 /**
+ * Cancellable backoff for binding. A transport failure is worth asking again; the schedule is
+ * finite so even a misclassified failure stops instead of retrying for the session's lifetime.
+ */
+const bindBackoffMs = [500, 1000, 2000, 4000, 8000] as const
+
+/**
  * Bind the session to its enterprise home, then follow its commands for every view below.
  *
- * The bind has to land before the stream opens: the Host refuses an unbound session, and a
- * refusal is terminal rather than retried. Leaving the session withdraws the binding.
+ * The bind has to land before the stream opens, because the Host refuses an unbound session.
+ * Only transport failures are retried: a refusal the Host decided on will not change by asking
+ * again, so it stops and publishes a terminal state instead of hiding behind a retry loop.
+ * Leaving the session withdraws the binding.
  * @param props - the bound session, its connection, and the views that read commands.
  */
 export function CommandStream({ sessionId, connectionId, children }: {
@@ -55,25 +79,43 @@ export function CommandStream({ sessionId, connectionId, children }: {
 }): ReactNode {
   const api = useOryhRemote()
   const [store, setStore] = useState<CommandStreamHandle>()
+  const [refusal, setRefusal] = useState<string>()
   useEffect(() => {
     if (sessionId === undefined) return
-    let live = true, timer: ReturnType<typeof setTimeout> | undefined, handle: CommandStreamHandle | undefined
+    const session = sessionId
+    let live = true, bound = false, attempt = 0
+    let timer: ReturnType<typeof setTimeout> | undefined, handle: CommandStreamHandle | undefined
     function bind(): void {
-      void api.chatSelect({ sessionId: sessionId!, connectionId, homeOnly: true }).then(() => {
+      void api.chatSelect({ sessionId: session, connectionId, homeOnly: true }).then(() => {
         if (!live) return
-        handle = api.openCommands({ sessionId: sessionId!, connectionId })
+        bound = true
+        setRefusal(undefined)
+        handle = api.openCommands({ sessionId: session, connectionId })
         handle.start()
         setStore(handle)
-      }).catch(() => { if (live) timer = setTimeout(bind, 500) })
+      }).catch((error: unknown) => {
+        if (!live) return
+        const wait = error instanceof LocalRemoteError && error.business ? undefined : bindBackoffMs[attempt]
+        if (wait === undefined) {
+          setRefusal(error instanceof Error && error.message.length > 0 ? error.message : '无法绑定企业会话。')
+          return
+        }
+        attempt++
+        timer = setTimeout(bind, wait)
+      })
     }
     bind()
     return () => {
       live = false
-      if (timer) clearTimeout(timer)
+      if (timer !== undefined) clearTimeout(timer)
       setStore(undefined)
+      setRefusal(undefined)
       void handle?.dispose()
-      void api.chatHomeClear(sessionId).catch(() => {})
+      // Only withdraw a binding this instance actually established. Clearing is keyed by session
+      // id alone, so a never-bound instance would be withdrawing whatever binding now holds it.
+      if (bound) void api.chatHomeClear(session).catch(() => {})
     }
   }, [api, sessionId, connectionId])
-  return <CommandsContext.Provider value={store ?? unbound}>{children}</CommandsContext.Provider>
+  const value = store ?? (refusal === undefined ? unbound : refused(refusal))
+  return <CommandsContext.Provider value={value}>{children}</CommandsContext.Provider>
 }

@@ -493,3 +493,26 @@ DSH 树里另有三个未跟踪的说明文件（`.agents/notes/implemented/bug-
 - §3 工时选错项目：同意按正确性缺陷跟踪，工时业务基线在此之前不应记为全部通过。
 - §4 领域库还是独立业务插件：这是产品决策，不该由我替用户定。在定下来之前不动 `dsh-connections` / `dsh-workbench` 的边界。
 - §5 补丁守卫只看源码注释、以及干净环境构建验证。
+
+### 已修：用 `$stream` 重写命令流，区分断线与业务拒绝（评审 §2）
+
+自写的 `createCommandStream` 循环已删除，改由 Harness 自己的监管实现承担。`remote.$stream({name, open, ended, carrierFailed})` 返回真正的 `RemoteStream`，外层套 `RemoteSnapshotStream`。两处关键语义现在来自平台而不是我的猜测：
+
+- **只有 `RemoteStreamCarrierError` 会重开**，其余任何异常都经 `terminalStreamFailure` 变成终态。这正是评审说的"断线 / 业务拒绝"分界，不必自己判断。
+- **重试时机由 Connection 调度**：连接在线时只给一次立即重开，连接断开时订阅 `connection.generation` 等它回来，而不是我原先那个固定 1 秒。`accept()`（`RemoteSnapshotStream` 在 `replace` 成功后调用）会把重试计数归零。
+
+`ended(accepted)` 的取舍：baseline 之后的正常结束意味着 Host 放弃了绑定，标成可重试，用一次重开让 Host 自己说出真实原因（重开会被业务拒绝，于是带着真实消息变成终态）；baseline 之前就结束违反 Host 自己的契约，直接终态。
+
+`CommandState` 增加 `status`：`idle`／`connecting`／`synced`／`reconnecting`／`rejected`。两条行为按评审要求改了方向：`reconnecting` **保留**上一份整集（页面尚未执行的命令不应在重连时闪掉），`rejected` **清空**整集（命令是给页面的指令，流已死还把旧命令当有效指令发布是错的）。
+
+绑定重试：`chatSelect` 失败不再无差别每 500ms 重试。`LocalRemoteError` 增加 `business` 标志（`unwrap` 里 `code === 'oryh/business'` 即业务拒绝），业务拒绝立即停止并发布终态消息，传输失败走有限退避 `[500,1000,2000,4000,8000]`——即使分类错了也会停，不会重试到会话结束。原先那个 `.catch(() => setTimeout(bind, 500))` 连错误消息都丢掉了，用户什么都看不到。
+
+绑定所有权：清理只在**本实例真的绑定成功过**时才发 `chatHomeClear`。原先无条件发，一个从未绑定成功的实例会去撤销当时持有该 Session 的别人的绑定。顺带核对了评审提的顺序风险：Host 的 `select`（第 49 行）与 `homeClear`（第 220 行）都挂在同一条 `this.serial` 链上，单一 carrier 下到达顺序即串行顺序，所以旧清理晚于新绑定这件事在当前实现里不会发生——但这依赖到达顺序且没有任何地方写明，租约/代次标识才能让它显式。**仍按"待验证的生命周期风险"保留，不记为已修复。**
+
+**测试（评审要求的"客户端流适配器测试"）。** 难点是 gateway 的产物是 `__ModuleLoader__.load` 注册脚本，在 Node 里一导入就因 `window` 未定义而抛错——浏览器里有加载器应答，测试环境没有。解法不是写桩（桩只会验证桩自己），而是用包自己的 `./src/*` 导出，在 `vitest.config.ts` 里把 `@deepseek-ai/dsh-api-gateway/client` 别名到 `tests/harness-gateway.ts`，于是测试跑的是**真的** `RemoteStream` 与 `RemoteSnapshotStream`，只伪造 `connection.generation` 和 `open()`。五个测试：baseline 发整集并转 `synced`；首帧前断线能恢复并确实重开过；重连期间上一份整集仍在；非 carrier 失败转 `rejected` 且清空；baseline 之前来 update 触发协议违规。
+
+其中第二个测试做了证伪：把抛出的 `RemoteStreamCarrierError` 换成普通 `Error`，它立刻变成 `{status:'rejected'}` 失败——也就是重写前的行为。这证明分类本身在起作用，而不是测试恰好通过。
+
+验证：`pnpm run verify` 通过，共 196 项（Client 23 → 28），esbuild 无警告。真实客户端重启后复核：插件挂载、库存流水渲染出真实业务数据、无 `not a function` 类错误——说明 `require("@deepseek-ai/dsh-api-gateway/client")` 被加载器应答、`$stream` 构造成功（否则工厂或 provider 的 effect 会抛错，页面不会渲染）。
+
+仍未做：评审要求的"被拒绝状态显示恢复入口"。`rejected` 的消息目前只经由 `timesheet-chat` 既有的 `stream.error` 通道露出，四个状态还没有统一的 UI 呈现——这是产品/交互决策，留给用户定。
