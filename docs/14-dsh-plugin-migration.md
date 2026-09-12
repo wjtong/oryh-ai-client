@@ -268,3 +268,25 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 回放期间浏览器控制台错误计数始终停在 196，全部是杀掉旧服务那段时间产生的 404 与连接拒绝；重新加载、切换会话、两条命令链路都没有新增错误。由于流走 `remote.mux` WebSocket，HTTP 网络面板里看不到 `oryh/commands`，只能靠上述行为证据判断。
 
 副作用：回放把库存流水的持久化列顺序改成了产品编码在首位（原为末位），属于显示偏好，可在"显示列"里调回。
+
+### 剩余步骤计划（按压缩前方案重建，2026-09-12）
+
+第 2–6 步的方案原本只存在于对话里，仓库中没有任何记录，这本身是个风险：多步结构性重构如果只靠记忆推进，无法核对是否偏离原方案。本节按压缩前的要点重建，并用当前代码的实测结果补全细节。**若与原方案不符，以用户更正为准，不要按本节直接施工。**
+
+**页面标识的散落情况（实测）。** 四张互不相同的页面表：`OPERATIONS`（core/operations.ts，3 页，title/description/method/path）、`layout.tsx:87` 的 pages 数组（9 页加 settings，id/文案 key/图标）、`workbench.tsx:46` 的 pages 记录（3 页，title/description/icon）、`business-chat.ts:106` 的 names 映射（10 页，id→中文名，旁边另有 capabilities 三元表达式）。六处字面量 id 列表：`AccessPage`、`app.tsx:46`、`oryh_navigate` 工具的 enum、`ChatPageRequest['page']`、`saved-operations.ts:218`、`BusinessView`。七处以上 switch：`controller.ts` 四处、`OperationExecutor` 一处、`business-chat.ts` 的 pageSync 命令→页面三元与 pageData 分发。其中 `core/remote.ts` 的两个 switch 每个 case 主体完全相同，属于纯噪音，无论采用哪种方案都应删除。
+
+**第 2 步：抽出 `@oryh/dsh-connections` 与 `@oryh/dsh-workbench`，引入页面登记表。** 一条记录描述一个页面：id、文案 key、图标、访问规则（identity → boolean）、可选的确定性操作（method/path/decoder）、Host 侧能力与提示语、客户端组件。`canAccessPage` 的 switch 变成遍历登记表。
+
+放置位置需要先定：登记表必须同时被 core（access/operations）、dsh-host（工具 enum、capabilities）与 web（侧边栏、workbench、app）引用，因此只能落在三者共同的底层——core 内的新模块，或一个新的最小包。另需注意 Host 那半不只是命名问题：`bindingPage`/`assertPage`/`assertSelectionPage` 是从绑定状态反推页面 id，登记表必须暴露对应的推导钩子，否则只收敛了客户端，Host 的散落原样保留。
+
+退出条件：`canAccessPage` 的 switch 消失；`app.tsx:46` 与 `layout.tsx` 的 pages 数组由登记表生成；`oryh_navigate` 的 enum 由登记表生成；`core/remote.ts` 两个恒等 switch 删除；`pnpm run verify` 全绿；两条 E2E 基线回放与上一节一致。
+
+**第 3 步：records 试点。** 先迁 `sales-orders`、`inventory-items`、`inventory-item-details`、`shipments` 四个只读列表，用真实业务域验证登记表的形状。只读页面出错代价最小，适合作为第一块。
+
+**第 4 步：timesheets。** 工时是唯一同时涉及导航命令、表单建议、审批队列和回执等待的域，是登记表最强的压力测试。
+
+**第 5 步：projects、todos、expenses，并删除旧包。** 全部迁完再删，避免中途出现两套并存的事实来源。
+
+**第 6 步（可选）：agent preset。** 把工具白名单与提示词收进 preset。
+
+每一步都以 `pnpm run verify` 全绿加两条 E2E 基线回放作为退出条件；基线不一致时必须先解释差异来源，再决定是否属于回归（如第 1 步中产品编码位置的差异，经轨迹确认来自模型选择而非通道）。
