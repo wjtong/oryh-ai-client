@@ -29,22 +29,32 @@ ORYH 的业务逻辑在 agent 层（Skills），因此像"每周 40 小时"这�
 
 判据是**服务端是否为这个 object_type 配了 workflow definition**，而不是单据长什么样。有定义就意味着企业对它有流程要求，页面上的提交按钮就不能绕过这些要求。
 
-2026-09-13 在 晶诚医疗 实测，租户上共 9 条定义：
+这条判据在运行时向服务端问，客户端里没有任何 object_type 白名单——这是一个通用 ORYH 客户端，不为某一个租户编译。每次提交前 `WorkflowDefinitions.governed(connectionId, objectType)` 查一次 `/workflow-definitions?object_type=…`：
+
+- **查到定义** → 必须通过核对才能提交；
+- **没有定义** → 这个租户对该单据没有流程要求，照常提交，不做多余拦截；
+- **查询失败** → 按"有定义"处理。强制模式下"查不到"的安全答案是要求核对，否则一次网络抖动就把闸门悄悄关掉了，而那正是它要消除的绕过。
+
+结果缓存 30 秒。窗口很短是有意的：租户管理员（或 agent）随时可能发布一条新定义，下一次提交就应该看见它。
+
+下表是 2026-09-13 在某租户上的实测，用来说明覆盖面，**不是客户端里的列表**：
 
 | object_type | 定义 | 本客户端能否提交 | 是否已接入核对 |
 | --- | --- | --- | --- |
 | `timesheet_header` | builtin v2 | 能 | ✅ |
 | `expense_claim` | builtin v1 | 能 | ✅ |
-| `purchase_request` | builtin v1 | 否（只读） | 页面开放提交时接入 |
-| `sales_order` | builtin v1 | 否（只读） | 同上 |
-| `sales_quotation` | builtin v1 | 否（只读） | 同上 |
+| `purchase_request` | builtin v1 | **否——本客户端没有采购申请的提交界面** | 页面开放提交时自动适用 |
+| `sales_order` | builtin v1 | 否（同上，只读查询） | 同上 |
+| `sales_quotation` | builtin v1 | 否（同上，只读查询） | 同上 |
 | `warranty_card`、3 × `rg_flow_*` | business_object | 否（本客户端不编辑自定义对象） | 同上 |
 
-接入一个新单据需要三步，核对本身不用重写：
+后四类今天不接入，不是因为它们被排除在机制之外，而是**这个客户端还没有提交它们的按钮**——没有提交动作，就没有要拦的东西。机制本身对 object_type 一视同仁。
 
-1. `SubmitReview` 的 `ReviewKind` 加一项，并在 `SPECS` 里写清这个流程要求叫什么、agent 该怎么读这张单据；
-2. 该领域 service 暴露 `setSubmitGate()`，在 `confirm()` 里、权限检查之后调用，`index.ts` 把它接到 `reviews.assertPassed(kind, documentId, sessionId)`；
-3. 页面在准备提交时调用对应的 `*ReviewStart`，把核对区渲染进确认对话框，并按 `norm.phase !== 'passed'` 禁用确认。
+给一个单据接上提交界面时，核对部分是三行样板，`SubmitReview` 不用改：
+
+1. 在该领域的 contracts 里写出它的 object_type 常量（`TIMESHEET_OBJECT_TYPE` 那样，放 contracts 而不是 service，页面也要用，而 service 只能在 Node 跑）；
+2. 该领域 service 暴露 `setSubmitGate()` 与 `setWorkflowLookup()`，在 `confirm()` 里权限检查之后先问 `governed()` 再调闸门；`index.ts` 的循环会把它接到 `reviews.assertPassed(objectType, documentId, sessionId)`；
+3. 页面在准备提交时调用 `reviews.start(session,{objectType,documentId,label,read})`，把核对区渲染进确认对话框，并按 `norm.phase !== 'passed'` 禁用确认。
 
 ## 平台机制
 
@@ -99,6 +109,7 @@ Host 已经持有 `ctx.agents`（`business-chat.ts` 在用）。**这意味着"�
 | 位置 | 变化 |
 | --- | --- |
 | `packages/web/src/client/timesheets.tsx` | 提交按钮改为先开对话框并进入核对态；五个核对状态，只有 `passed` 解禁确认；`unavailable` 提供「重新核对」 |
+| `packages/core/src/workflow.ts` | `WorkflowDefinitions`：这个租户把哪些 object_type 纳入了流程，唯一决定要不要核对的地方 |
 | `packages/dsh-host/src/submit-review.ts` | 与单据无关的核对本体：注入 inbox、`oryh_review_result` 结论工具、失败与超时的终局、`assertPassed` 闸门 |
 | `packages/dsh-host/src/timesheet-chat.ts` | 只保留工时自己的页面绑定与权限检查，核对委托给 `SubmitReview` |
 | `packages/web/src/client/expenses.tsx` | 费用申请提交走同一套：核对区、只有 `passed` 解禁确认、`unavailable` 提供「重新核对」 |

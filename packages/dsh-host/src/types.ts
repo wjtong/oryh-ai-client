@@ -79,8 +79,10 @@ export interface CommandSnapshot {
  * turn itself is running. The transition is driven by `agent/status`, not polled. See docs/22.
  */
 export interface SubmitReviewState {
-  /** Which document kind is under review, so the page can name the norm it was checked against. */
-  kind: 'timesheet' | 'expense'
+  /** ORYH object type under review, as the tenant's workflow definition names it. */
+  objectType: string
+  /** What to call this document to a person, supplied by the page that started the review. */
+  label: string
   /** The document this review is about; a review for another one is stale. */
   documentId: string
   status: 'queued' | 'reviewing' | 'passed' | 'flagged' | 'unavailable'

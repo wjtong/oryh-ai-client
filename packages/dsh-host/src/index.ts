@@ -45,8 +45,13 @@ export function apply(ctx: Context, config: Config): void {
   const chat = new BusinessChat(ctx, runtime.controller, runtime.todoDetails, join(config.dataDirectory ?? defaultOryhDataDirectory(), 'chat-bindings'), runtime.timesheets,runtime.projects, runtime.skills)
   // The page's disabled button is a hint; this is the gate. Wired here because the verdict lives in
   // the chat layer and the confirm lives in the timesheet service, and neither may import the other.
-  runtime.timesheets.setSubmitGate((action, sessionId) => { if (action.kind === 'submit') chat.reviews.assertPassed('timesheet', action.headerId, sessionId) })
-  runtime.expenses.setSubmitGate((draftId, sessionId) => chat.reviews.assertPassed('expense', draftId, sessionId))
+  // Every domain asks the same two questions before a submit: does the tenant govern this object
+  // type, and did its review pass. Neither answer is compiled in — the first is the server's, the
+  // second is the agent's.
+  for (const domain of [runtime.timesheets, runtime.expenses]) {
+    domain.setWorkflowLookup((id, objectType) => runtime.workflows.governed(id, objectType))
+    domain.setSubmitGate((objectType, documentId, sessionId) => chat.reviews.assertPassed(objectType, documentId, sessionId))
+  }
   ctx.provide('oryhSkills', runtime.skills)
   ctx.provide('oryhTodoDetails', runtime.todoDetails)
   ctx.provide('oryhChat', chat)

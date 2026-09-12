@@ -17,13 +17,22 @@ import type { CommandQueue } from './command-queue.js'
  * what makes a late verdict about an abandoned document obviously stale rather than ambiguous.
  */
 
-/** A document kind ORYH governs with a workflow definition and this client can submit. */
-export type ReviewKind = 'timesheet' | 'expense'
-
-/** Per-kind wording: the norm's name for messages, and how the agent should read the document. */
-const SPECS: Record<ReviewKind, { noun: string; read: string; subject: (id: string) => string }> = {
-  timesheet: { noun: '企业工时流程要求', read: '先用 oryh_timesheet_read 读取实际内容', subject: id => `这张待提交的工时单（编号 ${id}）` },
-  expense: { noun: '企业费用报销流程要求', read: '先用 oryh_current_page 读取页面上的实际内容', subject: id => `这张待提交的费用申请（编号 ${id}）` },
+/**
+ * One document under review, named the way ORYH names it.
+ *
+ * `objectType` is the server's own vocabulary (`timesheet_header`, `expense_claim`,
+ * `purchase_request`, a tenant's custom object…). Nothing here enumerates which types exist: the
+ * tenant's workflow definitions decide that, and a page that can submit a type describes itself.
+ */
+export interface ReviewRequest {
+  /** ORYH object type, as the workflow definition names it. */
+  objectType: string
+  /** The document being submitted; a verdict about any other one is stale. */
+  documentId: string
+  /** What to call this document to a person, e.g. 工时单. */
+  label: string
+  /** How the agent should read it, e.g. `先用 oryh_timesheet_read 读取实际内容`. */
+  read: string
 }
 
 /** How long a review may run before the page stops waiting on it. */
@@ -63,15 +72,16 @@ export class SubmitReview {
    * clicks submit, the message sits in the chat forever and no turn ever runs. Nothing here blocks;
    * progress reaches the page over the command stream.
    * @param id - session whose agent performs the review.
-   * @param kind - which document kind, selecting the norm's name and how to read it.
-   * @param documentId - document being submitted; a verdict for any other one is ignored.
+   * @param review - what is being submitted, named as ORYH names it.
    */
-  start(id: string, kind: ReviewKind, documentId: string): void {
+  start(id: string, review: ReviewRequest): void {
     const agent = this.ctx.agents.get(id as never) as ReviewAgent | undefined
     if (!agent) throw fail('当前会话不可用，无法进行规范核对。')
-    const spec = SPECS[kind]
     const request = createUserMessage({ content: [{ type: 'text',
-      text: `（提交动作触发）请按${spec.noun}核对${spec.subject(documentId)}。${spec.read}，再调用 oryh_review_result 回报结论；不要修改表单。` }], source: { kind: 'user' } })
+      // The object type is the server's key for the definitions and belongs in the request; the
+      // label is what a person calls the document, and leading with it keeps `timesheet_header`
+      // out of the verdict the user ends up reading.
+      text: `（提交动作触发）请按本企业对${review.label}的流程定义核对这张待提交的${review.label}（编号 ${review.documentId}；流程定义的 object_type 是 ${review.objectType}）。${review.read}，再调用 oryh_review_result 回报结论；结论里用“${review.label}”称呼它，不要出现 object_type；不要修改表单。` }], source: { kind: 'user' } })
     agent.followup(request)
     this.messages.set(id, String(request.id))
     this.settled(id)
@@ -79,7 +89,7 @@ export class SubmitReview {
     // common failure within a second; this only covers a driver that hangs, and is generous because
     // a review queued behind a long conversation turn is legitimately slow.
     this.timers.set(id, setTimeout(() => this.failed(id, '核对超时，未收到结论。'), REVIEW_TIMEOUT_MS))
-    this.reviews.set(id, { kind, documentId, status: this.phase(id, agent) })
+    this.reviews.set(id, { objectType: review.objectType, documentId: review.documentId, label: review.label, status: this.phase(id, agent) })
     this.queue.changed(id)
   }
 
@@ -113,17 +123,16 @@ export class SubmitReview {
    * by closing the session would otherwise be a way around the verdict, and then the check is
    * decoration. The submitter still has ORYH Console and any other agent; what this removes is
    * *this* client being the easy way past its own review.
-   * @param kind - document kind being confirmed.
+   * @param objectType - ORYH object type being confirmed.
    * @param documentId - document being confirmed; a verdict about another one does not clear it.
    * @param sessionId - chat session whose agent ran the review.
    */
-  assertPassed(kind: ReviewKind, documentId: string | undefined, sessionId?: string): void {
+  assertPassed(objectType: string, documentId: string | undefined, sessionId?: string): void {
     const review = sessionId === undefined ? undefined : this.reviews.get(sessionId)
-    const noun = SPECS[kind].noun
-    if (review?.status === 'passed' && review.kind === kind && review.documentId === documentId) return
-    if (review?.status === 'flagged') throw fail(`未通过${noun}核对：${review.message || '存在冲突'}。请修改后重新提交。`)
+    if (review?.status === 'passed' && review.objectType === objectType && review.documentId === documentId) return
+    if (review?.status === 'flagged') throw fail(`未通过企业流程要求核对：${review.message || '存在冲突'}。请修改后重新提交。`)
     if (review?.status === 'queued' || review?.status === 'reviewing') throw fail('规范核对尚未完成，请等待结论。')
-    throw fail(`本次提交未经${noun}核对，无法提交。请在 Chat 中保持会话后重新提交。`)
+    throw fail('本次提交未经企业流程要求核对，无法提交。请在 Chat 中保持会话后重新提交。')
   }
 
   /**

@@ -28,6 +28,9 @@ export function createLocalOryhRuntime(dataDirectory = defaultOryhDataDirectory(
   const controller = new OryhClientController(host, {
     savedOperationStore: new JsonSavedOperationStore({ path: join(dataDirectory, 'saved-operations.json') }),
   })
+  // One reader for every domain: which object types this tenant governs is a server fact, and each
+  // domain's confirm asks the same question before requiring a pre-submit review.
+  const workflows = host.createWorkflowDefinitions()
   return {
     controller,
     records:host.createRecordRemote(),
@@ -35,6 +38,7 @@ export function createLocalOryhRuntime(dataDirectory = defaultOryhDataDirectory(
     remote: new OryhClientRemoteAdapter(controller),
     todoDetails: host.createTodoDetailRemote(),
     projects:host.createProjectRemote(new EncryptedRevisionStore<ProjectRecord>(join(dataDirectory,'projects'),undefined,'ORYH AI Client Project Encryption')),
+    workflows,
     timesheets: host.createTimesheetRemote(new EncryptedTimesheetStore(join(dataDirectory, 'timesheets'))),
     expenses: host.createExpenseRemote(new EncryptedExpenseStore(join(dataDirectory, 'expenses'))),
     // ORYH's own convention, and the root Harness scans by default: skills are named per

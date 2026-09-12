@@ -1,3 +1,10 @@
+/**
+ * ORYH's own name for this document, which is what a workflow definition is keyed by.
+ *
+ * It lives in contracts, not in the service: the page needs it to match a review against the
+ * document it is confirming, and the service is Node-only.
+ */
+export const EXPENSE_OBJECT_TYPE = 'expense_claim'
 import { OryhClientError } from '@oryh/ai-client-foundation'
 
 /** Editable, model-independent expense fields; identity and lifecycle are Host-owned. */

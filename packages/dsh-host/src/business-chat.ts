@@ -17,6 +17,7 @@ import type { TodoDetailService, TodoDocument } from '@oryh/ai-client-todos'
 import { TimesheetChat } from './timesheet-chat.js'
 import type { OryhTimesheetRemote } from '@oryh/ai-client-timesheets'
 import type { ChatPageRequest, ChatSelection, ChatContextView, ChatHomeRequest, ChatNavigation } from './types.js'
+import { EXPENSE_OBJECT_TYPE } from '@oryh/ai-client-expenses/contracts'
 import { CommandQueue } from './command-queue.js'
 import { SubmitReview } from './submit-review.js'
 interface Binding { document?:TodoDocument; connectionId:ConnectionId; scope:string; todoId?:string; title:string; generation:number; timesheetPage?:string; manager?:boolean; visibleTodos?:{id:string;title:string}[]; listRevision?:string; navigationId?:string }
@@ -67,7 +68,7 @@ export class BusinessChat {
     const home=this.homes.get(sessionId)
     if(!home)throw new OryhClientError('请先在 Chat 中选择会话并等待已关联。','request-failed')
     if(this.pages.get(sessionId)?.page!=='my-expense-claims')throw new OryhClientError('当前不是费用申请页面。','request-failed')
-    this.reviews.start(sessionId,'expense',draftId)
+    this.reviews.start(sessionId,{objectType:EXPENSE_OBJECT_TYPE,documentId:draftId,label:'费用申请',read:'先用 oryh_current_page 读取页面上的实际内容'})
   }
   select(request:ChatSelection):Promise<ChatContextView>{
     const result=this.serial.then(()=>this.bind(request));this.serial=result.catch(()=>{});return result

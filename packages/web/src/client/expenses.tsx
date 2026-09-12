@@ -2,6 +2,7 @@ import { useBusinessText } from './locale.js';
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Badge, Button, Card, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Link, MessageBar, MessageBarBody, Select, Spinner, Text, Textarea, Title2 } from '@fluentui/react-components';
 import type { ConnectionSummary } from '@oryh/ai-client-core';
+import { EXPENSE_OBJECT_TYPE } from '@oryh/ai-client-expenses/contracts';
 import type { ExpenseDraft, ExpenseFields, ExpenseLine, ExpenseState } from '@oryh/ai-client-expenses';
 import { useOryhRemote } from './remote.js';
 import { useCommands } from './command-stream.js';
@@ -62,7 +63,7 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
     const norm = (() => {
         if (selected?.confirmation?.action !== 'submit') return undefined;
         if (normError) return { phase: 'unavailable' as const, message: normError };
-        const state = reviewState && reviewState.kind === 'expense' && reviewState.documentId === selected.id ? reviewState : undefined;
+        const state = reviewState && reviewState.objectType === EXPENSE_OBJECT_TYPE && reviewState.documentId === selected.id ? reviewState : undefined;
         // Before the first frame arrives the review is already queued Host-side, so treat it as such.
         if (!state) return { phase: 'queued' as const, message: '' };
         return { phase: state.status, message: state.message ?? '' };

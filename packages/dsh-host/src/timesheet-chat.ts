@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { OryhClientError, type ConnectionId } from '@oryh/ai-client-foundation'
 import { validateTimesheet, type OryhTimesheetRemote, type TimesheetAction, type TimesheetFields, type TimesheetLine } from '@oryh/ai-client-timesheets'
 import type { TimesheetChatState, TimesheetChatProposal } from './types.js'
+import { TIMESHEET_OBJECT_TYPE } from '@oryh/ai-client-timesheets/contracts'
 import type { SubmitReview } from './submit-review.js'
 import type { CommandQueue } from './command-queue.js'
 const line=z.object({id:z.string().optional(),work_date:z.string(),hours:z.number(),work_type:z.string(),project_id:z.string(),project_name:z.string(),task:z.string().max(200),notes:z.string().max(2000)}).strict()
@@ -79,7 +80,7 @@ export class TimesheetChat {
    */
   async reviewStart(id:string,headerId:string):Promise<void>{
     await this.binding(id,true,true)
-    this.reviews.start(id,'timesheet',headerId)
+    this.reviews.start(id,{objectType:TIMESHEET_OBJECT_TYPE,documentId:headerId,label:'工时单',read:'先用 oryh_timesheet_read 读取实际内容'})
   }
   async sync(state:TimesheetChatState):Promise<void>{
     const b=await this.binding(state.sessionId,false)

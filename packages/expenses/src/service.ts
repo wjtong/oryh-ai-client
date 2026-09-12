@@ -1,7 +1,7 @@
 import { OryhClientError, connectionId, type ConnectionId } from '@oryh/ai-client-foundation'
 import { requirePermission } from '@oryh/ai-client-pages'
 import { createHash, randomUUID } from 'node:crypto'
-import { expenseError, object, parseExpenseFields, type ExpenseDraft, type ExpenseFields, type OryhExpenseRemote } from './contracts.js'
+import { EXPENSE_OBJECT_TYPE, expenseError, object, parseExpenseFields, type ExpenseDraft, type ExpenseFields, type OryhExpenseRemote } from './contracts.js'
 import type { ExpenseRecord, ExpenseStore } from './store.js'
 
 /** The transport this service needs. Expenses write, so the request shape is the full one. */
@@ -156,8 +156,11 @@ export class ExpenseService implements OryhExpenseRemote {
    * disabled button is a suggestion and the Remote is reachable without it.
    * @param gate - throws when the submit may not be confirmed.
    */
-  setSubmitGate(gate: (draftId: string, sessionId?: string) => void) { this.gate = gate }
-  private gate?: (draftId: string, sessionId?: string) => void
+  setSubmitGate(gate: (objectType: string, documentId: string | undefined, sessionId?: string) => void) { this.gate = gate }
+  private gate?: (objectType: string, documentId: string | undefined, sessionId?: string) => void
+  /** Asked before every submit: no definition for this object type means nothing to check. */
+  setWorkflowLookup(governs: (id: string, objectType: string) => Promise<boolean>) { this.governs = governs }
+  private governs?: (id: string, objectType: string) => Promise<boolean>
   async expenseConfirm(id: string, draftId: string, revision: number, token: string, sessionId?: string): Promise<ExpenseDraft> {
     requirePermission((await this.verify(id)).identity,'expense.submit_own')
     let record = await this.read(id, draftId, revision)
@@ -166,7 +169,7 @@ export class ExpenseService implements OryhExpenseRemote {
       || (record.state !== 'review-create' && record.state !== 'review-submit')) throw expenseError('确认已失效，请重新校验和确认。')
     const action = confirmation.action
     if (action === 'submit') {
-      this.gate?.(draftId, sessionId)
+      if (await (this.governs?.(id, EXPENSE_OBJECT_TYPE) ?? Promise.resolve(false))) this.gate?.(EXPENSE_OBJECT_TYPE, draftId, sessionId)
       const detail = await this.detail(id, record)
       if (record.serverDigest !== digest(detail)) {
         await this.next(id, record, { state: 'created', confirmation: undefined, message: '服务端内容已改变，请重新核对。' })

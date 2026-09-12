@@ -1,3 +1,10 @@
+/**
+ * ORYH's own name for this document, which is what a workflow definition is keyed by.
+ *
+ * It lives in contracts, not in the service: the page needs it to match a review against the
+ * document it is confirming, and the service is Node-only.
+ */
+export const TIMESHEET_OBJECT_TYPE = 'timesheet_header'
 import { OryhClientError } from '@oryh/ai-client-foundation'
 export interface TimesheetLine { id?: string; work_date: string; hours: number; work_type: string; project_id: string; task: string; notes: string }
 export interface TimesheetFields { period_start: string; period_end: string; source_report_text: string; entries: TimesheetLine[] }

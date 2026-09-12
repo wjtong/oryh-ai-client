@@ -1,7 +1,7 @@
 import { OryhClientError, connectionId, type ConnectionId } from '@oryh/ai-client-foundation'
 import { hasPermission, requirePermission, requirePage } from '@oryh/ai-client-pages'
 import { createHash, randomUUID } from 'node:crypto'
-import { timesheetError as fail, validateTimesheet, type OryhTimesheetRemote, type TimesheetAction, type TimesheetDetail, type TimesheetHeader, type TimesheetIntent, type TimesheetLine } from './contracts.js'
+import { timesheetError as fail, validateTimesheet, TIMESHEET_OBJECT_TYPE, type OryhTimesheetRemote, type TimesheetAction, type TimesheetDetail, type TimesheetHeader, type TimesheetIntent, type TimesheetLine } from './contracts.js'
 import type { TimesheetRecord, TimesheetStore } from './store.js'
 
 /**
@@ -183,14 +183,17 @@ export class TimesheetService implements OryhTimesheetRemote {
    * disabled button is a suggestion: the Remote is reachable without it.
    * @param gate - throws when the action may not be confirmed; no-op for actions it does not cover.
    */
-  setSubmitGate(gate: (action: TimesheetAction, sessionId?: string) => void) { this.gate = gate }
-  private gate?: (action: TimesheetAction, sessionId?: string) => void
+  setSubmitGate(gate: (objectType: string, documentId: string | undefined, sessionId?: string) => void) { this.gate = gate }
+  private gate?: (objectType: string, documentId: string | undefined, sessionId?: string) => void
+  /** Asked before every submit: no definition for this object type means nothing to check. */
+  setWorkflowLookup(governs: (id: string, objectType: string) => Promise<boolean>) { this.governs = governs }
+  private governs?: (id: string, objectType: string) => Promise<boolean>
   timesheetConfirm(id: string,intentId: string,revision: number,token: string,sessionId?: string) { return this.serialize(() => this.confirm(id,intentId,revision,token,sessionId)) }
   private async confirm(id: string,intentId: string,revision: number,token: string,sessionId?: string) {
     await this.verify(id); let r=await this.read(id,intentId,revision)
     if ((await this.store.list()).some(other => other.id !== r.id && other.scope === r.scope && ['unknown','executing'].includes(other.state) && (r.action.kind === 'create' ? other.action.kind === 'create' && other.action.fields?.period_start === r.action.fields?.period_start && other.action.fields?.period_end === r.action.fields?.period_end : other.action.headerId === r.action.headerId))) throw fail('该单据有未确认的操作，请先核对执行记录。')
     requirePermission(this.connection(id).identity,r.action.kind==='approve'?'approval.record':'timesheet.submit_own')
-    this.gate?.(r.action,sessionId)
+    if (r.action.kind==='submit' && await (this.governs?.(id,TIMESHEET_OBJECT_TYPE) ?? Promise.resolve(false))) this.gate?.(TIMESHEET_OBJECT_TYPE,r.action.headerId,sessionId)
     if (r.state!=='review' || r.token!==token || r.expiresAt<Date.now()) throw fail('确认已过期或已使用，请重新核对。')
     if (r.action.kind!=='create' && (await this.context(id,r.action)).digest!==r.digest) throw fail('工时内容或审批待办已改变，请重新核对。')
     if (r.expiresAt<Date.now()) throw fail('确认已过期，请重新核对。')

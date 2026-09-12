@@ -19,3 +19,4 @@ export * from './local-runtime.js'
 // The business domains now live in their own packages and are no longer re-exported here:
 // @oryh/ai-client-records, -timesheets, -todos, -projects and -expenses. Consumers import
 // them directly, so nothing can reach a domain through the core.
+export { WorkflowDefinitions } from './workflow.js'

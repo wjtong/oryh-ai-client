@@ -8,6 +8,7 @@ import { useCommands } from './command-stream.js'
 import { useContext, useEffect, useRef, useState } from 'react'
 import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle } from '@fluentui/react-components'
 import type { ConnectionSummary } from '@oryh/ai-client-core/types'
+import { TIMESHEET_OBJECT_TYPE } from '@oryh/ai-client-timesheets/contracts'
 import type { TimesheetAction, TimesheetDetail, TimesheetFields, TimesheetHeader, TimesheetIntent, TimesheetLine, TimesheetOptions, TimesheetTodo } from '@oryh/ai-client-timesheets'
 import { useOryhRemote } from './remote.js'
 import { useText } from './locale.js'
@@ -42,7 +43,7 @@ export function TimesheetPanel({connection,manager,active,navigationId,navigatio
   const norm=(()=>{
     if(review?.action.kind!=='submit')return undefined
     if(normError)return {phase:'unavailable' as const,message:normError}
-    const s=reviewState&&reviewState.kind==='timesheet'&&reviewState.documentId===review.action.headerId?reviewState:undefined
+    const s=reviewState&&reviewState.objectType===TIMESHEET_OBJECT_TYPE&&reviewState.documentId===review.action.headerId?reviewState:undefined
     // Before the first frame arrives the review is already queued Host-side, so treat it as such.
     if(!s)return {phase:'queued' as const,message:''}
     // `unavailable` now also arrives from the Host, which is what settles a review whose turn died
