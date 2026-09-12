@@ -213,4 +213,18 @@ ORYH 现有流水端点不支持 product_id：插件组合现有租户限定 GET
 
 **未先核验就读取连接的业务方法。** `timesheetHistory`、`timesheetOptions` 与 `expenseList`、`expenseOptions`、`expenseSave`、`expenseUpload`、`expenseDelete` 直接经 `scope()`（`expenseDelete` 经 `read()`）调用 `requireVerified`，没有像同类读取那样先 `await verify()`。`projectPrepare` 与 `projectConfirm` 经 `authorize()` → `projectOptions` 已覆盖，`records`、`todo-detail` 与其余工时方法在入口即核验。客户端在挂载、窗口获得焦点和每 60 秒都会重新核验，而 `verifyIdentity` 会先撤销已核验状态、再 await 一次 `/auth/me` 往返，成功后才重新标记。任何未经 await 的读取只要落入这个窗口就抛 `connection-verification-required`。实测证据：同一次工时面板刷新中，`timesheetList` 返回 `ok:true` 和三条真实工时，`timesheetHistory` 同时返回 `connection-verification-required`；面板用 `Promise.all` 聚合，一个失败即整体 reject，已成功的列表数据被丢弃，界面显示告警加“暂无记录”。四处均改为先 `await verify()`。该问题由 2026-09-11 的权限改动引入，与本次布局迁移无关。
 
-端到端基线录制尚未完成，两条示例流程的记录待补。
+### 端到端基线：Chat 新建并填写工时（2026-09-12）
+
+在修复后的客户端上用真实测试企业连接与 DeepSeek-V4-Flash 录制。先说“帮我新建一条工时”，模型按提示词先调用 `oryh_open_timesheet` 打开右侧表单；补充“2026-09-14 到 2026-09-18，项目选装配产线自动化技改，每天 8 小时正常工时，工作内容写产线调试”后，模型调用 `oryh_timesheet_propose`（`revision: 5`，`kind: create`），页面按版本校验后写入未保存表单。
+
+结果：右侧“新建工时单”表单显示开始日期 2026-09-14、结束日期 2026-09-18、原始工作说明“装配产线自动化技改项目，产线调试，每天8小时”，以及 09-14 至 09-18 五条明细，每条 8 小时、正常工时、项目“装配产线自动化技改”、任务“产线调试”，合计 40 小时；页面保持“未保存修改”保护与“放弃未保存修改”入口。模型明确说明保存与提交仍需用户在页面确认。全程未保存、未提交、未审批，未向测试企业写入任何业务数据。
+
+该记录作为通道改造（第 1 步）前的行为基线：工具调用顺序、表单版本校验与“填入但未保存”的边界在改造后必须保持一致。
+
+### 端到端基线：Chat 给库存流水加产品列（2026-09-12）
+
+同一会话切到“库存流水”，初始显示列为变动原因、库存项编号、现存数量变动、可承诺数量变动、生效时间，没有产品编码。说“库存流水列表加上产品列，原来的列保留”后，模型调用 `oryh_record_columns`，参数是包含原有列在内的完整列顺序（`reason`、`inventory_item_id`、`quantity_on_hand_diff`、`available_quantity_diff`… 加新增列），不是只传新增项。
+
+结果：表格列顺序变为原五列加末尾“产品编码”，各行显示真实值 PT-HEAD、PT-MOTOR、PT-RIBBON，与各自库存项对应；页面“显示列”勾选区同步出现产品编码，与 Chat 共用同一套列状态。未修改任何业务数据。
+
+该记录同样是第 1 步的对照基线：命令必须携带完整列顺序、页面回执吻合后工具才报成功、传统“显示列”与 Chat 共用同一入口，这三点在改造后必须保持。
