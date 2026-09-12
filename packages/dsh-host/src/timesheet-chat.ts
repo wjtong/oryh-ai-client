@@ -3,11 +3,47 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { z } from 'zod'
 import { OryhClientError, type ConnectionId } from '@oryh/ai-client-foundation'
-import { validateTimesheet, type OryhTimesheetRemote, type TimesheetAction } from '@oryh/ai-client-timesheets'
+import { validateTimesheet, type OryhTimesheetRemote, type TimesheetAction, type TimesheetFields, type TimesheetLine } from '@oryh/ai-client-timesheets'
 import type { TimesheetChatState, TimesheetChatProposal } from './types.js'
 import type { CommandQueue } from './command-queue.js'
-const line=z.object({work_date:z.string(),hours:z.number(),work_type:z.string(),project_id:z.string(),task:z.string().max(200),notes:z.string().max(2000)}).strict()
+const line=z.object({work_date:z.string(),hours:z.number(),work_type:z.string(),project_id:z.string(),project_name:z.string(),task:z.string().max(200),notes:z.string().max(2000)}).strict()
 const fields=z.object({period_start:z.string(),period_end:z.string(),source_report_text:z.string().max(10000),entries:z.array(line).min(1).max(100)}).strict()
+/**
+ * The page's own shape. `project_name` is the tool's assertion about its id resolution, not a form
+ * field, so it must not reach the page; this schema strips it from both sides of the receipt
+ * comparison, which would otherwise compare a page snapshot against a differently-shaped request.
+ */
+const pageFields=z.object({period_start:z.string(),period_end:z.string(),source_report_text:z.string(),entries:z.array(z.object({work_date:z.string(),hours:z.number(),work_type:z.string(),project_id:z.string(),task:z.string(),notes:z.string()}))})
+const lineSnapshot=({project_name:_asserted,...entry}:z.infer<typeof line>):TimesheetLine=>entry
+const formSnapshot=(value:z.infer<typeof fields>):TimesheetFields=>({period_start:value.period_start,period_end:value.period_end,source_report_text:value.source_report_text,entries:value.entries.map(lineSnapshot)})
+/** Drop the tool's name assertions so only page-shaped data is stored or published. */
+function pageAction(value:z.infer<typeof actionSchema>):TimesheetAction{
+  if(value.kind==='create')return {kind:value.kind,fields:formSnapshot(value.fields)}
+  if(value.kind==='add-line')return {kind:value.kind,headerId:value.headerId,line:lineSnapshot(value.line)}
+  if(value.kind==='edit-line')return {kind:value.kind,headerId:value.headerId,entryId:value.entryId,line:lineSnapshot(value.line)}
+  return value
+}
+/**
+ * What the page actually holds, read from the synced form rather than echoed from the request.
+ *
+ * A content-free receipt let the model restate its own intent unchallenged, so a wrong project
+ * read back as a confident success. Naming the project and the hours the page really has is what
+ * makes that contradiction visible in the trajectory and to the user.
+ * @param form - the form snapshot the page synced back.
+ * @param projects - currently available projects, used to name the ids the page holds.
+ * @returns the period, per-day and total hours, and each entry with its project id and name.
+ */
+function appliedSummary(form:TimesheetFields,projects:readonly {id:string;name:string}[]){
+  const daily=new Map<string,number>()
+  for(const l of form.entries)daily.set(l.work_date,(daily.get(l.work_date)??0)+l.hours)
+  return {
+    period_start:form.period_start,period_end:form.period_end,
+    total_hours:form.entries.reduce((sum,l)=>sum+l.hours,0),
+    daily_hours:[...daily].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([work_date,hours])=>({work_date,hours})),
+    entries:form.entries.map(l=>({work_date:l.work_date,hours:l.hours,work_type:l.work_type,project_id:l.project_id,
+      project_name:l.project_id?projects.find(p=>p.id===l.project_id)?.name??'（不在当前可用项目中）':'',task:l.task})),
+  }
+}
 const actionSchema=z.discriminatedUnion('kind',[
   z.object({kind:z.literal('create'),fields}).strict(),
   z.object({kind:z.literal('submit'),headerId:z.string()}).strict(),
@@ -17,7 +53,7 @@ const actionSchema=z.discriminatedUnion('kind',[
   z.object({kind:z.literal('delete-line'),headerId:z.string(),entryId:z.string()}).strict(),
 ])
 interface PageBinding { connectionId:ConnectionId; timesheetPage?:string; manager?:boolean }
-const lineSpec={type:'object',additionalProperties:false,properties:{work_date:{type:'string',required:true},hours:{type:'number',required:true},work_type:{type:'string',required:true},project_id:{type:'string',required:true,description:'不关联项目时必须为空字符串'},task:{type:'string',required:true},notes:{type:'string',required:true}}} as const
+const lineSpec={type:'object',additionalProperties:false,properties:{work_date:{type:'string',required:true},hours:{type:'number',required:true},work_type:{type:'string',required:true},project_id:{type:'string',required:true,description:'不关联项目时必须为空字符串'},project_name:{type:'string',required:true,description:'project_id 对应项目的名称，逐字取自 read 返回的 projects；与编号不一致会被拒绝。不关联项目时必须为空字符串'},task:{type:'string',required:true},notes:{type:'string',required:true}}} as const
 const fieldsSpec={type:'object',additionalProperties:false,properties:{period_start:{type:'string',required:true},period_end:{type:'string',required:true},source_report_text:{type:'string',required:true},entries:{type:'array',required:true,items:lineSpec}}} as const
 const actionSpec={type:'object',required:true,additionalProperties:false,properties:{kind:{type:'string',required:true,enum:['create','submit','approve','add-line','edit-line','delete-line']},fields:fieldsSpec,headerId:{type:'string'},todoId:{type:'string'},entryId:{type:'string'},line:lineSpec,decision:{type:'string',enum:['approved','rejected','returned']},comment:{type:'string'}}} as const
 const fail=(text:string)=>new OryhClientError(text,'request-failed')
@@ -53,15 +89,20 @@ export class TimesheetChat {
     if(target&&!records.some(r=>('entity_id'in r?r.entity_id:r.id)===target))throw fail('该工时不在当前员工的工时或审批队列中。')
     const detail=target?await api.timesheetDetail(s.connectionId,target,todo?.id):undefined
     this.check(id,s)
-    return {revision:s.revision,manager:s.manager,today:new Date().toLocaleDateString('en-CA'),options,records,detail,form:s.fields,localEdits:s.localEdits,pendingSuggestion:this.proposals.get(id)?.action,notice:'表单是未保存的用户输入。建议需在中间栏应用或核对确认，不代表已保存。'}
+    // Duplicate names cannot be resolved from a name alone, and the id/name pairing cannot catch a
+    // wrong pick between two projects that share one. Naming them forces the ambiguity to the user.
+    const counts=new Map<string,number>()
+    for(const p of options.projects)counts.set(p.name,(counts.get(p.name)??0)+1)
+    const ambiguousProjects=[...counts].filter(([,count])=>count>1).map(([name])=>name)
+    return {revision:s.revision,manager:s.manager,today:new Date().toLocaleDateString('en-CA'),options,ambiguousProjects,records,detail,form:s.fields,localEdits:s.localEdits,pendingSuggestion:this.proposals.get(id)?.action,notice:'表单是未保存的用户输入。建议需在中间栏应用或核对确认，不代表已保存。'+(ambiguousProjects.length?'注意：有同名项目，必须先向用户确认是哪一个，不要自行挑选。':'')}
   }
-  async propose(id:string,revision:number,input:unknown):Promise<{message:string;proposalId:string}>{
+  async propose(id:string,revision:number,input:unknown):Promise<{message:string;proposalId:string;projects:{id:string;name:string}[]}>{
     await this.binding(id,true,true)
     const {state:s,api}=await this.page(id)
     if(s.revision!==revision)throw fail('表单版本已改变，请重新读取。')
     const parsed=actionSchema.safeParse(input)
     if(!parsed.success)throw fail('工时建议格式无效：'+parsed.error.issues.map(i=>i.path.join('.')+': '+i.message).join('; '))
-    const action:TimesheetAction=parsed.data
+    const action:TimesheetAction=pageAction(parsed.data)
     if(s.manager!==(action.kind==='approve'))throw fail('请在我的工时中填写或修改，在工时审批菜单中建议审批。')
     const data=await this.read(id,action.headerId)
     if(action.kind==='create'){
@@ -77,27 +118,45 @@ export class TimesheetChat {
     if(action.kind==='approve'&&!data.records.some(r=>'entity_id'in r&&r.id===action.todoId&&r.entity_id===action.headerId))throw fail('审批必须关联当前员工的待办。')
     if(['add-line','edit-line','delete-line'].includes(action.kind)&&!data.options.editableStates.includes(data.detail!.header.status))throw fail('当前单据不允许修改明细。')
     if(action.kind==='submit'&&!data.options.submitStates.includes(data.detail!.header.status))throw fail('当前单据状态不允许提交。')
-    for(const l of action.fields?.entries??(action.line?[action.line]:[])){
+    const asserted=parsed.data.kind==='create'?parsed.data.fields.entries:('line' in parsed.data?[parsed.data.line]:[])
+    for(const l of asserted){
       if((l.work_type||action.kind!=='create')&&!data.options.workTypes.some(o=>o.name===l.work_type))throw fail('请选择企业已配置的工时类型。')
-      if(l.project_id&&!data.options.projects.some(o=>o.id===l.project_id))throw fail('请选择当前可用项目，不要猜测编号。')
+      const named=l.project_name.trim()
+      if(!l.project_id){
+        if(named)throw fail(`明细声明了项目“${named}”却没有给出项目编号。要关联项目必须同时给出编号与名称；不关联项目时两者都留空。`)
+        continue
+      }
+      const project=data.options.projects.find(o=>o.id===l.project_id)
+      if(!project)throw fail('请选择当前可用项目，不要猜测编号。')
+      // The name is a second, independent statement of the same choice. An id-only check cannot
+      // tell a correctly-formed id from the one the user actually asked for; a mismatch here is
+      // the resolution error itself, surfaced before it reaches the form.
+      if(!named)throw fail(`请同时给出项目名称以核对编号：编号 ${l.project_id} 对应“${project.name}”。`)
+      if(named!==project.name)throw fail(`项目编号与名称不一致：编号 ${l.project_id} 实际是“${project.name}”，建议里写的是“${named}”。请重新确认用户要求的是哪个项目，必要时先反问，不要自行选择。`)
     }
     this.check(id,s)
     const proposal={id:randomUUID(),revision,action}
     this.proposals.set(id,proposal)
     this.queue.changed(id)
-    return {message:'填写更新已发送到右侧未保存表单；其他操作等待用户核对。尚未保存、提交或审批。',proposalId:proposal.id}
+    return {message:'填写更新已发送到右侧未保存表单；其他操作等待用户核对。尚未保存、提交或审批。',proposalId:proposal.id,projects:data.options.projects}
   }
   install(){
     const output={schema:{type:'string' as const},render:(_a:unknown,value:string)=>[{type:'text' as const,text:value}]}
     this.ctx.tools.register(defineTool({name:'oryh_timesheet_read',description:'读取当前工时菜单的表单版本、未保存表单、本人工时或经理审批队列、企业工时类型和项目。headerId 为空读取当前页面；非空只可查询返回列表中的工时。',parameters:{headerId:{type:'string',description:'工时编号；没有指定则传空字符串'}},output,execute:async(args,e)=>{if(!e.agent)throw fail('需要会话');e.signal.throwIfAborted();const result=await this.read(String(e.agent.id),args.headerId);e.signal.throwIfAborted();return JSON.stringify(result)}}))
-    this.ctx.tools.register(defineTool({name:'oryh_timesheet_propose',description:'生成工时建议，不写服务端。先 read 获取 revision，传 action 对象。填写未保存表单：kind=create，fields 为完整快照，保留未要求修改的内容。允许分步填写：未知字段保留空字符串，未填写小时保留 0，不必等所有内容齐全；正式保存会校验完整性。提交：kind=submit,headerId。添加明细：kind=add-line,headerId,line。编辑：kind=edit-line,headerId,entryId,line。删除明细：kind=delete-line,headerId,entryId。审批：kind=approve,headerId,todoId,decision,comment。只传该操作需要的字段。不关联项目时 project_id 传空字符串，日期为 YYYY-MM-DD，工时类型必须使用 read 返回的 name。create 自动更新右侧未保存表单，无需点击应用；其他操作仍需核对。不能声称已保存或执行。',parameters:{revision:{type:'integer',required:true},action:actionSpec},output,execute:async(args,e)=>{if(!e.agent)throw fail('需要会话');e.signal.throwIfAborted();const id=String(e.agent.id);const result=await this.propose(id,args.revision,args.action);if(args.action.kind==='create'){try{
-      const applied=await this.queue.wait<string>(id,'timesheet-form',{
+    this.ctx.tools.register(defineTool({name:'oryh_timesheet_propose',description:'生成工时建议，不写服务端。先 read 获取 revision，传 action 对象。填写未保存表单：kind=create，fields 为完整快照，保留未要求修改的内容。允许分步填写：未知字段保留空字符串，未填写小时保留 0，不必等所有内容齐全；正式保存会校验完整性。提交：kind=submit,headerId。添加明细：kind=add-line,headerId,line。编辑：kind=edit-line,headerId,entryId,line。删除明细：kind=delete-line,headerId,entryId。审批：kind=approve,headerId,todoId,decision,comment。只传该操作需要的字段。关联项目必须同时给出 project_id 与 project_name，名称逐字取自 read 的 projects；两者不一致会被拒绝，这是为了拦住编号解析错误。不关联项目时 project_id 与 project_name 都传空字符串。read 的 ambiguousProjects 列出同名项目，遇到时必须先反问用户是哪一个，不要自行挑选。日期为 YYYY-MM-DD，工时类型必须使用 read 返回的 name。create 自动更新右侧未保存表单，无需点击应用；其他操作仍需核对。成功回执里的 applied 是页面实际生效的内容（项目编号与名称、每日工时、合计），向用户复述必须依据它，不能复述本次调用的参数。不能声称已保存或执行。',parameters:{revision:{type:'integer',required:true},action:actionSpec},output,execute:async(args,e)=>{if(!e.agent)throw fail('需要会话');e.signal.throwIfAborted();const id=String(e.agent.id);const result=await this.propose(id,args.revision,args.action);if(args.action.kind==='create'){try{
+      const applied=await this.queue.wait<{message:string;applied:ReturnType<typeof appliedSummary>|undefined}>(id,'timesheet-form',{
         invalid:()=>this.states.get(id)?undefined:'页面已离开，填写已取消',
         until:()=>{const state=this.states.get(id);if(!state||state.revision===args.revision)return undefined
-          return JSON.stringify(fields.safeParse(state.fields).data)===JSON.stringify(fields.safeParse(args.action.fields).data)?'右侧工时表单已更新，尚未保存。':'表单发生其他修改，请重新读取，不能声称填写成功。'},
+          // A synced page need not carry a form at all, so there may be nothing to summarize.
+          const form=state.fields
+          const matched=form!==undefined&&JSON.stringify(pageFields.safeParse(form).data)===JSON.stringify(pageFields.safeParse(args.action.fields).data)
+          // The summary comes from the page's own snapshot either way, so a mismatch reports what
+          // the form actually holds instead of what was requested.
+          return {message:matched?'右侧工时表单已更新，尚未保存。以下 applied 是页面实际内容，请按它向用户复述，不要复述本次参数。':'表单发生其他修改，请重新读取，不能声称填写成功。以下 applied 是页面实际内容。',
+            applied:form===undefined?undefined:appliedSummary(form,result.projects)}},
         expired:'表单未确认填写，请重新读取。',timeoutMs:6000,signal:e.signal,
       })
-      return JSON.stringify({message:applied})
+      return JSON.stringify(applied)
     }catch(error){if(this.proposals.get(id)?.id===result.proposalId)this.proposals.delete(id);throw error}}return JSON.stringify(result)}}))
     this.ctx.effect(()=>()=>{this.states.clear();this.proposals.clear()},'oryh timesheet suggestions')
   }
