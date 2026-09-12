@@ -98,6 +98,25 @@ export class TimesheetChat {
     this.reviews.set(id,{headerId,status:this.reviewPhase(id,agent)})
     this.queue.changed(id)
   }
+  /**
+   * Refuse a submit the norm review has not cleared.
+   *
+   * Only `passed` opens the door — a flagged verdict, a review still running, and a review that
+   * could not run at all all block. That is deliberate: any state the user can reach by waiting or
+   * by closing the session would otherwise be a way around the verdict, and then the check is
+   * decoration. The submitter still has ORYH Console and any other agent; what this removes is
+   * *this* client being the easy way past its own review.
+   * @param action - the intent being confirmed; anything but a submit passes straight through.
+   * @param sessionId - chat session whose agent ran the review.
+   */
+  assertReviewPassed(action:{kind:string;headerId?:string},sessionId?:string):void{
+    if(action.kind!=='submit')return
+    const review=sessionId===undefined?undefined:this.reviews.get(sessionId)
+    if(review?.status==='passed'&&review.headerId===action.headerId)return
+    if(review?.status==='flagged')throw new OryhClientError(`未通过企业工时流程要求核对：${review.message||'存在冲突'}。请修改后重新提交。`,'request-failed')
+    if(review?.status==='queued'||review?.status==='reviewing')throw new OryhClientError('规范核对尚未完成，请等待结论。','request-failed')
+    throw new OryhClientError('本次提交未经企业工时流程要求核对，无法提交。请在 Chat 中保持会话后重新提交。','request-failed')
+  }
   /** Drop the review, whether the user skipped it or the submission finished. */
   reviewClear(id:string){this.reviewMessages.delete(id);if(this.reviews.delete(id))this.queue.changed(id)}
   /** Queued while the request is still pending in the inbox; reviewing once the agent claimed it. */

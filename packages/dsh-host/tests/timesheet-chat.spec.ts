@@ -121,6 +121,28 @@ describe('timesheet suggestions',()=>{
   // The request is still pending in the inbox, so the page shows it queued rather than running.
   expect(f.chat.review('s')).toEqual({headerId:'h',status:'queued'})
  })
+ it('lets only a passed verdict through the submit gate',async()=>{
+  const f=setup();await f.chat.sync(f.state)
+  const submit={kind:'submit',headerId:'h'},exec={agent:{id:'s'},signal:new AbortController().signal}
+
+  // No review at all is not a free pass: it is the state anyone would reach by closing the session.
+  expect(()=>f.chat.assertReviewPassed(submit,'s')).toThrow(/未经/)
+  await f.chat.reviewStart('s','h')
+  expect(()=>f.chat.assertReviewPassed(submit,'s')).toThrow(/尚未完成/)
+
+  await f.tool('oryh_timesheet_review_result').execute({verdict:'flagged',message:'本周合计 24 小时，少于 30 小时'} as never,exec as never)
+  expect(()=>f.chat.assertReviewPassed(submit,'s')).toThrow(/少于 30 小时/)
+  // Nothing about a flagged verdict may be worked around by dropping the session id either.
+  expect(()=>f.chat.assertReviewPassed(submit,undefined)).toThrow(/未经/)
+  // Other actions never pass through this gate; the review only ever covers a submit.
+  expect(()=>f.chat.assertReviewPassed({kind:'approve',headerId:'h'},'s')).not.toThrow()
+
+  await f.chat.reviewClear('s');await f.chat.reviewStart('s','h')
+  await f.tool('oryh_timesheet_review_result').execute({verdict:'passed',message:''} as never,exec as never)
+  expect(()=>f.chat.assertReviewPassed(submit,'s')).not.toThrow()
+  // A verdict about a different timesheet must not clear this one.
+  expect(()=>f.chat.assertReviewPassed({kind:'submit',headerId:'other'},'s')).toThrow(/未经/)
+ })
  it('moves from queued to reviewing when the agent claims the request',async()=>{
   const f=setup();await f.chat.sync(f.state)
   await f.chat.reviewStart('s','h')

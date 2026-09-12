@@ -21,7 +21,7 @@ import type {
 import type { ConnectionId, DeviceAuthorizationId, OperationResultId, SavedOperationId } from '@oryh/ai-client-foundation'
 import type { ExpenseDraft, ExpenseFields, OryhExpenseRemote } from '@oryh/ai-client-expenses'
 
-import type { ConnectRequest, ConnectionRequest, AuthorizationRequest, OperationRequest, ResultRequest, SaveResultRequest, SavedRequest, DraftRequest, SaveDraftRequest, ConfirmDraftRequest, UploadRequest, ExpenseOptions, AttachmentReceipt } from './types.js'
+import type { ConnectRequest, ConnectionRequest, AuthorizationRequest, OperationRequest, ResultRequest, SaveResultRequest, SavedRequest, DraftRequest, SaveDraftRequest, ConfirmDraftRequest, ConfirmTimesheetRequest, UploadRequest, ExpenseOptions, AttachmentReceipt } from './types.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -80,7 +80,7 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('timesheetDetail') timesheetDetail(request: TimesheetDetailRequest): Promise<TimesheetDetail> { return this.call(() => this.ctx.oryhTimesheets.timesheetDetail(request.connectionId, request.headerId, request.todoId)) }
   @Remote('timesheetHistory') timesheetHistory(request: ConnectionRequest): Promise<TimesheetIntent[]> { return this.call(() => this.ctx.oryhTimesheets.timesheetHistory(request.connectionId)) }
   @Remote('timesheetPrepare') timesheetPrepare(request: TimesheetActionRequest): Promise<TimesheetIntent> { return this.call(() => this.ctx.oryhTimesheets.timesheetPrepare(request.connectionId, request.action)) }
-  @Remote('timesheetConfirm') timesheetConfirm(request: ConfirmDraftRequest): Promise<TimesheetIntent> { return this.call(() => this.ctx.oryhTimesheets.timesheetConfirm(request.connectionId, request.id, request.revision, request.token)) }
+  @Remote('timesheetConfirm') timesheetConfirm(request: ConfirmTimesheetRequest): Promise<TimesheetIntent> { return this.call(() => this.ctx.oryhTimesheets.timesheetConfirm(request.connectionId, request.id, request.revision, request.token, request.sessionId)) }
   @Remote('timesheetReconcile') timesheetReconcile(request: DraftRequest): Promise<TimesheetIntent> { return this.call(() => this.ctx.oryhTimesheets.timesheetReconcile(request.connectionId, request.id, request.revision)) }
   @Remote('todoDetail') todoDetail(request: TodoDetailRequest): Promise<TodoDocument> { return this.call(() => this.ctx.oryhTodoDetails.read(request.connectionId, request.todoId)) }
   @Remote('chatSelect') chatSelect(request: ChatSelection): Promise<ChatContextView> { return this.call(() => this.ctx.oryhChat.select(request)) }

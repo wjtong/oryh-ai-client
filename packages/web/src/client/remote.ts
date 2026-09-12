@@ -145,7 +145,7 @@ export function createOryhRemote(remote: ClientRemote): BusinessRemote {
     timesheetDetail: (id, headerId, todoId) => unwrap(api.timesheetDetail({ ...connection(id), headerId, ...(todoId ? { todoId } : {}) })),
     timesheetHistory: id => unwrap(api.timesheetHistory(connection(id))),
     timesheetPrepare: (id, action) => unwrap(api.timesheetPrepare({ ...connection(id), action })),
-    timesheetConfirm: (cid, id, revision, token) => unwrap(api.timesheetConfirm({ ...connection(cid), id, revision, token })),
+    timesheetConfirm: (cid, id, revision, token, sessionId) => unwrap(api.timesheetConfirm({ ...connection(cid), id, revision, token, ...(sessionId === undefined ? {} : { sessionId }) })),
     timesheetReconcile: (cid, id, revision) => unwrap(api.timesheetReconcile({ ...connection(cid), id, revision })),
     expenseList: id => unwrap(api.expenseList(connection(id))),
     expenseOptions: id => unwrap(api.expenseOptions(connection(id))),

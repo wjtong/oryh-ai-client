@@ -45,6 +45,7 @@
 | D-028 | 菜单可见性只是入口展示，业务授权始终在服务层执行；将来若有按租户的模块启停，它是独立于用户权限的第二个轴，不并入页面登记表 | [ADR-0008](adr/0008-domain-libraries-not-independent-plugins.md) |
 | D-029 | Chat 栏是一个通用 ORYH agent：按 ORYH 既有方案下载 personal skill bundle 并原样落盘，`skill` 与 `bash` 进入工具允许列表；业务逻辑留在 Skills，不翻译成客户端代码 | [ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md)、[Skills 装载](23-oryh-skills.md) |
 | D-030 | skills 根（`<agentsHome>/skills`）含该人的 `ORYH_API_KEY`，共享主机上必须按 uid 隔离 | [ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md)、[S0 验收](21-s0-acceptance.md) |
+| D-031 | 工时提交前的规范核对具有强制力：只有 agent 回报 `passed` 才能提交，`flagged` 与核对不可用一律禁用确认；闸门在 Host 的 `confirm()`，不只是禁用按钮。阈值仍不写进代码，判断仍来自 agent | [提交前核对](22-timesheet-submit-review.md) |
 
 ## 3. 建议等待批准
 

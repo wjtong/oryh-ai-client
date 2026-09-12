@@ -31,7 +31,7 @@ export interface OryhTimesheetRemote {
   timesheetDetail(id: string, headerId: string, todoId?: string): Promise<TimesheetDetail>
   timesheetHistory(id: string): Promise<TimesheetIntent[]>
   timesheetPrepare(id: string, action: TimesheetAction): Promise<TimesheetIntent>
-  timesheetConfirm(id: string, intentId: string, revision: number, token: string): Promise<TimesheetIntent>
+  timesheetConfirm(id: string, intentId: string, revision: number, token: string, sessionId?: string): Promise<TimesheetIntent>
   timesheetReconcile(id: string, intentId: string, revision: number): Promise<TimesheetIntent>
 }
 export function timesheetError(message: string): OryhClientError { return new OryhClientError(message, 'timesheet-conflict') }

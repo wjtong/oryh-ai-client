@@ -175,11 +175,22 @@ export class TimesheetService implements OryhTimesheetRemote {
     const r:TimesheetRecord={id:intentId,revision:1,scope,action,state:'review',token:randomUUID(),expiresAt:Date.now()+300000,updatedAt:new Date().toISOString(),message:'请核对后确认。',digest,payload,path,method,...(detail?{detail}:{})}
     await this.store.append(r,0); this.guard(id,scope); return this.view(r)
   }
-  timesheetConfirm(id: string,intentId: string,revision: number,token: string) { return this.serialize(() => this.confirm(id,intentId,revision,token)) }
-  private async confirm(id: string,intentId: string,revision: number,token: string) {
+  /**
+   * Refuse a confirm the pre-submit norm review has not cleared.
+   *
+   * The verdict lives in the Host's chat layer, which this package must not depend on, so the Host
+   * installs the check here instead. It sits in the service rather than in the page because a
+   * disabled button is a suggestion: the Remote is reachable without it.
+   * @param gate - throws when the action may not be confirmed; no-op for actions it does not cover.
+   */
+  setSubmitGate(gate: (action: TimesheetAction, sessionId?: string) => void) { this.gate = gate }
+  private gate?: (action: TimesheetAction, sessionId?: string) => void
+  timesheetConfirm(id: string,intentId: string,revision: number,token: string,sessionId?: string) { return this.serialize(() => this.confirm(id,intentId,revision,token,sessionId)) }
+  private async confirm(id: string,intentId: string,revision: number,token: string,sessionId?: string) {
     await this.verify(id); let r=await this.read(id,intentId,revision)
     if ((await this.store.list()).some(other => other.id !== r.id && other.scope === r.scope && ['unknown','executing'].includes(other.state) && (r.action.kind === 'create' ? other.action.kind === 'create' && other.action.fields?.period_start === r.action.fields?.period_start && other.action.fields?.period_end === r.action.fields?.period_end : other.action.headerId === r.action.headerId))) throw fail('该单据有未确认的操作，请先核对执行记录。')
     requirePermission(this.connection(id).identity,r.action.kind==='approve'?'approval.record':'timesheet.submit_own')
+    this.gate?.(r.action,sessionId)
     if (r.state!=='review' || r.token!==token || r.expiresAt<Date.now()) throw fail('确认已过期或已使用，请重新核对。')
     if (r.action.kind!=='create' && (await this.context(id,r.action)).digest!==r.digest) throw fail('工时内容或审批待办已改变，请重新核对。')
     if (r.expiresAt<Date.now()) throw fail('确认已过期，请重新核对。')

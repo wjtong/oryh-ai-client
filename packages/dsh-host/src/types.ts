@@ -13,6 +13,8 @@ export interface SavedRequest extends ConnectionRequest { savedOperationId: Save
 export interface DraftRequest extends ConnectionRequest { id: string; revision: number }
 export interface SaveDraftRequest extends ConnectionRequest { id?: string; revision?: number; fields: ExpenseFields }
 export interface ConfirmDraftRequest extends DraftRequest { token: string }
+/** A timesheet confirm carries its chat session, so the Host can find that session's norm verdict. */
+export interface ConfirmTimesheetRequest extends ConfirmDraftRequest { sessionId?: string }
 export interface UploadRequest extends ConnectionRequest { filename: string; contentType: string; contentBase64: string }
 export interface ExpenseOptions { categories: { name: string; title: string }[] }
 export interface AttachmentReceipt { id: string; filename: string; sha256: string }
