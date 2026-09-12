@@ -1,8 +1,8 @@
 /** An external root provider: only public slot, store, locale and layout contracts. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { ILayout, MainPanelId, PanelInfo } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import type { BoundActions, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { IconChecklist, IconReceipt, IconFolder, IconSettings, IconLayoutSidebarLeftCollapse, IconMessage } from '@tabler/icons-react'
 import { createFrameStore, type BusinessView, type FrameIdentity } from './layout-store.js'
@@ -12,36 +12,62 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'oryh.business': { kind: 'single'; scope: 'root'; owner: { page: BusinessView; navigate: (page:BusinessView)=>void; onIdentity: (identity:FrameIdentity|undefined)=>void } }
   }
 }
-type FrameActions = BoundActions<ReturnType<typeof createFrameStore>>
-type FrameProps = PropsRuntime<'root'> & PropsRenderSlots<'sidebar' | 'conversation' | 'rightbar' | 'shell.overlay' | 'oryh.business'> & PropsStore<ReturnType<typeof createFrameStore>> & PropsLocale<'oryh'>
+type FrameProps = PropsRuntime<'root'> & PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'shell.overlay' | 'oryh.business'> & PropsStore<ReturnType<typeof createFrameStore>> & PropsLocale<'oryh'>
 
-/** Provide exactly one root, and retract service and child declarations together. */
+/** Provide exactly one root, and retract service, panel source and child declarations together. */
 export function registerFrame(ctx: Context): void {
   ctx.effect(() => {
-    let actions: FrameActions | undefined
-    const requireActions = () => { if (!actions) throw new Error('ORYH root is not mounted'); return actions }
+    // The layout service, the panel-info source and the root entry share one store instance.
+    const handle = createFrameStore()
+    const instance = handle.create()
+    const store: typeof handle = { ...handle, create: () => instance }
+    const mainPanels = () => ctx.slots.entries('main').flatMap(entry => entry.options.key === undefined ? [] : [entry.options.key])
+    let navigation = new AbortController()
     const layout: ILayout = {
-      toggleSidebar: () => requireActions().toggleSidebar(),
-      openRightbar: (track, fullscreen) => requireActions().openRightbar(track, fullscreen),
-      closeRightbar: () => requireActions().closeRightbar(),
+      selectPanel: (panelId: MainPanelId | null) => {
+        if (panelId !== null && !mainPanels().includes(panelId)) {
+          throw new Error(`layout.selectPanel: main panel "${panelId}" is not registered`)
+        }
+        navigation.abort()
+        instance.actions.selectPanel(panelId)
+      },
+      beginNavigation: () => { navigation.abort(); navigation = new AbortController(); return navigation.signal },
+      toggleSidebar: () => instance.actions.toggleSidebar(),
+      openRightbar: (track, fullscreen) => instance.actions.openRightbar(track, fullscreen),
+      closeRightbar: () => instance.actions.closeRightbar(),
     }
+    // The native sidebar reads this standard hook; ORYH owns it because it replaces ui-layout.
+    const panelInfo: HostObservable<PanelInfo> = {
+      getSnapshot: () => instance.getSnapshot().panelInfo,
+      subscribe: listener => instance.subscribe(listener),
+    }
+    const removePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo } })
     const removeService = ctx.reflect.provide('layout', layout)
     const removeRoot = ctx.slots.register({
-      name: 'root', locale: 'oryh', store: createFrameStore,
+      name: 'root', locale: 'oryh', store,
       children: {
         sidebar: { kind: 'single', scope: 'root' },
-        conversation: { kind: 'single', scope: 'session-maybe' },
-        rightbar: { kind: 'single', scope: 'session' },
+        main: { kind: 'keyed', scope: 'root' },
+        rightbar: { kind: 'single', scope: 'root' },
         'shell.overlay': { kind: 'list', scope: 'root' },
         'oryh.business': { kind: 'single', scope: 'root' },
       },
-      inject: (bound: FrameActions) => { actions = bound; return {} },
     }, Frame)
-    return () => { removeRoot(); actions = undefined; void removeService() }
+    const retain = () => { instance.actions.retainMainPanels(mainPanels()) }
+    const removePanels = ctx.slots.subscribe('main', retain)
+    retain()
+    return () => {
+      navigation.abort()
+      removePanels()
+      removeRoot()
+      removePanelInfo()
+      void removeService()
+      instance.dispose?.()
+    }
   }, 'oryh root layout')
 }
 
-function Frame({ useStore, actions, renderSlot, SessionProvider, t }: FrameProps) {
+function Frame({ useStore, actions, renderSlot, t }: FrameProps) {
   const state = useStore(s => s)
   const root = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
@@ -95,9 +121,9 @@ function Frame({ useStore, actions, renderSlot, SessionProvider, t }: FrameProps
       onKeyDown={e=>{const widths:Record<string,number>={ArrowLeft:chatWidth+20,ArrowRight:chatWidth-20,Home:280,End:maxChatWidth};if(e.key in widths){e.preventDefault();actions.setChatWidth(Math.min(maxChatWidth,widths[e.key]!))}}}/>}
     <section id="oryh-chat-panel" className="oryh-chat-seat" aria-label={t('assistant')}>
       <header><strong>{t('assistant')}</strong><span>{t('nativeChat')}</span></header>
-      <div className="oryh-chat-content">{renderSlot('conversation', {})}</div>
+      <div className="oryh-chat-content">{renderSlot('main', {}, { entryKey: state.panelInfo.activePanelId ?? 'conversation' })}</div>
     </section>
-    <div className="oryh-artifact-seat"><SessionProvider>{renderSlot('rightbar', { width: Math.min(640, state.viewport), viewportWidth: state.viewport, canShow: state.viewport >= 700 })}</SessionProvider></div>
+    <div className="oryh-artifact-seat">{renderSlot('rightbar', { width: Math.min(640, state.viewport), viewportWidth: state.viewport, canShow: state.viewport >= 700 })}</div>
     <div className="oryh-shell-overlay" data-shell-overlay>{renderSlot('shell.overlay', {})}</div>
   </div>
 }

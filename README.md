@@ -105,7 +105,7 @@ ORYH 的核心定位是 agent-native 企业事实与控制层。不同员工仍�
 
 ## 源码基线
 
-ORYH：`/Users/wtong/git/calwbiz`。Harness：`/Users/wtong/git/deepseek-harness`，`0.1.3-alpha.2` / `c389f96bf3`，外加本次外部 Remote 符号识别兼容补丁。该补丁尚未发布上游；本仓库保留可审查副本，见 [迁移记录](docs/14-dsh-plugin-migration.md)。
+ORYH：`/Users/wtong/git/calwbiz`。Harness：`/Users/wtong/git/deepseek-harness`，`0.1.5-rc.2` / `c291e7961a`，外加本次外部 Remote 符号识别兼容补丁。该补丁仍未进入上游发布，需在本机 DSH 工作区重新应用并重建后才生效；本仓库保留可审查副本，见 [迁移记录](docs/14-dsh-plugin-migration.md)。
 
 模型与聊天配置见 [配置模型并开始聊天](docs/15-model-configuration.md)。左下角「模型与设置」复用原生 Models 页面，支持 Base URL、API key、协议和模型目录。
 

@@ -185,6 +185,16 @@ ORYH 现有流水端点不支持 product_id：插件组合现有租户限定 GET
 
 浏览器验证：通过 Chat 增加库存流水产品查询字段，展开查询配置、展开菜单、将 Chat 调宽至 380px 并隐藏；整页刷新后仍停留库存流水，产品字段和查询区展开状态、菜单展开及 Chat 隐藏均恢复，再显示 Chat 时宽度仍为 380px。
 
+### 升级到 DSH 0.1.5-rc.2（2026-09-12）
+
+本机 Harness 基线从 `0.1.3-alpha.2` 升到 `0.1.5-rc.2` / `c291e7961a`，并按该版本源码重新构建（native-system、host/client lib、web frontend）。外部 Remote 符号识别补丁不在上游 0.1.5-rc.2 源码里，重新应用 `patches/deepseek-harness-external-remote.patch` 之后才重建，重建产物已确认包含该修复。DSH 工作区的这两处改动没有提交，下次同步 DSH 需要重新应用。
+
+根布局随之迁移到 0.1.5 的 Slot 模型。顶层不再有 `conversation` 槽：对话是 `main`（keyed、root）里 key 为 `conversation` 的条目，三栏因此改为按 `entryKey` 渲染。`rightbar` 由 session 作用域改为 root，外层 `SessionProvider` 随之去掉。`ILayout` 增加 `selectPanel` 与 `beginNavigation`。ORYH 取代官方 ui-layout，所以 `panelInfo` 这个标准钩子必须由本插件通过 `provideRoot` 提供，否则原生侧栏读不到面板选择；布局服务、该钩子与根条目共用同一个 store 实例，面板插件卸载时由 `retainMainPanels` 把中栏退回对话。
+
+`scripts/install-profile.mjs` 改用官方命令：profile 不存在时先 `dsh --profile oryh-web --from-default-profile web --dump-config` 从随发行版模板初始化（已含 base 与 web-app 两层，且不启动服务），再 `dsh plugin --profile oryh-web add`，不再手改 profile 的 `package.json`。
+
+验证：`pnpm run verify` 通过，Core 87、Workspace 9、Host 39、Client 23，共 158 项测试。未在测试环境创建或提交业务数据。
+
 ### 当前用户权限与功能入口（2026-09-11）
 
 `/auth/me` 的 `permissions` 现在随已验证身份传给插件；不从角色名称推断管理员全权，也不从浏览器保存的偏好恢复授权。公共 `@oryh/ai-client-core/access` 统一定义插件入口策略：本人待办要求绑定员工；工时/费用按对应 submit_own、advance 或 approval.record 开放本人记录；工时审批要求员工身份及 approval.record；项目要求 master_data.manage 或 users.manage；订单要求 order.submit_own、order.advance 或 approval.record；库存要求 inventory.manage；Shipment 要求 shipment.manage（遵循服务端 inventory.manage 蕴含 shipment.manage）。支持 verb:*，不扩大单个对象 scope 的授权。
