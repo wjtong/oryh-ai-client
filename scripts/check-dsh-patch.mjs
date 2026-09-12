@@ -56,7 +56,7 @@ if (git.error !== undefined) {
     `${relative(process.cwd(), patch)} no longer matches ${harnessRoot} verbatim.`,
     'The build can still succeed if the fix reached the artifact another way, but the stored patch',
     'has drifted and will not restore the tree after the next DSH sync. Re-export it:',
-    `  git -C ${harnessRoot} diff -- ${baseline.target} > ${patch}`,
+    `  git -C ${harnessRoot} diff -- ${[baseline.target].flat().join(' ')} > ${patch}`,
     (git.stderr ?? '').trim(),
   ].filter(Boolean))
 }
