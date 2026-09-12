@@ -54,9 +54,13 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
  * replayed or lost. The previous set stays published while the stream reopens; only a refusal
  * before any baseline is terminal, because that means the session is no longer bound.
  *
- * The reconnect loop is written out here rather than reusing Harness's RemoteSnapshotStream:
- * an out-of-tree client bundle can import Harness types but not its values, so the helper
- * classes are unreachable. The cost is a fixed reopen delay instead of Connection-paced retry.
+ * TODO(review §2): replace this loop with `remote.$stream`. It was written out on the belief
+ * that an out-of-tree bundle cannot import Harness values; that was wrong — the cause was our
+ * own esbuild external list, and the public stream classes are reachable (verified at
+ * 0.1.5-rc.2, see docs/14). `$stream` is a plain service method needing no value import at all
+ * and lets Connection pace retries, and `RemoteStreamCarrierError` is what marks a normal
+ * generation end retryable. Until then the cost is a fixed reopen delay, and the pre-baseline
+ * error handling below is knowingly too blunt: every such failure is treated as terminal.
  * @param remote - client Remote carrying the mounted ORYH namespace.
  * @param request - the session and connection to follow.
  * @returns an unstarted store owned by the caller.

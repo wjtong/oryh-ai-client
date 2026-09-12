@@ -262,9 +262,22 @@ Host：`CommandQueue` 增加 `subscribe`/`changed`，`issue`、`withdraw`、`cle
 
 因此警告的**真实原因是我们自己的构建配置**：`scripts/build-dsh-client.mjs:9` 的 external 名单只有 react、cordis、dsh-client-store，没有 gateway，于是 esbuild 把那个 `__ModuleLoader__.load` 注册文件当普通模块内联，而它没有 ESM 导出，具名导入自然是 undefined。我们的 web 包也没有 `tsdown.config.ts`，不走 Harness 预设，所以既没吃到门禁报错，也没拿到 external 归一。
 
-尚未证明的部分（恢复复用的条件）：`PLATFORM_MODULES` 基线不含 gateway、`PRELOADED_CLIENT_EXTERNALS` 为空，而我们自建 bundle 不经预设，所以"把 `@deepseek-ai/dsh-api-gateway/client` 加入 external 后运行时 require 能被应答"仍需一次真实验证——加载器 `mode` 进入 `live` 后模块表不在全局上，控制台无法取证，只能改配置后重建验证。另有一处类型陷阱：裸包名的类型指向 Host 半边（`lib/types/index.d.ts`，不导出 `RemoteSnapshotStream`），所以源码应写 `/client` 子路径（类型正确），运行时由 `stripClientSuffix` 归一。
+**运行时验证已完成（2026-09-12）。** 加载器 `mode` 进入 `live` 后模块表不在全局上，控制台取不到证，所以只能改配置后重建实测：把 `@deepseek-ai/dsh-api-gateway/client` 加进 `build-dsh-client.mjs` 的 external，临时加一个顶层静态值导入的探针（故意用生产代码会用的写法，这样失败就是真答案而不是探针的假象），重建后产物里出现 `require("@deepseek-ai/dsh-api-gateway/client")`，esbuild 不再告警。重启客户端后探针结果：
 
-当前代价（未变）：重连循环仍是自行实现，固定 1 秒重开，没有 DSH 依 Connection generation 调度重试的节奏。但原因要改记为"external 未申报、尚未验证"，而不是"平台不允许"。这一条先前被归到"转发事件是封闭白名单""自定义 SessionEventMap 会破坏会话重载"那一类外部插件边界里，现在看归类是错的。
+```
+{ snapshotStream: "function", stream: "function",
+  carrierError: "function", carrierIsError: "Error: probe" }
+```
+
+三个类都拿到了真值，`new RemoteStreamCarrierError('probe')` 也确实是 `Error` 实例，而且 ORYH 插件照常挂载、页面正常渲染。**结论：评审正确，原记录错误，修复只是 external 名单里的一行。** 探针随后删除，external 条目保留（下一步要用）。
+
+一处类型陷阱：裸包名的类型指向 Host 半边（`lib/types/index.d.ts`，不导出 `RemoteSnapshotStream`），所以源码要写 `/client` 子路径（类型才对），运行时由 `stripClientSuffix` 归一。
+
+**更要紧的发现：大部分复用根本不需要值导入。** `ClientRemote.$stream<Item>(options): RemoteStream<Item>` 是服务上的方法，`ctx.remote.$stream({name, open, ended, carrierFailed})` 直接就能拿到一条由 Connection 调度重连的流——物理重试时机、carrier 失败分类都在里面。`RemoteStream` 与 `RemoteSnapshotStream` 作为**类型**引用即可；真正需要值的只有 `RemoteStreamCarrierError`，因为 `ended(accepted): Error` 必须**返回**一个错误对象，用它才能把"正常结束"标成可重试。这正是原记录里写的那个缺口，现在已证明可达。
+
+`RemoteSnapshotStream` 的契约与我们的需求吻合得出奇：`isSnapshot` 正是 `CommandFrame` 当初被改成可辨识联合的原因，`replace`/`update`/`failed` 对应整集替换、增量与终态发布，而文档明写"底层流重试期间上一份快照保持已发布"——就是评审 §2 要求的"终态不应继续发布旧的待执行命令"的反面保证。
+
+当前代价（未变，但原因要改记）：重连循环仍是自行实现、固定 1 秒重开。原因是"external 未申报"，**不是"平台不允许"**。这一条先前被归到"转发事件是封闭白名单""自定义 SessionEventMap 会破坏会话重载"那一类外部插件边界里，现在看归类是错的：那两条是真边界，这一条是我们自己的构建配置。下一步（评审 §2）应改用 `remote.$stream` 重写，而不是继续加固自写循环。
 
 已全仓审计：客户端源码其余非类型的 `@deepseek-ai` 引用只有 `dsh-client-store`（在 external 名单内）与 layout.spec 的两个（spec 不进 bundle），所以今天没有重复运行时实例的隐患。
 
@@ -470,13 +483,13 @@ DSH 树里另有三个未跟踪的说明文件（`.agents/notes/implemented/bug-
 
 验证：`pnpm run verify` 通过，Host 44（新增 3）。
 
-### 已更正：Harness 值引用的限制被我记过宽（评审 §5）
+### 已更正并实测：Harness 值引用的限制被我记过宽（评审 §5）
 
-见上文"跨插件值引用是被显式管控的"。结论：评审正确，我错；真实原因是 `build-dsh-client.mjs` 的 external 名单，不是平台不允许。运行时可用性仍需一次重建验证，尚未做。
+见上文"跨插件值引用是被显式管控的"。结论：评审正确，我错；真实原因是 `build-dsh-client.mjs` 的 external 名单，不是平台不允许。运行时验证已完成，三个公共流类都可达，且发现 `remote.$stream` 这条连值导入都不需要的复用路径。external 条目已保留，探针已删除。
 
 ### 未做（仍是待办）
 
-- §2 异常分类与绑定生命周期：`remote.ts` 把 baseline 前任何异常当终态、`command-stream.tsx` 每 500ms 无差别重试绑定，确实是一对相反的错误，都是我写的。需要统一连接状态与可取消退避，并补客户端流适配器测试。
+- §2 异常分类与绑定生命周期：`remote.ts` 把 baseline 前任何异常当终态、`command-stream.tsx` 每 500ms 无差别重试绑定，确实是一对相反的错误，都是我写的。需要统一连接状态与可取消退避，并补客户端流适配器测试。**做法已经清楚**：改用 `remote.$stream`（Connection 调度重连）＋ `RemoteStreamCarrierError`（把正常结束标成可重试），自写的 `createCommandStream` 循环应当删掉而不是加固。
 - §3 工时选错项目：同意按正确性缺陷跟踪，工时业务基线在此之前不应记为全部通过。
 - §4 领域库还是独立业务插件：这是产品决策，不该由我替用户定。在定下来之前不动 `dsh-connections` / `dsh-workbench` 的边界。
 - §5 补丁守卫只看源码注释、以及干净环境构建验证。
