@@ -49,7 +49,7 @@ const header = (r: Record<string, unknown>): TimesheetHeader => ({ id: str(r.id)
 const line = (r: Record<string, unknown>): TimesheetLine => ({ work_date: str(r.work_date), hours: Number(r.hours), work_type: str(r.work_type), project_id: str(r.project_id), task: str(r.task), notes: str(r.notes) })
 const linePayload = (l: TimesheetLine) => ({ work_date: l.work_date, hours: l.hours, work_type: l.work_type, project_id: l.project_id || null, task: l.task || null, notes: l.notes || null })
 function viewDetail(d: Record<string, unknown>): TimesheetDetail {
-  return { header: header(object(d.header)), entries: rows(d.entries).map(r => ({ id: str(r.id), ...line(r), projectName: str(r.project_name_snapshot), client: str(r.client) })), approval_records: rows(d.approval_records).map(r => ({ id: str(r.id), round_no: Number(r.round_no), sequence_no: Number(r.sequence_no), action: str(r.action), comment: str(r.comment), approver_id: str(r.approver_id), acted_at: str(r.acted_at) })) }
+  return { ...(str(d.revision)?{revision:str(d.revision)}:{}), header: header(object(d.header)), entries: rows(d.entries).map(r => ({ id: str(r.id), ...line(r), projectName: str(r.project_name_snapshot), client: str(r.client) })), approval_records: rows(d.approval_records).map(r => ({ id: str(r.id), round_no: Number(r.round_no), sequence_no: Number(r.sequence_no), action: str(r.action), comment: str(r.comment), approver_id: str(r.approver_id), acted_at: str(r.acted_at) })) }
 }
 /** Browser Remote only. Confirmation is deliberately not a model-callable operation. */
 export class TimesheetService implements OryhTimesheetRemote {
@@ -117,7 +117,7 @@ export class TimesheetService implements OryhTimesheetRemote {
     if (a.kind==='approve' && !todo) throw fail('审批必须关联您自己的待办。')
     const permissions=await this.permissions(id)
     if (a.kind==='submit' && !permissions.submitStates.includes(str(object(d.header).status))) throw fail('当前单据状态不允许提交审批。')
-    if (['add-line','edit-line','delete-line'].includes(a.kind) && !permissions.editableStates.includes(str(object(d.header).status))) throw fail('当前单据状态不允许修改明细。')
+    if (['update','add-line','edit-line','delete-line'].includes(a.kind) && !permissions.editableStates.includes(str(object(d.header).status))) throw fail('当前单据状态不允许修改明细。')
     return { d,todo,digest:hash({d,todo,permissions}) }
   }
   async timesheetPrepare(id: string, input: TimesheetAction) {
@@ -135,7 +135,18 @@ export class TimesheetService implements OryhTimesheetRemote {
       if (object(check.meta).validate_only!==true || object(check.meta).written!==false) throw fail('服务端未确认这是预校验，请停止并核对。')
     } else {
       const context=await this.context(id,action); digest=context.digest; detail=viewDetail(context.d)
-      if (action.kind==='submit') {
+      if (action.kind==='update') {
+        if (!action.fields) throw fail('缺少整单工时内容。')
+        if (!detail.revision) throw fail('此 ORYH 服务尚未支持整单更新，请部署工时整单保存接口。当前修改仍保留，未写入任何数据。')
+        if (!action.expectedRevision || action.expectedRevision!==detail.revision) throw fail('工时已被其他页面修改，请重新打开后编辑。当前修改未保存。')
+        validateTimesheet(action.fields)
+        const ids=action.fields.entries.flatMap(l=>l.id?[l.id]:[])
+        if (new Set(ids).size!==ids.length || ids.some(id=>!detail!.entries.some(e=>e.id===id))) throw fail('明细编号无效，请重新读取工时。')
+        path=`/timesheet-headers/${encodeURIComponent(detail.header.id)}/save`
+        payload={...action.fields,expected_revision:action.expectedRevision,intent_id:intentId,entries:action.fields.entries.map(l=>({...linePayload(l),...(l.id?{id:l.id}:{})}))}
+        const check=object(await this.http.request(connectionId(id),{path:`${path}?validate_only=true`,method:'POST',body:payload,retryExpired:false}))
+        if (object(check.meta).validate_only!==true || object(check.meta).written!==false) throw fail('服务端未确认这是预校验，请停止并核对。')
+      } else if (action.kind==='submit') {
         validateTimesheet({...detail.header,entries:detail.entries})
         path=`/timesheet-headers/${encodeURIComponent(detail.header.id)}/submit`; payload={source:'web'}
       } else if (action.kind==='approve') {
@@ -198,6 +209,7 @@ export class TimesheetService implements OryhTimesheetRemote {
       const d=object((await this.get(id,`/timesheet-headers/${encodeURIComponent(r.action.headerId!)}/detail`)).data)
       if (object(d.header).id!==r.action.headerId || object(d.header).employee_id!==r.detail?.header.employee_id) throw fail('单据身份与核对记录不符。')
       if(r.action.kind==='approve') found=str(rows(d.approval_records).find(a=>object(a.metadata ?? {}).oryh_client_intent_id===r.id)?.id)
+      if(r.action.kind==='update' && object(object(d.header).custom_fields ?? {}).oryh_client_save_intent_id===r.id) found=r.action.headerId!
       if(r.action.kind==='add-line') found=str(rows(d.entries).find(a=>object(a.custom_fields ?? {}).oryh_client_intent_id===r.id)?.id)
       if(r.action.kind==='delete-line' && !rows(d.entries).some(e=>e.id===r.action.entryId)) found=r.action.entryId!
       if(r.action.kind==='edit-line' && rows(d.entries).some(e=>e.id===r.action.entryId && hash(line(e))===hash(r.action.line))) found=r.action.entryId!

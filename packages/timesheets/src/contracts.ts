@@ -1,14 +1,15 @@
 import { OryhClientError } from '@oryh/ai-client-foundation'
-export interface TimesheetLine { work_date: string; hours: number; work_type: string; project_id: string; task: string; notes: string }
+export interface TimesheetLine { id?: string; work_date: string; hours: number; work_type: string; project_id: string; task: string; notes: string }
 export interface TimesheetFields { period_start: string; period_end: string; source_report_text: string; entries: TimesheetLine[] }
 export interface TimesheetHeader { id: string; employee_id: string; period_start: string; period_end: string; status: string; source_report_text: string }
 export interface TimesheetEntry extends TimesheetLine { id: string; projectName: string; client: string }
 export interface TimesheetApproval { id: string; round_no: number; sequence_no: number; action: string; comment: string; approver_id: string; acted_at: string }
-export interface TimesheetDetail { canEdit?: boolean; header: TimesheetHeader; entries: TimesheetEntry[]; approval_records: TimesheetApproval[] }
+export interface TimesheetDetail { revision?: string; canEdit?: boolean; header: TimesheetHeader; entries: TimesheetEntry[]; approval_records: TimesheetApproval[] }
 export interface TimesheetTodo { id: string; entity_id: string; title: string; description: string }
 export interface TimesheetOptions { editableStates: string[]; submitStates: string[]; workTypes: { name: string; title: string }[]; projects: { id: string; name: string }[]; requirements: string[] }
 export interface TimesheetAction {
-  kind: 'create' | 'submit' | 'approve' | 'add-line' | 'edit-line' | 'delete-line'
+  kind: 'create' | 'update' | 'submit' | 'approve' | 'add-line' | 'edit-line' | 'delete-line'
+  expectedRevision?: string
   headerId?: string
   todoId?: string
   entryId?: string

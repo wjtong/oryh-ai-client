@@ -50,3 +50,36 @@ describe('employee binding', () => {
     await expect(detached.timesheetHistory('c')).rejects.toThrow(/未关联员工/)
   })
 })
+
+describe('aggregate update',()=>{
+  const draft={...fields,entries:[{...fields.entries[0]!,id:'line'}]}
+  function setup(revision:string|undefined='version'){
+    const requests:Parameters<TimesheetHttp['request']>[1][]=[]
+    const http:TimesheetHttp={request:async(_id,r)=>{requests.push(r)
+      if(r.path.endsWith('/detail'))return {data:{revision,header:{...fields,id:'h',employee_id:'employee',status:'draft'},entries:draft.entries,approval_records:[]}}
+      if(r.path.startsWith('/object-type-definitions'))return {data:[],meta:{pages:1}}
+      if(r.path.includes('validate_only'))return {data:{id:'h'},meta:{validate_only:true,written:false}}
+      if(r.path.endsWith('/save'))return {data:{id:'h'}}
+      throw Error('Unexpected request '+r.path)
+    }}
+    return {api:service(http),requests}
+  }
+  it('previews without a write, then saves the entire reviewed draft with one request',async()=>{
+    const {api,requests}=setup()
+    const review=await api.timesheetPrepare('c',{kind:'update',headerId:'h',expectedRevision:'version',fields:draft})
+    expect(requests.filter(r=>r.method==='POST').map(r=>r.path)).toEqual(['/timesheet-headers/h/save?validate_only=true'])
+    expect(review.action.fields?.entries[0]?.id).toBe('line')
+    const saved=await api.timesheetConfirm('c',review.id,review.revision,review.token)
+    expect(saved.state).toBe('done')
+    expect(requests.filter(r=>r.path.endsWith('/save'))).toHaveLength(1)
+    expect(requests.at(-1)?.body).toMatchObject({entries:[{...draft.entries[0]!,project_id:null}],expected_revision:'version'})
+  })
+  it('rejects old servers and stale edits before any write or preflight',async()=>{
+    const old=setup('')
+    await expect(old.api.timesheetPrepare('c',{kind:'update',headerId:'h',fields:draft})).rejects.toThrow(/尚未支持整单更新/)
+    expect(old.requests.some(r=>r.method==='POST')).toBe(false)
+    const current=setup()
+    await expect(current.api.timesheetPrepare('c',{kind:'update',headerId:'h',expectedRevision:'old',fields:draft})).rejects.toThrow(/其他页面修改/)
+    expect(current.requests.some(r=>r.method==='POST')).toBe(false)
+  })
+})

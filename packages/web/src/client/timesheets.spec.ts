@@ -56,3 +56,33 @@ describe('existing timesheet view modes',()=>{
   }finally{await act(async()=>root.unmount());node.remove()}
  })
 })
+
+describe('whole document editing',()=>{
+ it('stages add/delete, restores a removed row, and saves once with all remaining rows',async()=>{
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true
+  const detail={revision:'version',canEdit:true,header:{id:'h',employee_id:'e',period_start:'2026-09-01',period_end:'2026-09-01',status:'draft',source_report_text:''},entries:[{id:'a',work_date:'2026-09-01',hours:8,work_type:'regular',project_id:'',task:'A',notes:''},{id:'b',work_date:'2026-09-01',hours:4,work_type:'regular',project_id:'',task:'B',notes:''}],approval_records:[]}
+  const prepare=vi.fn().mockRejectedValue(Error('请检查工时'))
+  const api={timesheetList:async()=>[],timesheetOptions:async()=>({workTypes:[{name:'regular',title:'正常工时'}],projects:[],requirements:[],submitStates:['draft'],editableStates:['draft']}),timesheetHistory:async()=>[],timesheetDetail:async()=>detail,timesheetPrepare:prepare}
+  const node=document.createElement('div');document.body.append(node);const root=createRoot(node)
+  const click=async(text:string)=>act(async()=>Array.from(node.querySelectorAll('button')).find(b=>b.textContent===text)!.click())
+  try{
+   await act(async()=>root.render(h(RemoteContext.Provider,{value:api as never},h(LocaleContext.Provider,{value:k=>dictionaries[k]},h(TimesheetPanel,{connection:{id:'c',identity:{permissions:['timesheet.submit_own'],tenant:{name:'Test'},user:{email:'test@example.invalid'}}} as never,manager:false,active:true,navigationId:'open',navigation:{id:'open',headerId:'h',expiresAt:Date.now()+15000},onDirtyChange:()=>{}})))))
+   await act(async()=>node.querySelector<HTMLButtonElement>('[aria-label="删除第 1 条明细"]')!.click())
+   expect(node.querySelectorAll('.timesheet-entry')).toHaveLength(1)
+   expect(prepare).not.toHaveBeenCalled()
+   await click('撤销删除')
+   expect(node.querySelectorAll('.timesheet-entry')).toHaveLength(2)
+   await click('添加明细')
+   expect(node.querySelectorAll('.timesheet-entry')).toHaveLength(3)
+   await act(async()=>node.querySelector<HTMLButtonElement>('[aria-label="删除第 2 条明细"]')!.click())
+   await act(async()=>node.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+   expect(prepare).toHaveBeenCalledTimes(1)
+   expect(prepare.mock.calls[0]![1]).toMatchObject({kind:'update',headerId:'h',expectedRevision:'version',fields:{entries:[{id:'a',task:'A'},{hours:0}]}})
+   expect(prepare.mock.calls[0]![1].fields.entries[1]).not.toHaveProperty('id')
+   expect(node.querySelectorAll('.timesheet-entry')).toHaveLength(2)
+   expect(node.querySelector('.oryh-ts-save-feedback [role=alert]')?.textContent).toBe('请检查工时')
+   await click('放弃修改')
+   expect(Array.from(node.querySelectorAll('input')).map(n=>n.value)).toContain('B')
+  }finally{await act(async()=>root.unmount());node.remove()}
+ })
+})

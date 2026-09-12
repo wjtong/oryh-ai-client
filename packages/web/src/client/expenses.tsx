@@ -153,7 +153,7 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
     }, [editor]);
     return <section ref={panel} className="expense-panel">
     <div className="list-actions business-page-header">
-      <div><h2>{editor ? t("text113") : t("text22")}</h2><span className="muted">{editor ? t("text114") : t("text115")}</span></div>
+      <div><h1>{editor ? t("text113") : t("text22")}</h1><span className="muted">{editor ? t("text114") : t("text115")}</span></div>
       <div className="toolbar">
         {editor && <Button disabled={busy} onClick={() => leave(() => { setEditor(false); setDirty(false); dirtyRef.current = false; onDirtyChange(false); })}>{t("text116")}</Button>}
         {!editor && <Button appearance="primary" disabled={busy} onClick={() => choose()}>{t("text57")}</Button>}

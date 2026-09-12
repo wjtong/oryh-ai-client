@@ -109,3 +109,17 @@ describe('timesheet suggestions',()=>{
   const pending=f.chat.read('s');await new Promise(r=>setTimeout(r,0));f.chat.clear('s');release();await expect(pending).rejects.toThrow(/离开/)
  })
 })
+
+describe('aggregate edit suggestions',()=>{
+ it('preserves existing ids and only stages a draft, refusing duplicate or foreign ids',async()=>{
+  const f=setup()
+  f.api.timesheetDetail=async()=>({canEdit:true,header:{id:'h',employee_id:'e',period_start:'2026-09-09',period_end:'2026-09-09',status:'draft',source_report_text:''},entries:[{...form.entries[0]!,id:'line',projectName:'项目',client:''}],approval_records:[]})
+  await f.chat.sync({...f.state,headerId:'h'})
+  const fields={...proposed,entries:[{...proposed.entries[0]!,id:'line',hours:6},{...proposed.entries[0]!,hours:2}]}
+  await f.chat.propose('s',1,{kind:'update',headerId:'h',fields})
+  expect(f.chat.pending('s')?.action.fields?.entries.map(l=>l.id)).toEqual(['line',undefined])
+  expect(f.prepare).not.toHaveBeenCalled();expect(f.confirm).not.toHaveBeenCalled()
+  await expect(f.chat.propose('s',1,{kind:'update',headerId:'h',fields:{...fields,entries:[{...fields.entries[0],id:'foreign'}]}})).rejects.toThrow(/编号/)
+  await expect(f.chat.propose('s',1,{kind:'update',headerId:'h',fields:{...fields,entries:[fields.entries[0],fields.entries[0]]}})).rejects.toThrow(/编号/)
+ })
+})

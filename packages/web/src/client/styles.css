@@ -150,7 +150,9 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 .oryh-chat-controls { margin-left:auto; display:flex; align-items:center; gap:8px; }
 .oryh-mobile-switch { display:none; }
 .oryh-business-seat { grid-column:2; grid-row:2; min-height:0; min-width:0; overflow:auto; background:var(--oryh-ground); }
-.oryh-business-root { min-height:100%; }
+.oryh-business-root { min-height:100%; display:flex; flex-direction:column; background:#f6f7f9; }
+.oryh-business-root[data-theme="dark"] { background:#151a20; }
+.oryh-business-root > .client-root { flex:1; }
 .oryh-chat-seat { grid-column:3; grid-row:2; display:flex; flex-direction:column; min-width:0; min-height:0; border-left:1px solid var(--oryh-line); }
 .oryh-chat-seat > header { padding:14px 18px; display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:12px; }
 .oryh-chat-seat > header > span { opacity:.5; font-size:10px; }
@@ -187,31 +189,6 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 .oryh-timesheets .surface { margin-block: 16px; padding: 16px; }
 .oryh-timesheets fieldset { border: 1px solid #a0a0a055; border-radius: 6px; margin-block: 14px; padding: 16px; min-width: 0; }
 .oryh-timesheets label { display: flex; flex-direction: column; gap: 6px; margin-block: 8px; }
-.oryh-ts-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; }
-/*
- * One entry per line. The old equal-share grid gave every field at least 180px, so an hours box
- * was as wide as a task. Flex with a per-field basis sizes each to what it holds and still wraps
- * on a narrow business pane, with no container query needed.
- */
-.oryh-ts-line { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 10px; }
-.oryh-ts-line > label { flex: 1 1 7rem; min-width: 0; gap: 3px; margin-block: 0; font-size: 11px; }
-.oryh-ts-line > label[data-field="date"] { flex: 0 0 8.5rem; }
-.oryh-ts-line > label[data-field="hours"] { flex: 0 0 4.25rem; }
-.oryh-ts-line > label[data-field="type"] { flex: 0 1 6.5rem; }
-.oryh-ts-line > label[data-field="project"] { flex: 1 1 7rem; }
-.oryh-ts-line > label[data-field="task"] { flex: 1.4 1 8rem; }
-.oryh-ts-line > label[data-field="notes"] { flex: 1 1 7rem; }
-/* Qualified with .oryh-timesheets on purpose: the generic field rules below this block have the
-   same specificity, so an unqualified selector here would lose on source order alone. */
-.oryh-timesheets .oryh-ts-line input, .oryh-timesheets .oryh-ts-line select, .oryh-timesheets .oryh-ts-line textarea { padding: 6px 7px; font-size: 13px; }
-.oryh-ts-line > label[data-field="hours"] input { text-align: right; font-variant-numeric: tabular-nums; }
-/* A one-row note still grows when the user drags it; it just no longer opens three lines tall,
-   which was what made the notes field twice the height of every other control on the row. */
-.oryh-timesheets .oryh-ts-line textarea { min-height: 0; height: 2.31rem; }
-.oryh-ts-line-actions { flex: 0 0 auto; padding-bottom: 2px; }
-/* Flat grouping: the per-entry border and padding cost more room than the number is worth. */
-.oryh-ts-line-group { border: 0; border-top: 1px solid #a0a0a055; border-radius: 0; margin-block: 0; padding: 10px 0 2px; }
-.oryh-ts-line-group > legend { padding: 0; font-size: 11px; opacity: .55; font-variant-numeric: tabular-nums; }
 .oryh-timesheets input, .oryh-timesheets select, .oryh-timesheets textarea { box-sizing: border-box; min-width: 0; font: inherit; color: inherit; background: transparent; border: 1px solid #a0a0a080; border-radius: 4px; padding: 8px; }
 .oryh-timesheets select option { color: #222; background: #fff; }
 .oryh-timesheets textarea { min-height: 72px; resize: vertical; }
@@ -405,3 +382,94 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
   mask:var(--oryh-download-glyph) center/16px 16px no-repeat;
 }
 .oryh-frame { --oryh-download-glyph:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5v8m0 0 3-3m-3 3-3-3' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/><path d='M2.5 11v1.5a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V11' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'/></svg>"); }
+
+/* Shared business surfaces. These selectors never reach Harness conversation UI. */
+@scope (.oryh-business-root) {
+ .business-page, .expense-panel, .oryh-timesheets { display:grid; gap:16px; align-content:start; }
+ .business-page-header { padding:12px 0 16px; border-bottom:0; }
+ .business-page-header h1 { font-size:24px; font-weight:650; letter-spacing:-.5px; }
+ .business-page-header .muted { font-size:12px; }
+ .oryh-timesheets > .business-page-header { margin:0; }
+ .oryh-timesheets > .business-page-header .list-actions { width:100%; }
+ .surface { border-radius:10px; }
+ .table-surface, .oryh-timesheets .table-surface { padding:0; margin:0; border:1px solid var(--line); }
+ .query-toolbar, .record-search { display:flex; flex-wrap:wrap; align-items:end; gap:12px; padding:16px; margin:0; }
+ .query-toolbar > .fui-Field, .record-search > .fui-Field { flex:1 1 180px; max-width:360px; }
+ .query-toolbar input, .record-search input { font-size:13px; }
+ .query-toolbar .fui-Label, .record-search .fui-Label { color:var(--muted); font-size:12px; }
+ .list-configuration { display:flex; align-items:start; flex-wrap:wrap; gap:6px 18px; padding:0 16px 12px; }
+ .list-configuration .advanced-filters { padding:0; }
+ .advanced-filters summary { min-height:28px; line-height:28px; }
+ .table-surface table { font-size:13px; }
+ .table-surface th, .oryh-timesheets .table-surface th { padding:11px 16px; font-size:12px; font-weight:600; color:var(--muted); background:var(--hover); border-block:1px solid var(--line); }
+ .table-surface td, .oryh-timesheets .table-surface td { padding:13px 16px; vertical-align:middle; border-bottom:1px solid var(--line); }
+ .table-surface tr:last-child td { border-bottom:0; }
+ .table-surface tbody tr:focus-within { background:var(--hover); }
+ .table-footer { min-height:48px; box-sizing:border-box; font-size:12px; gap:12px; flex-wrap:wrap; padding:10px 16px; }
+ .record-link { font-size:13px; cursor:pointer; color:var(--accent); font-weight:600; }
+ .record-link:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:2px; }
+ .record-status { padding:3px 8px; border-radius:5px; font-size:12px; }
+ .record-empty, .table-scroll > p { padding:32px 16px; text-align:center; color:var(--muted); }
+ .oryh-timesheets .oryh-timesheet-chat { margin:0; }
+ .chat-context-status { font-size:11px; }
+ .oryh-timesheets > details.surface { margin:0; padding:12px 16px; font-size:12px; color:var(--muted); }
+ .oryh-timesheets > details.surface > summary { color:var(--text); }
+ .timesheet-editor { container-type:inline-size; min-width:0; }
+ .oryh-timesheets fieldset.timesheet-editor-fields { border:0; padding:0; margin:0; min-width:0; display:grid; gap:16px; }
+ .form-section { background:var(--surface); border:1px solid var(--line); border-radius:10px; min-width:0; overflow:hidden; }
+ .form-section-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 20px; }
+ .form-section-heading h2 { font-size:15px; margin:0; font-weight:650; }
+ .form-section-heading p { font-size:12px; color:var(--muted); margin:4px 0 0; }
+ .section-count { margin-left:6px; padding:2px 7px; font-size:12px; color:var(--muted); background:var(--hover); border-radius:4px; }
+ .timesheet-period { padding:0 20px 20px; display:grid; grid-template-columns:repeat(2,minmax(0,180px)) minmax(220px,1fr); gap:16px; align-items:start; }
+ .oryh-timesheets .timesheet-editor label { position:relative; display:flex; flex-direction:column; gap:6px; margin:0; color:var(--muted); font-size:12px; font-weight:500; min-width:0; }
+ .field-optional { position:absolute; right:0; top:0; font-size:11px; font-weight:400; color:var(--muted); }
+ .oryh-timesheets .timesheet-editor input, .oryh-timesheets .timesheet-editor select, .oryh-timesheets .timesheet-editor textarea { width:100%; height:36px; min-width:0; padding:7px 9px; background:var(--surface); color:var(--text); border:1px solid var(--line); border-radius:5px; font-size:13px; font-weight:400; outline-offset:2px; }
+ .oryh-timesheets .timesheet-editor textarea { height:64px; min-height:64px; }
+ .oryh-timesheets .timesheet-editor input:focus, .oryh-timesheets .timesheet-editor select:focus, .oryh-timesheets .timesheet-editor textarea:focus { outline:2px solid var(--accent); outline-offset:1px; }
+ .oryh-timesheets select option { background:var(--surface); color:var(--text); }
+ .timesheet-entry { display:grid; grid-template-columns:24px minmax(0,1fr) 28px; gap:12px; padding:16px 20px; border-top:1px solid var(--line); }
+ .timesheet-entry:focus-within { background:var(--hover); }
+ .timesheet-entry-index { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; padding-top:28px; }
+ .timesheet-entry-fields { display:grid; grid-template-columns:minmax(128px,1fr) minmax(64px,.5fr) minmax(105px,1fr) minmax(140px,1.6fr); gap:12px; }
+ .timesheet-entry-fields [data-field="task"] { grid-column:1/4; }
+ .timesheet-entry-fields [data-field="notes"] { grid-column:4; }
+ .timesheet-entry-fields [data-field="hours"] input { font-variant-numeric:tabular-nums; text-align:right; }
+ .timesheet-entry-remove { align-self:start; margin-top:24px; }
+ .timesheet-undo { display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--accent-soft); color:var(--accent); padding:8px 20px; font-size:12px; }
+ .document-savebar { position:sticky; bottom:0; z-index:2; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 20px; margin-top:16px; box-shadow:0 -4px 16px #00000005; }
+ .timesheet-total { display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; }
+ .timesheet-total strong { font-size:24px; letter-spacing:-.5px; font-variant-numeric:tabular-nums; }
+ .timesheet-total small { font-size:12px; color:var(--muted); font-weight:400; }
+ .timesheet-total > span { color:var(--muted); font-size:12px; }
+ .oryh-ts-save-feedback { margin:0; min-width:0; }
+ .oryh-ts-save-feedback > p { max-width:52ch; margin:0 0 8px; }
+ .timesheet-submit { justify-content:flex-end; font-size:12px; }
+ @container (max-width:720px) {
+  .timesheet-period { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .timesheet-narrative { grid-column:1/-1; }
+  .timesheet-entry { gap:8px; padding:14px 12px; grid-template-columns:20px minmax(0,1fr) 28px; }
+  .timesheet-entry-fields { grid-template-columns:minmax(125px,1fr) minmax(65px,.6fr); }
+  .timesheet-entry-fields [data-field="task"], .timesheet-entry-fields [data-field="notes"] { grid-column:1/-1; }
+ }
+ @container (min-width:1100px) {
+  .timesheet-entry-fields { grid-template-columns:140px 70px 120px minmax(160px,1fr) minmax(180px,1.5fr) minmax(140px,1fr); }
+  .timesheet-entry-fields [data-field="task"], .timesheet-entry-fields [data-field="notes"] { grid-column:auto; }
+ }
+}
+@scope (.oryh-business-root) {
+ .oryh-timesheets .query-toolbar > label { min-width:160px; flex:0 1 280px; margin:0; font-size:12px; color:var(--muted); }
+ .oryh-timesheets .query-toolbar input, .oryh-timesheets .query-toolbar select { height:36px; border-color:var(--line); background:var(--surface); color:var(--text); }
+ .oryh-timesheets > .business-page-header { display:flex; flex-flow:row wrap; align-items:center; gap:12px; }
+ .oryh-timesheets > .business-page-header > h1 { flex:1; }
+ .oryh-timesheets > .business-page-header > .muted { display:none; }
+}
+@scope (.oryh-business-root) {
+ @container (min-width:1100px) {
+  .timesheet-entry:not(:first-child) { padding-block:10px; }
+  .timesheet-entry:not(:first-child) label { font-size:0; gap:0; }
+  .timesheet-entry:not(:first-child) .field-optional { display:none; }
+  .timesheet-entry:not(:first-child) .timesheet-entry-index { padding-top:9px; }
+  .timesheet-entry:not(:first-child) .timesheet-entry-remove { margin-top:3px; }
+ }
+}
