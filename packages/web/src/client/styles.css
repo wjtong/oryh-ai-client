@@ -119,18 +119,27 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .oryh-frame { --oryh-ground:var(--dsw-alias-bg-base,#fff); --oryh-line:var(--dsw-alias-border-l1,#e2e6eb); position:relative; display:grid; grid-template-columns:208px minmax(0,1fr) var(--oryh-chat-width,360px); grid-template-rows:48px minmax(0,1fr); height:100dvh; width:100%; overflow:hidden; background:var(--oryh-ground); color:var(--dsw-alias-label-primary,#26313c); }
 .oryh-frame[data-compact="true"] { grid-template-columns:56px minmax(0,1fr) var(--oryh-chat-width,360px); }
 .oryh-navigation { grid-row:1/-1; min-height:0; min-width:0; display:flex; flex-direction:column; border-right:1px solid var(--oryh-line); background:var(--dsw-alias-bg-layer-1,var(--oryh-ground)); }
-.oryh-brand { display:flex; align-items:center; gap:11px; padding:22px 16px; height:84px; }
-.oryh-brand > span { display:grid; place-items:center; border-radius:8px; background:#246b63; color:#fff; width:28px; height:28px; flex:none; font-size:19px; font-weight:650; }
-.oryh-brand strong { font-size:17px; letter-spacing:1px; }
-.oryh-brand small { display:block; font-size:10px; font-weight:400; letter-spacing:2px; margin-top:2px; opacity:.6; }
-.oryh-menu { display:grid; gap:5px; padding:0 10px 20px; }
+/* One compact row. The workbench name already sits in the top toolbar, so repeating it under the
+   logo only cost vertical space; the row is now the logo's own height rather than a fixed block. */
+.oryh-brand { display:flex; align-items:center; padding:12px 16px 10px; flex:none; }
+.oryh-logo { height:20px; width:auto; display:block; color:#11110f; }
+body[data-ds-dark-theme] .oryh-logo { color:#f4f4f2; }
+/* border-box so the height written by the resizer is the height actually occupied; with the
+   default content-box the padding made every drag and key step land short. */
+.oryh-menu { display:grid; gap:5px; padding:0 10px 12px; align-content:start; overflow-y:auto; min-height:0; flex:0 1 auto; box-sizing:border-box; }
 .oryh-menu button { display:flex; align-items:center; gap:11px; border:0; border-radius:6px; background:transparent; color:inherit; font:inherit; font-size:13px; padding:11px 12px; text-align:left; cursor:pointer; }
 .oryh-menu button[aria-current] { background:#246b6318; color:#246b63; font-weight:600; }
 body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; background:#86c9bb18; }
 .oryh-menu button:hover { background:#8882; }
-.oryh-native-heading { font-size:10px; letter-spacing:1px; opacity:.6; padding:14px 20px 8px; border-top:1px solid var(--oryh-line); }
+.oryh-native-heading { font-size:10px; letter-spacing:1px; opacity:.6; padding:14px 20px 8px; border-top:1px solid var(--oryh-line); flex:none; }
 .oryh-native-sidebar { flex:1; min-height:0; position:relative; }
-.oryh-frame[data-compact="true"] .oryh-brand { padding:20px 14px; }
+/* Sits in the flow between the menu and the session heading, so it never overlaps either. */
+.oryh-menu-resizer { flex:none; height:9px; margin:-4px 0; cursor:row-resize; touch-action:none; position:relative; z-index:2; }
+.oryh-menu-resizer::after { content:""; position:absolute; left:10px; right:10px; top:4px; height:2px; border-radius:2px; background:transparent; }
+.oryh-menu-resizer:hover::after,.oryh-menu-resizer:focus-visible::after,.oryh-frame[data-resizing-menu="true"] .oryh-menu-resizer::after { background:var(--dsw-alias-label-primary,#497c88); }
+.oryh-menu-resizer:focus-visible { outline:2px solid currentColor; outline-offset:-2px; }
+.oryh-frame[data-resizing-menu="true"] { user-select:none; cursor:row-resize; }
+.oryh-frame[data-compact="true"] .oryh-brand { padding:12px 0 10px; justify-content:center; }
 .oryh-frame[data-compact="true"] .oryh-menu { padding:0 5px 16px; }
 .oryh-frame[data-compact="true"] .oryh-menu button { justify-content:center; padding:12px 0; }
 .oryh-frame[data-compact="true"] .oryh-native-heading { text-align:center; padding:12px 0 6px; }
@@ -324,3 +333,19 @@ body[data-ds-dark-theme] .oryh-menu button[aria-current] { color:#86c9bb; backgr
 .oryh-chat-resizer:hover::after,.oryh-chat-resizer:focus-visible::after,.oryh-frame[data-resizing="true"] .oryh-chat-resizer::after { background:var(--dsw-alias-label-primary,#497c88); }
 .oryh-frame[data-resizing="true"] { user-select:none; cursor:col-resize; }
 @media(max-width:850px) { .oryh-chat-resizer { display:none; } }
+
+/*
+ * Hide the Harness conversation header's breadcrumb title.
+ *
+ * It shows the session's own auto-generated title, which for a long-lived session keeps naming
+ * whatever the first message was — stale and confusing beside a business workbench that already
+ * names the current page in its top toolbar.
+ *
+ * This overrides another plugin's UI, which is not something to do lightly. Two things keep it as
+ * contained as possible: it is scoped to our own chat seat, and it matches the STABLE half of the
+ * CSS-module class. Those classes are emitted as `[hash]_[local]`, so `_1tRJmG_crumbs` keeps
+ * `crumbs` across rebuilds while the hash changes with content. If upstream renames the local
+ * class the rule simply stops matching and the title returns — a visible, harmless regression
+ * rather than a broken layout. The sibling tabs (Chat / Trajectory) are deliberately untouched.
+ */
+.oryh-chat-content nav[class*="_crumbs"] { display:none; }

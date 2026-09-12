@@ -34,6 +34,26 @@ const menu: Record<PageId, { label: OryhKey; icon: typeof IconChecklist }> = {
   settings: { label: 'text15', icon: IconSettings },
 }
 
+/**
+ * The official ORYH logo: four connected records around one trusted center, plus the wordmark.
+ *
+ * Traced from `site/public/brand/oryh-logo.svg` in the ORYH repository rather than redrawn. The
+ * two near-black fills become `currentColor` so the mark stays legible on a dark sidebar; only the
+ * emerald accent is a fixed brand colour. `compact` drops the wordmark and keeps the square mark,
+ * which is what fits an icon rail.
+ * @param compact - render the mark alone instead of the full lockup.
+ * @returns the inline logo, hidden from assistive tech when a text label sits beside it.
+ */
+function OryhLogo({ compact }: { compact: boolean }) {
+  return <svg className="oryh-logo" viewBox={compact ? '0 0 40 40' : '0 0 73 40'} role="img" aria-label="ORYH" focusable="false">
+    <rect x="7" y="4" width="17" height="8" rx="3" fill="currentColor"/>
+    <rect x="28" y="9" width="8" height="17" rx="3" fill="currentColor"/>
+    <rect x="16" y="28" width="17" height="8" rx="3" fill="#047857"/>
+    <rect x="4" y="15" width="8" height="17" rx="3" fill="currentColor"/>
+    {!compact && <g transform="translate(42.46 25.28)"><path fill="currentColor" d="M1.54 0.00V-11.88H4.18V-8.98L3.89 -9.35Q4.12 -9.97 4.51 -10.47Q4.89 -10.98 5.46 -11.31Q5.88 -11.57 6.39 -11.72Q6.90 -11.87 7.44 -11.91Q7.97 -11.95 8.51 -11.88V-9.09Q8.02 -9.24 7.36 -9.19Q6.71 -9.14 6.18 -8.89Q5.65 -8.65 5.29 -8.24Q4.93 -7.84 4.74 -7.30Q4.55 -6.75 4.55 -6.07V0.00ZM10.03 5.28 12.32 -1.01 12.36 0.84 7.19 -11.88H10.30L13.77 -2.88H13.07L16.52 -11.88H19.51L12.80 5.28ZM27.50 0.00V-5.61Q27.50 -6.02 27.46 -6.65Q27.41 -7.28 27.18 -7.92Q26.95 -8.56 26.43 -8.99Q25.90 -9.42 24.95 -9.42Q24.56 -9.42 24.12 -9.29Q23.68 -9.17 23.30 -8.83Q22.91 -8.48 22.67 -7.81Q22.42 -7.14 22.42 -6.03L20.70 -6.84Q20.70 -8.25 21.27 -9.48Q21.85 -10.71 23.00 -11.47Q24.14 -12.23 25.89 -12.23Q27.29 -12.23 28.17 -11.76Q29.05 -11.29 29.54 -10.56Q30.03 -9.83 30.24 -9.05Q30.45 -8.26 30.49 -7.61Q30.54 -6.96 30.54 -6.67V0.00ZM19.38 0.00V-15.84H22.04V-7.70H22.42V0.00Z"/></g>}
+  </svg>
+}
+
 /** Provide exactly one root, and retract service, panel source and child declarations together. */
 export function registerFrame(ctx: Context): void {
   ctx.effect(() => {
@@ -104,14 +124,35 @@ function Frame({ useStore, actions, renderSlot, t }: FrameProps) {
   const chatWidth = Math.min(state.chatWidth,maxChatWidth)
   const drag = useRef<{x:number;width:number;pointer:number}|undefined>(undefined)
   const [dragging,setDragging] = useState(false)
-  return <div ref={root} className="oryh-frame" data-compact={compact} data-focus={state.focus} data-chat={state.chatVisible} data-resizing={dragging} style={{'--oryh-chat-width':`${chatWidth}px`} as CSSProperties}>
+  const menuRef = useRef<HTMLElement>(null)
+  const menuDrag = useRef<{y:number;height:number;pointer:number}|undefined>(undefined)
+  const [draggingMenu,setDraggingMenu] = useState(false)
+  const menuHeight = compact ? 0 : state.menuHeight
+  // Leave room for the brand, the session heading and a usable session list, so a drag to the
+  // bottom cannot squeeze the sessions out of existence.
+  const clampMenu = (height:number) => Math.max(96, Math.min(height, Math.max(96, root.current!.getBoundingClientRect().height - 220)))
+  return <div ref={root} className="oryh-frame" data-compact={compact} data-focus={state.focus} data-chat={state.chatVisible} data-resizing={dragging} data-resizing-menu={draggingMenu} style={{'--oryh-chat-width':`${chatWidth}px`} as CSSProperties}>
     <aside className="oryh-navigation" aria-label={t('businessNavigation')}>
-      <div className="oryh-brand"><span>O</span>{!compact && <strong>ORYH <small>{t('workbench')}</small></strong>}</div>
-      <nav className="oryh-menu" aria-label={t('text14')}>
+      <div className="oryh-brand"><OryhLogo compact={compact}/></div>
+      <nav ref={menuRef} className="oryh-menu" aria-label={t('text14')} style={menuHeight > 0 ? { height: `${menuHeight}px` } : undefined}>
         {PAGES.filter(page=>page.id==='settings'||state.identity?.allowedPages?.includes(page.id)).map(page => {const {label, icon: Icon} = menu[page.id]; return <button key={page.id} title={t(label)} aria-label={t(label)} aria-current={state.page === page.id ? 'page' : undefined} onClick={() => actions.navigate(page.id)}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>})}
       </nav>
+      {!compact && <div className="oryh-menu-resizer" role="separator" aria-label={t('resizeMenu')} aria-orientation="horizontal" aria-controls="oryh-native-sidebar" tabIndex={0} title={t('resizeMenuHint')}
+        onPointerDown={e=>{if(e.button!==0)return;e.preventDefault();e.currentTarget.focus();e.currentTarget.setPointerCapture(e.pointerId)
+          // An auto-height menu has no stored value yet, so the drag starts from what is rendered.
+          menuDrag.current={y:e.clientY,height:menuRef.current?.getBoundingClientRect().height??0,pointer:e.pointerId};setDraggingMenu(true)}}
+        onPointerMove={e=>{if(menuDrag.current?.pointer===e.pointerId)actions.setMenuHeight(clampMenu(menuDrag.current.height+e.clientY-menuDrag.current.y))}}
+        onPointerUp={e=>{if(menuDrag.current?.pointer===e.pointerId){menuDrag.current=undefined;setDraggingMenu(false);e.currentTarget.releasePointerCapture(e.pointerId)}}}
+        onPointerCancel={()=>{menuDrag.current=undefined;setDraggingMenu(false)}} onLostPointerCapture={()=>{menuDrag.current=undefined;setDraggingMenu(false)}}
+        onDoubleClick={()=>actions.setMenuHeight(0)}
+        // Steps come off the stored height, not the rendered one: reading the DOM each keypress
+        // measures a layout that has not caught up yet, so repeats drifted well short of the step.
+        onKeyDown={e=>{const current=menuHeight>0?menuHeight:(menuRef.current?.getBoundingClientRect().height??0)
+          const heights:Record<string,number>={ArrowUp:current-20,ArrowDown:current+20,Home:120,End:2000}
+          if(e.key in heights){e.preventDefault();actions.setMenuHeight(clampMenu(heights[e.key]!))}
+          if(e.key==='Escape'){e.preventDefault();actions.setMenuHeight(0)}}}/>}
       <div className="oryh-native-heading">{compact ? 'DS' : t('sessionsSettings')}</div>
-      <div className="oryh-native-sidebar">{renderSlot('sidebar', { collapsed: compact, width: sidebarWidth })}</div>
+      <div id="oryh-native-sidebar" className="oryh-native-sidebar">{renderSlot('sidebar', { collapsed: compact, width: sidebarWidth })}</div>
     </aside>
     <div className="oryh-frame-toolbar">
       <button className="oryh-collapse" title={compact?t('expandMenu'):t('collapseMenu')} aria-label={compact?t('expandMenu'):t('collapseMenu')} aria-expanded={!compact} onClick={actions.toggleSidebar}><IconLayoutSidebarLeftCollapse size={18}/></button>
