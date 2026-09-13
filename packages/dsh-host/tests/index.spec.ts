@@ -27,7 +27,7 @@ describe('ORYH external Host plugin', () => {
       const removeRestriction = vi.fn()
       const restrict = vi.fn(() => removeRestriction)
       ctx.emit('agent/created', { agent: { id: 'agent', ctx: { tools: { restrict, presentAs: () => () => {} }, systemPrompt: { context: () => () => {} } } } } as never)
-      expect(restrict).toHaveBeenCalledWith({ allow: ['skill', 'bash', 'oryh_skill_sync', 'oryh_current_todo_details', 'oryh_timesheet_read', 'oryh_timesheet_propose', 'oryh_review_result', 'oryh_open_timesheet','oryh_find_timesheets','oryh_visible_todos','oryh_open_todo','oryh_current_page','oryh_project_columns','oryh_record_columns','oryh_inventory_filters','oryh_search_products','oryh_navigate','oryh_open_project','oryh_project_read','oryh_project_fill'] })
+      expect(restrict).toHaveBeenCalledWith({ allow: ['skill', 'bash', 'oryh_skill_sync', 'oryh_record_filter_fields', 'oryh_menu_add', 'oryh_menu_remove', 'oryh_open_view', 'oryh_current_todo_details', 'oryh_timesheet_read', 'oryh_timesheet_propose', 'oryh_review_result', 'oryh_open_timesheet','oryh_find_timesheets','oryh_visible_todos','oryh_open_todo','oryh_current_page','oryh_project_columns','oryh_record_columns','oryh_record_query','oryh_search_products','oryh_navigate','oryh_open_project','oryh_project_read','oryh_project_fill'] })
       expect(await ctx.waterfall('tools/pre-execute', {} as never, async () => ({ kind: 'allow' }))).toMatchObject({ kind: 'deny' })
       const invoke = (method: string, args: Record<string, unknown> = {}) => ctx.get('typertGateway').invoke({ namespace: 'oryh', method, args })
       expect(await invoke('listConnections')).toEqual([])

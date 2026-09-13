@@ -110,6 +110,7 @@ export function createOryhRemote(remote: ClientRemote): BusinessRemote {
   return {
     productSearch:q=>unwrap(api.productSearch(q)),
     recordList:q=>unwrap(api.recordList(q)),
+    recordFilterFields:(connectionId,kind)=>unwrap(api.recordFilterFields({connectionId,kind})),
     projectOptions:id=>unwrap(api.projectOptions(connection(id))),
     projectPrepare:(id,fields)=>unwrap(api.projectPrepare({...connection(id),fields})),
     projectConfirm:(id,key,revision,token)=>unwrap(api.projectConfirm({...connection(id),id:key,revision,token})),

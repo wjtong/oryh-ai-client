@@ -4,7 +4,7 @@ import type { ILayout, MainPanelId, PanelInfo } from '@deepseek-ai/dsh-client-ui
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
-import { IconChecklist, IconReceipt, IconFolder, IconSettings, IconLayoutSidebarLeftCollapse, IconMessage } from '@tabler/icons-react'
+import { IconChecklist, IconReceipt, IconFolder, IconSettings, IconLayoutSidebarLeftCollapse, IconMessage, IconFilter } from '@tabler/icons-react'
 import { PAGES, type PageId } from '@oryh/ai-client-pages'
 import { createFrameStore, type BusinessView, type FrameIdentity } from './layout-store.js'
 import type { OryhKey } from './locale.js'
@@ -135,7 +135,10 @@ function Frame({ useStore, actions, renderSlot, t }: FrameProps) {
     <aside className="oryh-navigation" aria-label={t('businessNavigation')}>
       <div className="oryh-brand"><OryhLogo compact={compact}/></div>
       <nav ref={menuRef} className="oryh-menu" aria-label={t('text14')} style={menuHeight > 0 ? { height: `${menuHeight}px` } : undefined}>
-        {PAGES.filter(page=>page.id==='settings'||state.identity?.allowedPages?.includes(page.id)).map(page => {const {label, icon: Icon} = menu[page.id]; return <button key={page.id} title={t(label)} aria-label={t(label)} aria-current={state.page === page.id ? 'page' : undefined} onClick={() => actions.navigate(page.id)}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>})}
+        {PAGES.filter(page=>page.id!=='settings'&&state.identity?.allowedPages?.includes(page.id)).map(page => {const {label, icon: Icon} = menu[page.id]; return <button key={page.id} title={t(label)} aria-label={t(label)} aria-current={state.page === page.id ? 'page' : undefined} onClick={() => actions.navigate(page.id)}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>})}
+        {/* The person's own entries. Their names are data, not locale keys: nothing here translates them. */}
+        {(state.identity?.views??[]).map(view => {const page=`view:${view.id}` as const; return <button key={page} className="oryh-user-view" title={view.label} aria-label={view.label} aria-current={state.page === page ? 'page' : undefined} onClick={() => actions.navigate(page)}><IconFilter size={19}/>{!compact && <span>{view.label}</span>}</button>})}
+        {(() => {const {label, icon: Icon} = menu.settings; return <button key="settings" title={t(label)} aria-label={t(label)} aria-current={state.page === 'settings' ? 'page' : undefined} onClick={() => actions.navigate('settings')}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>})()}
       </nav>
       {!compact && <div className="oryh-menu-resizer" role="separator" aria-label={t('resizeMenu')} aria-orientation="horizontal" aria-controls="oryh-native-sidebar" tabIndex={0} title={t('resizeMenuHint')}
         onPointerDown={e=>{if(e.button!==0)return;e.preventDefault();e.currentTarget.focus();e.currentTarget.setPointerCapture(e.pointerId)

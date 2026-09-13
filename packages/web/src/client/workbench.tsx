@@ -18,6 +18,8 @@ import { useOryhRemote } from './remote.js';
 import { IconBuilding, IconChecklist, IconReceipt, IconFolder, IconSettings, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconMessage, IconX, IconArrowUp, IconArrowUpRight, IconChevronRight } from '@tabler/icons-react';
 import type { ConnectionSummary, OperationDefinition, OperationId } from '@oryh/ai-client-core';
 import { BusinessPage } from './business-page.js';
+import { isUserViewPage, userViewPage, useUserViews } from './user-views.js';
+import { UserViewBridge } from './user-view-bridge.js';
 import { ExpensePanel } from './expenses.js';
 export interface PageContext {
     title: string;
@@ -27,12 +29,19 @@ export interface PageContext {
     content?: string;
     columns?: string[];
     queryFields?:string[];
+    /** Query-field values applied to the list, which the Host compares when it waits for a query-bar change. */
+    queryValues?:Record<string,string>;
     productCode?:string;
     productIds?:string[];
     availableColumns?:{id:string;label:string}[];
+    /** Present when the list on screen is a menu entry the person made. */
+    view?:import('@oryh/dsh-host/types').UserViewSummary;
 }
 export function Workbench(props:Parameters<typeof WorkbenchContent>[0]):ReactNode {
- if(!canAccessPage(props.connection.identity,props.page))return <main className="business-content"><h1>此功能不可用</h1><p>当前账号没有访问此功能的权限，或正在核验权限。请从左侧选择可用菜单。</p></main>;
+ const {views}=useUserViews(props.connection);
+ // A menu entry is only ever as open as the list it narrows: it grants nothing of its own.
+ const target=isUserViewPage(props.page)?views.find(v=>userViewPage(v.id)===props.page)?.kind:props.page;
+ if(target!==undefined&&!canAccessPage(props.connection.identity,target))return <main className="business-content"><h1>此功能不可用</h1><p>当前账号没有访问此功能的权限，或正在核验权限。请从左侧选择可用菜单。</p></main>;
  return <WorkbenchContent {...props}/>;
 }
 function WorkbenchContent({ page, connection, operations, onDirtyChange, settings, notices }: {
@@ -57,6 +66,13 @@ function WorkbenchContent({ page, connection, operations, onDirtyChange, setting
         'list-projects': { title: t("text12"), description: t("text13"), icon: IconFolder },
     };
     const remote=useOryhRemote();
+    const {views:userViews,loaded:userViewsLoaded,scope:userViewScope}=useUserViews(connection);
+    const userView=isUserViewPage(page)?userViews.find(v=>userViewPage(v.id)===page):undefined;
+    // The Host checks permissions against a real page, so a menu entry reports the list it narrows.
+    const hostPage:import('@oryh/dsh-host/types').ChatPageRequest['page']=userView?userView.kind:isUserViewPage(page)?'my-open-todos':page;
+    // An entry deleted elsewhere, or one from another workspace restored on reload, falls back to the
+    // home page — but only once the Host's list has arrived: before that, "missing" just means "not yet".
+    useEffect(()=>{if(userViewsLoaded&&isUserViewPage(page)&&!userView)navigate('my-open-todos')},[page,userView,userViewsLoaded,navigate]);
     const {recordViewColumns,projectColumns,setProjectColumns,setRecordColumns}=useColumnPreferences(connection);
     // ORYH hands an agent its skills on approval and expects it to re-sync, because a tenant admin
     // can redefine business logic at any time. The Host compares the server manifest first, so this
@@ -76,18 +92,20 @@ function WorkbenchContent({ page, connection, operations, onDirtyChange, setting
     const [expenseVisited, setExpenseVisited] = useState(expenseTab==='drafts');
     const [newExpenseRequest, setNewExpenseRequest] = useState(0);
     const company = connection.identity.tenant.name ?? connection.identity.tenant.slug;
-    useEffect(() => { if (page === 'timesheets') setTimesheetVisited(true); else if (page === 'timesheet-approvals') setApprovalVisited(true); else if (page !== 'settings'&&!isRecordKind(page)) setVisited(current => current.includes(page) ? current : [...current, page]); }, [page]);
+    useEffect(() => { if (page === 'timesheets') setTimesheetVisited(true); else if (page === 'timesheet-approvals') setApprovalVisited(true); else if (page !== 'settings'&&!isRecordKind(page)&&!isUserViewPage(page)) setVisited(current => current.includes(page) ? current : [...current, page]); }, [page]);
     const main = useRef<HTMLElement>(null);
     useEffect(() => { const seat = main.current?.closest<HTMLElement>('.oryh-business-seat'); if (seat) seat.scrollTop = 0; }, [page, expenseTab]);
     const [pageContexts,setPageContexts]=useState<Record<string,PageContext>>({});
     function report(id: string, value: PageContext) { setPageContexts(current=>JSON.stringify(current[id])===JSON.stringify(value)?current:{...current,[id]:value}); }
     const chatContext=page==='my-expense-claims'&&expenseTab==='drafts'?pageContexts['expense-draft']:pageContexts[page];
     return <CommandStream sessionId={sessionId} connectionId={connection.id}><div className="oryh-business">
-    <ChatNavigation page={page} {...(chatContext?{context:chatContext}:{})} connectionId={connection.id} onOpen={command=>{if(command.target==='filters'){setNavigation(command);return}if(command.target==='columns'&&command.columns){if(command.page&&isRecordKind(command.page)){const kind=command.page,columns=command.columns;setRecordColumns(kind,columns)}else setProjectColumns(command.columns as import('@oryh/dsh-host/types').ProjectColumn[]);return}if(command.target==='page'&&command.page){setNavigation(undefined);navigate(command.page);return}setNavigation(command);if(command.target==='project'){setVisited(current=>current.includes('list-projects')?current:[...current,'list-projects']);navigate('list-projects')}else if(command.manager){setApprovalVisited(true);navigate('timesheet-approvals')}else{setTimesheetVisited(true);navigate('timesheets')}}}/>
+    <UserViewBridge scope={userViewScope}/>
+    <ChatNavigation page={hostPage} {...(chatContext?{context:chatContext}:{})} connectionId={connection.id} onOpen={command=>{if(command.target==='view'&&command.userViewId){setNavigation(undefined);navigate(userViewPage(command.userViewId));return}if(command.target==='filters'){setNavigation(command);return}if(command.target==='columns'&&command.columns){if(command.page&&isRecordKind(command.page)){const kind=command.page,columns=command.columns;setRecordColumns(kind,columns)}else setProjectColumns(command.columns as import('@oryh/dsh-host/types').ProjectColumn[]);return}if(command.target==='page'&&command.page){setNavigation(undefined);navigate(command.page);return}setNavigation(command);if(command.target==='project'){setVisited(current=>current.includes('list-projects')?current:[...current,'list-projects']);navigate('list-projects')}else if(command.manager){setApprovalVisited(true);navigate('timesheet-approvals')}else{setTimesheetVisited(true);navigate('timesheets')}}}/>
     <main ref={main} className="business-content">
       {notices}
-      <div className="breadcrumb">{t("text16")}<IconChevronRight size={13}/> {page === 'settings' ? t('text17') : page === 'timesheets' ? t('tsMine') : page === 'timesheet-approvals' ? t('tsApprovals') : isRecordKind(page)?recordTitles[page]:pages[page].title}</div>
+      <div className="breadcrumb">{t("text16")}<IconChevronRight size={13}/> {page === 'settings' ? t('text17') : page === 'timesheets' ? t('tsMine') : page === 'timesheet-approvals' ? t('tsApprovals') : isUserViewPage(page)?(userView?.label??''):isRecordKind(page)?recordTitles[page]:pages[page].title}</div>
       {page === 'settings' && <div className="page-heading"><div><h1>{t('text17')}</h1><p>{t('text18')}</p></div></div>}
+      {userView&&<RecordPanel key={`${connection.id}:${userView.id}`} kind={userView.kind} view={userView} columns={recordViewColumns[userView.kind]} onColumns={columns=>setRecordColumns(userView.kind,columns)} connectionId={connection.id} onContext={value=>report(page,value)}/>}
       {isRecordKind(page)&&<RecordPanel key={`${connection.id}:${page}`} kind={page} {...(navigation?.target==='filters'?{filterCommand:navigation}:{})} columns={recordViewColumns[page]} onColumns={columns=>setRecordColumns(page,columns)} connectionId={connection.id} onContext={value=>report(page,value)}/>}
       {visited.filter(id=>canAccessPage(connection.identity,id)).map(id => <section key={id} hidden={page !== id} aria-label={t("text19", { value0: pages[id].title })}>
         {id === 'my-expense-claims' && hasPermission(connection.identity,'expense.submit_own') && <div className="view-tabs" role="group" aria-label={t("text20")}>

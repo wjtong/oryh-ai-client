@@ -14,8 +14,12 @@ it('restores filters, ordering and page, with functional updates and independent
 it('rejects invalid persisted shapes and strips extra data',()=>{
  localStorage.setItem('oryh.view.v1:u:page','-1')
  expect(createViewPreference('u','page',1,pagePreference).getSnapshot()).toBe(1)
- localStorage.setItem('oryh.view.v1:u:fields','["unknown"]')
- expect(createViewPreference('u','fields',[],queryFieldsPreference).getSnapshot()).toEqual([])
+ // The schema checks shape only. Whether a field name is one the list accepts is the deployment's call,
+ // made when the page reads the endpoint's declared parameters — a fixed list here would hardcode it again.
+ localStorage.setItem('oryh.view.v1:u:fields','["reason","reason"]')
+ expect(createViewPreference('u','fields',[],queryFieldsPreference).getSnapshot()).toEqual(['reason'])
+ localStorage.setItem('oryh.view.v1:u:badFields','["Drop Table","../x"]')
+ expect(createViewPreference('u','badFields',[],queryFieldsPreference).getSnapshot()).toEqual([])
  localStorage.setItem('oryh.view.v1:u:products',JSON.stringify([{id:'p',name:'Product',code:'P1',extra:'discard'}]))
  expect(createViewPreference('u','products',[],productPreference).getSnapshot()).toEqual([{id:'p',name:'Product',code:'P1'}])
 })

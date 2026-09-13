@@ -92,6 +92,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: link:../../../deepseek-harness/packages/core/session
         version: link:../../../deepseek-harness/packages/core/session
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: link:../../../deepseek-harness/packages/storage/storage-domain
+        version: link:../../../deepseek-harness/packages/storage/storage-domain
       '@deepseek-ai/dsh-system-prompt':
         specifier: link:../../../deepseek-harness/packages/core/system-prompt
         version: link:../../../deepseek-harness/packages/core/system-prompt
@@ -101,6 +104,9 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: link:../../../deepseek-harness/packages/typert/protocol
         version: link:../../../deepseek-harness/packages/typert/protocol
+      '@deepseek-ai/dsh-workspace':
+        specifier: link:../../../deepseek-harness/packages/workspace/workspace
+        version: link:../../../deepseek-harness/packages/workspace/workspace
       '@deepseek-ai/schemastery':
         specifier: link:../../../deepseek-harness/vendor/schemastery
         version: link:../../../deepseek-harness/vendor/schemastery

@@ -48,9 +48,18 @@ export interface TimesheetChatProposal {
 }
 
 export interface ChatHomeRequest { sessionId:string; connectionId:ConnectionId }
-export interface ChatNavigation { id:string; expiresAt:number; target?:'todo'|'project'|'page'|'columns'|'filters'; columns?:string[]; queryFields?:string[]; productCode?:string;productIds?:string[];products?:import('@oryh/ai-client-records').ProductOption[]; page?:ChatPageRequest['page']; listRevision?:string; headerId?:string; todoId?:string; manager?:boolean }
+/**
+ * A menu entry a person made: one existing list, narrowed by filters the server applies.
+ *
+ * Stored by the Host in the Harness workspace the session belongs to, per enterprise identity, and
+ * published to the page on the command stream. It grants nothing: opening it still needs the
+ * underlying list's permission.
+ */
+export interface UserViewSummary { id:string; label:string; kind:import('@oryh/ai-client-records').RecordKind; filters:import('@oryh/ai-client-records').RecordFilters }
 
-export interface ChatPageRequest extends ChatHomeRequest { viewId:string; revision:number; navigationId?:string; page:'my-open-todos'|'my-expense-claims'|'list-projects'|'timesheets'|'timesheet-approvals'|'settings'|import('@oryh/ai-client-records').RecordKind; context?:{key:string;title:string;detail:string;scope:string;content?:string;queryFields?:string[];productCode?:string;productIds?:string[];products?:import('@oryh/ai-client-records').ProductOption[];columns?:string[];availableColumns?:{id:string;label:string}[]} }
+export interface ChatNavigation { id:string; expiresAt:number; target?:'todo'|'project'|'page'|'columns'|'filters'|'view'; /** A user view to open; not `ChatPageRequest.viewId`, which names a page instance. */ userViewId?:string; columns?:string[]; queryFields?:string[]; /** Values to fill into declared query fields and apply at once. */ queryValues?:Record<string,string>; productCode?:string;productIds?:string[];products?:import('@oryh/ai-client-records').ProductOption[]; page?:ChatPageRequest['page']; listRevision?:string; headerId?:string; todoId?:string; manager?:boolean }
+
+export interface ChatPageRequest extends ChatHomeRequest { viewId:string; revision:number; navigationId?:string; page:'my-open-todos'|'my-expense-claims'|'list-projects'|'timesheets'|'timesheet-approvals'|'settings'|import('@oryh/ai-client-records').RecordKind; context?:{key:string;title:string;detail:string;scope:string;content?:string;queryFields?:string[];/** Query-field values currently applied to the list. */queryValues?:Record<string,string>;productCode?:string;productIds?:string[];products?:import('@oryh/ai-client-records').ProductOption[];columns?:string[];availableColumns?:{id:string;label:string}[];view?:UserViewSummary} }
 
 export type {ProjectFields,ProjectIntent,ProjectOptions} from '@oryh/ai-client-projects'
 export interface ProjectPrepareRequest extends ConnectionRequest {fields:import('@oryh/ai-client-projects').ProjectFields}
@@ -63,6 +72,8 @@ export type ProjectColumn='name'|'code'|'status'|'client'|'startDate'|'endDate'|
 export interface CommandSnapshot {
   /** Navigation, column, filter, todo, project-open and timesheet-open commands share one slot. */
   navigation?: ChatNavigation
+  /** Menu entries in this session's workspace for its enterprise identity; absent until first read. */
+  userViews?: UserViewSummary[]
   /** Staged timesheet suggestion for the bound timesheet page. */
   timesheet?: TimesheetChatProposal
   /** Staged new-project field suggestion. */

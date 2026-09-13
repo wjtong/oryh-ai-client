@@ -14,6 +14,7 @@ import type { Fetcher } from './http.js'
 import { OryhHttpClient } from './http.js'
 import { SkillBundleService } from './skill-bundle.js'
 import { WorkflowDefinitions } from './workflow.js'
+import { ListParameters } from './list-parameters.js'
 import { OperationExecutor, type OperationResult } from './operations.js'
 
 /** Dependencies owned by a native shell or DSH Host integration. */
@@ -63,7 +64,8 @@ export class OryhClientHost {
       id => this.verifyConnection(id as ConnectionId))
   }
 
-  createRecordRemote(){return new RecordService(this.#http,id=>this.verifyConnection(id as ConnectionId),id=>this.#connections.requireVerified(id as ConnectionId))}
+  /** Records read with server-side filters, checked against what each list endpoint declares. */
+  createRecordRemote(){const declared=new ListParameters(this.#http);return new RecordService(this.#http,id=>this.verifyConnection(id as ConnectionId),id=>this.#connections.requireVerified(id as ConnectionId),(id,path)=>declared.of(id,path))}
   createProjectRemote(store:ProjectStore){return new ProjectService(store,this.#http,id=>this.#connections.requireVerified(id as ConnectionId),id=>this.verifyConnection(id as ConnectionId))}
   createTodoDetailRemote() { return new TodoDetailService(this.#http, id => this.#connections.requireVerified(id as ConnectionId), async id => { await this.#ready; await this.#verifications.get(id as ConnectionId); return this.#connections.requireVerified(id as ConnectionId) }) }
   createTimesheetRemote(store: TimesheetStore) { return new TimesheetService(store, this.#http, id => this.#connections.requireVerified(id as ConnectionId), id => this.verifyConnection(id as ConnectionId)) }

@@ -47,7 +47,9 @@
     "@deepseek-ai/schemastery": "link:../../../deepseek-harness/vendor/schemastery",
     "@deepseek-ai/dsh-llm": "link:../../../deepseek-harness/packages/llm/llm",
     "@deepseek-ai/dsh-session": "link:../../../deepseek-harness/packages/core/session",
-    "@deepseek-ai/dsh-system-prompt": "link:../../../deepseek-harness/packages/core/system-prompt"
+    "@deepseek-ai/dsh-system-prompt": "link:../../../deepseek-harness/packages/core/system-prompt",
+    "@deepseek-ai/dsh-storage-domain": "link:../../../deepseek-harness/packages/storage/storage-domain",
+    "@deepseek-ai/dsh-workspace": "link:../../../deepseek-harness/packages/workspace/workspace"
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",

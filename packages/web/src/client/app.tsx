@@ -1,4 +1,5 @@
 import {allowedPages} from '@oryh/ai-client-pages';
+import {useUserViews} from './user-views.js';
 import {PreferenceScope} from './view-preferences.js';
 import {columnPreferenceScope} from './column-preferences.js';
 import type { BusinessView, FrameIdentity } from './layout-store.js';
@@ -45,12 +46,17 @@ export function App({ dark, page, onIdentity }: { dark: boolean; page: BusinessV
     const permittedConnection=verified&&activeConnection&&verified.id===activeConnection.id&&columnPreferenceScope(verified)===columnPreferenceScope(activeConnection)?verified:undefined;
     const permittedPages=permittedConnection?allowedPages(permittedConnection.identity):['settings'];
     const allowedKey=permittedPages.join(',');
+    // Only once verified, and only entries over lists this person may open right now: a permission
+    // revoked in ORYH hides the entry exactly as it hides the list underneath.
+    const {views:userViews}=useUserViews(permittedConnection);
+    const menuViews=userViews.filter(v=>permittedPages.includes(v.kind)).map(({id,label})=>({id,label}));
+    const menuViewsKey=JSON.stringify(menuViews);
     const company = activeConnection ? tenantName(activeConnection) : undefined;
     const email = activeConnection?.identity.user.email;
     useEffect(() => {
-        onIdentity(company && email ? { company, email, allowedPages: permittedPages } : undefined);
+        onIdentity(company && email ? { company, email, allowedPages: permittedPages, views: menuViews } : undefined);
         return () => onIdentity(undefined);
-    }, [company, email, onIdentity,allowedKey]);
+    }, [company, email, onIdentity,allowedKey,menuViewsKey]);
     const apply = useCallback(async (action: () => Promise<void>, nextBusy: BusyAction) => {
         const generation = ++actionGeneration.current;
         setBusy(nextBusy);
