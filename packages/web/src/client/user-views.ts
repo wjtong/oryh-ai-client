@@ -1,76 +1,54 @@
 import {useMemo, useSyncExternalStore} from 'react'
-import {createSnapshotStore} from '@deepseek-ai/dsh-client-store'
 import type {ConnectionSummary} from '@oryh/ai-client-core'
 import type {UserViewSummary} from '@oryh/dsh-host/types'
-import {isRecordKind} from './records.js'
 import {columnPreferenceScope} from './column-preferences.js'
 
-/** How many menu entries one person may keep, so a runaway agent cannot bury the menu. */
-export const USER_VIEW_LIMIT = 30
 /** A user view's page id: the frame store and the menu use it; the Host never sees it. */
 export type UserViewPage = `view:${string}`
 export const userViewPage = (id: string): UserViewPage => `view:${id}`
 export const isUserViewPage = (page: string): page is UserViewPage => /^view:[0-9a-f-]{36}$/.test(page)
 
 /**
- * Menu entries a person made through Chat, kept per enterprise identity in this browser.
+ * What the page knows of a person's menu entries: a mirror of what the Host last published.
  *
- * Tenant-wide definitions and roaming across devices both need a server resource ORYH does not have
- * yet; until then this is the honest scope. Only the definition is stored — label, list and filters
- * — never rows, and never anything a filter could not be rebuilt from.
+ * The entries live in the Harness workspace the current session belongs to, and the Host is the only
+ * writer. Nothing is persisted here — a reload asks the Host again — so there is no second copy to
+ * drift. `loaded` separates "no entries" from "not heard yet", which matters on reload: a page restored
+ * to `view:<id>` must wait for the list before deciding that entry is gone.
  */
-export interface UserViewStore {
-  getSnapshot(): readonly UserViewSummary[]
-  subscribe(listener: () => void): () => void
-  add(view: UserViewSummary): void
-  remove(id: string): void
+interface Mirror { views: readonly UserViewSummary[]; loaded: boolean }
+
+const empty: Mirror = {views: [], loaded: false}
+/** One mirror per enterprise identity, shared by the menu and the workbench so a change shows everywhere at once. */
+const mirrors = new Map<string, {state: Mirror; listeners: Set<() => void>}>()
+
+function mirror(scope: string) {
+  let m = mirrors.get(scope)
+  if (!m) { m = {state: empty, listeners: new Set()}; mirrors.set(scope, m) }
+  return m
 }
 
 /**
- * Drop anything that is not a well-formed entry. Harness hydrates raw JSON from storage, so what
- * comes back is untrusted input until it has been through this.
+ * Replace the mirrored entries with what the Host published.
+ * @param scope - enterprise identity scope.
+ * @param views - the Host's list; undefined leaves the mirror unloaded.
  */
-export function normalizeUserViews(value: unknown): UserViewSummary[] {
-  if (!Array.isArray(value)) return []
-  const seen = new Set<string>(), labels = new Set<string>()
-  const views: UserViewSummary[] = []
-  for (const entry of value) {
-    const v = entry as Partial<UserViewSummary> | null
-    if (!v || typeof v.id !== 'string' || !/^[0-9a-f-]{36}$/.test(v.id) || seen.has(v.id)) continue
-    if (typeof v.label !== 'string' || !v.label.trim() || v.label.length > 24 || labels.has(v.label)) continue
-    if (typeof v.kind !== 'string' || !isRecordKind(v.kind)) continue
-    const filters = v.filters && typeof v.filters === 'object' && !Array.isArray(v.filters) ? v.filters : undefined
-    if (!filters || Object.entries(filters).some(([k, val]) => !/^[a-z_][a-z0-9_]{0,63}$/.test(k) || typeof val !== 'string' || !val || val.length > 200)) continue
-    seen.add(v.id); labels.add(v.label)
-    views.push({id: v.id, label: v.label, kind: v.kind, filters: {...filters}})
-    if (views.length >= USER_VIEW_LIMIT) break
-  }
-  return views
-}
-
-/** One live store per identity, shared by the menu and the workbench so an edit shows everywhere at once. */
-const stores = new Map<string, UserViewStore>()
-
-export function userViewStore(scope: string): UserViewStore {
-  const existing = stores.get(scope)
-  if (existing) return existing
-  const snapshot = createSnapshotStore<UserViewSummary[]>([], {persist: {name: `oryh.views.v1:${scope}`}})
-  snapshot.set(normalizeUserViews(snapshot.getSnapshot()))
-  const store: UserViewStore = {
-    getSnapshot: snapshot.getSnapshot,
-    subscribe: snapshot.subscribe,
-    add: view => snapshot.set(normalizeUserViews([...snapshot.getSnapshot().filter(v => v.id !== view.id), view])),
-    remove: id => snapshot.set(snapshot.getSnapshot().filter(v => v.id !== id)),
-  }
-  stores.set(scope, store)
-  return store
+export function publishUserViews(scope: string, views: readonly UserViewSummary[] | undefined): void {
+  if (views === undefined) return
+  const m = mirror(scope)
+  if (m.state.loaded && JSON.stringify(m.state.views) === JSON.stringify(views)) return
+  m.state = {views, loaded: true}
+  for (const listener of m.listeners) listener()
 }
 
 /** The person's menu entries for this enterprise identity, live. */
 export function useUserViews(connection: ConnectionSummary | undefined) {
   const scope = connection ? columnPreferenceScope(connection) : ''
-  const store = useMemo(() => scope ? userViewStore(scope) : undefined, [scope])
-  const empty = useMemo(() => [] as readonly UserViewSummary[], [])
-  const views = useSyncExternalStore(store?.subscribe ?? (() => () => {}), store?.getSnapshot ?? (() => empty), store?.getSnapshot ?? (() => empty))
-  return {views, store}
+  const store = useMemo(() => {
+    if (!scope) return {subscribe: () => () => {}, getSnapshot: () => empty}
+    const m = mirror(scope)
+    return {subscribe: (listener: () => void) => { m.listeners.add(listener); return () => { m.listeners.delete(listener) } }, getSnapshot: () => m.state}
+  }, [scope])
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  return {views: state.views, loaded: state.loaded, scope}
 }

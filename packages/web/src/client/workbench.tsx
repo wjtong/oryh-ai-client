@@ -19,6 +19,7 @@ import { IconBuilding, IconChecklist, IconReceipt, IconFolder, IconSettings, Ico
 import type { ConnectionSummary, OperationDefinition, OperationId } from '@oryh/ai-client-core';
 import { BusinessPage } from './business-page.js';
 import { isUserViewPage, userViewPage, useUserViews } from './user-views.js';
+import { UserViewBridge } from './user-view-bridge.js';
 import { ExpensePanel } from './expenses.js';
 export interface PageContext {
     title: string;
@@ -63,12 +64,13 @@ function WorkbenchContent({ page, connection, operations, onDirtyChange, setting
         'list-projects': { title: t("text12"), description: t("text13"), icon: IconFolder },
     };
     const remote=useOryhRemote();
-    const {views:userViews,store:userViews$}=useUserViews(connection);
+    const {views:userViews,loaded:userViewsLoaded,scope:userViewScope}=useUserViews(connection);
     const userView=isUserViewPage(page)?userViews.find(v=>userViewPage(v.id)===page):undefined;
     // The Host checks permissions against a real page, so a menu entry reports the list it narrows.
     const hostPage:import('@oryh/dsh-host/types').ChatPageRequest['page']=userView?userView.kind:isUserViewPage(page)?'my-open-todos':page;
-    // An entry deleted elsewhere, or a stale id restored from a previous visit, falls back to the home page.
-    useEffect(()=>{if(isUserViewPage(page)&&!userView)navigate('my-open-todos')},[page,userView,navigate]);
+    // An entry deleted elsewhere, or one from another workspace restored on reload, falls back to the
+    // home page — but only once the Host's list has arrived: before that, "missing" just means "not yet".
+    useEffect(()=>{if(userViewsLoaded&&isUserViewPage(page)&&!userView)navigate('my-open-todos')},[page,userView,userViewsLoaded,navigate]);
     const {recordViewColumns,projectColumns,setProjectColumns,setRecordColumns}=useColumnPreferences(connection);
     // ORYH hands an agent its skills on approval and expects it to re-sync, because a tenant admin
     // can redefine business logic at any time. The Host compares the server manifest first, so this
@@ -95,7 +97,8 @@ function WorkbenchContent({ page, connection, operations, onDirtyChange, setting
     function report(id: string, value: PageContext) { setPageContexts(current=>JSON.stringify(current[id])===JSON.stringify(value)?current:{...current,[id]:value}); }
     const chatContext=page==='my-expense-claims'&&expenseTab==='drafts'?pageContexts['expense-draft']:pageContexts[page];
     return <CommandStream sessionId={sessionId} connectionId={connection.id}><div className="oryh-business">
-    <ChatNavigation page={hostPage} views={userViews} {...(chatContext?{context:chatContext}:{})} connectionId={connection.id} onOpen={command=>{if(command.target==='menu'&&command.menu){if(command.menu.op==='add')userViews$?.add(command.menu.view);else{userViews$?.remove(command.menu.userViewId);if(page===userViewPage(command.menu.userViewId))navigate('my-open-todos')}return}if(command.target==='view'&&command.userViewId){setNavigation(undefined);navigate(userViewPage(command.userViewId));return}if(command.target==='filters'){setNavigation(command);return}if(command.target==='columns'&&command.columns){if(command.page&&isRecordKind(command.page)){const kind=command.page,columns=command.columns;setRecordColumns(kind,columns)}else setProjectColumns(command.columns as import('@oryh/dsh-host/types').ProjectColumn[]);return}if(command.target==='page'&&command.page){setNavigation(undefined);navigate(command.page);return}setNavigation(command);if(command.target==='project'){setVisited(current=>current.includes('list-projects')?current:[...current,'list-projects']);navigate('list-projects')}else if(command.manager){setApprovalVisited(true);navigate('timesheet-approvals')}else{setTimesheetVisited(true);navigate('timesheets')}}}/>
+    <UserViewBridge scope={userViewScope}/>
+    <ChatNavigation page={hostPage} {...(chatContext?{context:chatContext}:{})} connectionId={connection.id} onOpen={command=>{if(command.target==='view'&&command.userViewId){setNavigation(undefined);navigate(userViewPage(command.userViewId));return}if(command.target==='filters'){setNavigation(command);return}if(command.target==='columns'&&command.columns){if(command.page&&isRecordKind(command.page)){const kind=command.page,columns=command.columns;setRecordColumns(kind,columns)}else setProjectColumns(command.columns as import('@oryh/dsh-host/types').ProjectColumn[]);return}if(command.target==='page'&&command.page){setNavigation(undefined);navigate(command.page);return}setNavigation(command);if(command.target==='project'){setVisited(current=>current.includes('list-projects')?current:[...current,'list-projects']);navigate('list-projects')}else if(command.manager){setApprovalVisited(true);navigate('timesheet-approvals')}else{setTimesheetVisited(true);navigate('timesheets')}}}/>
     <main ref={main} className="business-content">
       {notices}
       <div className="breadcrumb">{t("text16")}<IconChevronRight size={13}/> {page === 'settings' ? t('text17') : page === 'timesheets' ? t('tsMine') : page === 'timesheet-approvals' ? t('tsApprovals') : isUserViewPage(page)?(userView?.label??''):isRecordKind(page)?recordTitles[page]:pages[page].title}</div>

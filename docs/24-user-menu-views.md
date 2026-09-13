@@ -2,7 +2,7 @@
 
 2026-09-13。状态：已实施（分支 `user-menu-views`）。
 
-用户可以在 Chat 里说"加一个菜单项叫入库单，对象是类型为入库的 Shipment"，左侧菜单随即出现「入库单」，点开是按服务端条件筛好的收发货列表。
+用户可以在 Chat 里说"加一个菜单项叫入库单，对象是类型为入库的 Shipment"，左侧菜单随即出现「入库单」，点开是按服务端条件筛好的收发货列表。菜单项保存在该会话所在的 Harness workspace。
 
 ## 1. 一个菜单项是什么
 
@@ -34,39 +34,47 @@ FastAPI **会静默忽略没有声明的查询参数**。一个拼错的键，�
 
 字段**取值**（例如 `direction` 是 `inbound` 还是 `outbound`）OpenAPI 里没有枚举，客户端也不写死。agent 按 ORYH 的 skill 与接口说明来定；取错值的后果是"0 条"而不是"全部"，这是可见、可纠正的失败。
 
-## 4. agent 工具
+## 4. 存在 Harness workspace 里
+
+菜单项由 Host 保存在**会话所在的 Harness workspace** 中，经 `ctx.storageDomain` 写入名为 `oryh_user_views` 的存储域——和 Harness 自己的 workspace 注册表用的是同一种持久化形式，文件就在 DSH_HOME 的 `storages/oryh_user_views.json`，与 `storages/workspace.json` 并列。
+
+- **不写进 workspace 的目录。** workspace 的路径对桌面用户来说就是他自己的项目目录（开发机上它就是本仓库），往里写应用数据是越界。
+- **键是 workspace + 企业身份。** 会话属于哪个 workspace，由会话的 `cwd` 等于 workspace 路径决定（`workspaceRegistry.resolveByPath`）；同一个 workspace 对接两家企业时各有一份菜单，因为菜单项筛的是某家企业的列表。
+- **按 workspace 分开是本设计的语义。** 切到另一个 workspace 里的会话，看到的是那个 workspace 的菜单。
+- **Host 是唯一的写入方。** 页面不再保存副本，只镜像命令流里发布的 `userViews`（`user-view-bridge.tsx` → `user-views.ts`）。因此：重启服务、清空浏览器存储、换浏览器，菜单都还在；新增菜单项不需要页面在线回执。
+
+实测：通过 Chat 加入「入库单」后，在清空浏览器 `oryh.views*` 键并重启服务进程的情况下，菜单项仍然出现并能打开；停留在「入库单」页面刷新，也不会在菜单列表到达前被错判为"已删除"而跳回我的待办（镜像区分"还没收到"和"没有"）。
+
+早期版本把菜单项存在浏览器 localStorage。该分支未发布，旧数据**不做迁移**；实测环境里那一条已按新方式重建。
+
+## 5. agent 工具
 
 | 工具 | 作用 |
 | --- | --- |
 | `oryh_record_filter_fields` | 读某个列表在当前部署上能按哪些字段筛选。新增前先调用。只读 |
-| `oryh_menu_add` | 新增菜单项。**先用这些条件读一次列表**再保存：读取本身就是校验（未声明的键在这一步被拒绝，菜单不会变），并把条数告诉模型，0 条时提示用户核对取值 |
-| `oryh_menu_remove` | 删除用户自己加的菜单项；若正打开着，页面回到我的待办 |
-| `oryh_open_view` | 打开用户自己加的菜单项，等页面回执 |
+| `oryh_menu_add` | 新增菜单项。**先用这些条件读一次列表**再保存：读取本身就是校验（未声明的键在这一步被拒绝，什么都不会写入），并把条数告诉模型，0 条时提示用户核对取值。返回时已持久化 |
+| `oryh_menu_remove` | 从 workspace 删除用户自己加的菜单项；若正打开着，页面在收到新列表后回到我的待办 |
+| `oryh_open_view` | 打开用户自己加的菜单项，等页面回执。命令里带着它筛选的列表，页面同步时据此判断命令是否仍然有效 |
 
-`oryh_current_page` 返回 `userMenu`，模型由此知道这些菜单项的名字。改菜单是个人显示偏好，不是业务写入，所以和改显示列一样**不需要确认对话框**，走同一条"命令 → 页面应用 → 回执"链路。
+`oryh_current_page` 先从 workspace 读取最新菜单，再返回 `userMenu`，模型由此知道这些菜单项的名字。改菜单是个人显示偏好，不是业务写入，不需要确认对话框。
 
-有一处要注意：待执行命令在页面切到别的页面时会被撤回，但**菜单修改不属于任何页面**，所以 `menu` 命令不会因为用户正好换了页面而被撤回（见 `business-chat.ts` 的 `commandPage`）。
+## 6. 刻意留下的限制
 
-## 5. 存在哪里，以及刻意留下的限制
-
-菜单项按 `origin + 租户 + 用户` 存在**当前浏览器**（Harness 的持久化 store，底层是 localStorage），和显示列偏好一样。菜单和工作台共用同一个 store 实例，agent 添加后菜单立即出现；重新加载后仍在。
-
-这是有意的范围，不是遗漏：
-
-- **不跨设备、不跨浏览器。** 清缓存也会丢。
-- **没有租户范围的定义。** "管理员为全租户定义菜单、用户在此之上覆盖"需要 ORYH 新增一个服务端资源，而 oryh 仓库不在本客户端的改动范围内。到那时 `UserViewStore` 的接口不变，只换实现。
+- **没有租户范围的定义。** "管理员为全租户定义菜单、用户在此之上覆盖"需要 ORYH 新增一个服务端资源，而 oryh 仓库不在本客户端的改动范围内。
 - **只能建在已有列表之上**：销售订单、库存余额、库存流水、收发货。客户端里还没有列表页的对象（比如采购申请）暂时建不了。
 - **只支持等值筛选**，能力等于该列表接口的查询参数。"或"、区间这类条件接口不支持就做不了。
+- **会话不属于任何 workspace 时不能保存**，工具会明确报错。
 
-内置菜单的名称仍然写死在客户端（见上一轮讨论：菜单名来自 locale 字典，`en` 目前指向中文字典）。用户菜单项的名字是数据，不经过 locale，也不被翻译。
+内置菜单的名称仍然写死在客户端（菜单名来自 locale 字典，`en` 目前指向中文字典）。用户菜单项的名字是数据，不经过 locale，也不被翻译。
 
-## 6. 落点
+## 7. 落点
 
 | 位置 | 变化 |
 | --- | --- |
 | `packages/core/src/http.ts` | `API_PREFIX`；`schema()` 不带 key 取 OpenAPI |
 | `packages/core/src/list-parameters.ts` | 新增：从部署 schema 读出列表可筛选参数 |
 | `packages/records/src/{contracts,service}.ts` | `RecordQuery.filters`；`recordFilterFields`；`checkedFilters` 校验后作为查询参数发送 |
-| `packages/dsh-host/src/business-chat.ts` | 四个工具；`addUserView`/`removeUserView`/`openUserView`；`commandPage`；`currentPage` 返回 `userMenu` |
-| `packages/web/src/client/user-views.ts` | 新增：按身份共享的菜单项 store |
-| `packages/web/src/client/{layout,layout-store,app,workbench,records,chat-navigation}.tsx` | `view:<id>` 页面、菜单渲染、命令应用、`RecordPanel` 的 `view` 形态 |
+| `packages/dsh-host/src/user-views.ts` | 新增：`UserViewRegistry`，按 workspace + 企业身份存取，存储域 `oryh_user_views` |
+| `packages/dsh-host/src/business-chat.ts` | 四个工具；`addUserView`/`removeUserView`/`openUserView`；`refreshMenu`；命令快照发布 `userViews` |
+| `packages/web/src/client/{user-views.ts,user-view-bridge.tsx}` | 页面侧镜像：从命令流接收菜单项，区分"未收到"与"没有" |
+| `packages/web/src/client/{layout,layout-store,app,workbench,records,chat-navigation}.tsx` | `view:<id>` 页面、菜单渲染、`RecordPanel` 的 `view` 形态 |

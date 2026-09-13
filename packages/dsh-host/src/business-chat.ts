@@ -20,6 +20,7 @@ import type { ChatPageRequest, ChatSelection, ChatContextView, ChatHomeRequest, 
 import { EXPENSE_OBJECT_TYPE } from '@oryh/ai-client-expenses/contracts'
 import { CommandQueue } from './command-queue.js'
 import { SubmitReview } from './submit-review.js'
+import { UserViewRegistry } from './user-views.js'
 interface Binding { document?:TodoDocument; connectionId:ConnectionId; scope:string; todoId?:string; title:string; generation:number; timesheetPage?:string; manager?:boolean; visibleTodos?:{id:string;title:string}[]; listRevision?:string; navigationId?:string }
 const toolName='oryh_current_todo_details'
 // 'skill' and 'bash' are what make the Chat pane a generic ORYH agent (ADR-0009). ORYH ships its
@@ -39,8 +40,13 @@ export class BusinessChat {
   readonly timesheet: TimesheetChat
   /** Pre-submit norm review, shared by every document kind ORYH governs with a workflow definition. */
   readonly reviews:SubmitReview
+  /** Menu entries people made, stored in the Harness workspace their session belongs to. */
+  readonly userViewRegistry:UserViewRegistry
+  /** Last list read per session, so synchronous readers (the command stream, page context) can use it. */
+  private menus=new Map<string,UserViewSummary[]>()
   constructor(private ctx:Context,private controller:OryhClientController,private details:TodoDetailService,private directory:string, private api?:OryhTimesheetRemote,private projects?:OryhProjectRemote,private skills?:SkillBundleService){
     this.reviews=new SubmitReview(ctx,this.queue)
+    this.userViewRegistry=new UserViewRegistry(ctx)
     this.project=new ProjectChat(ctx,projects,id=>{const home=this.homes.get(id);if(!home||this.pages.get(id)?.page!=='list-projects')throw new OryhClientError('当前不是项目页面。','request-failed');return home.connectionId},this.queue)
     this.timesheet=new TimesheetChat(ctx,api,async(sessionId,verify=true,write=false)=>{
       const b=this.bindings.get(sessionId)
@@ -125,23 +131,37 @@ export class BusinessChat {
     if(r.page!=='list-projects')this.project.clear(r.sessionId)
     if(b&&this.bindingPage(b)!==r.page){this.bindings.delete(r.sessionId);this.timesheet.clear(r.sessionId)}
     const command=this.queue.peek(r.sessionId)
-    // A command waits for the page it belongs to; a page sync for any other page withdraws it. A menu
-    // edit belongs to no page — it changes the menu, wherever the person is — so it is never withdrawn
-    // here, and a user view belongs to the list it narrows.
-    if(command&&command.target!=='menu'&&r.page!==this.commandPage(r.sessionId,command))this.queue.withdraw(r.sessionId,command.id)
+    // A command waits for the page it belongs to; a page sync for any other page withdraws it. A user
+    // view belongs to the list it narrows.
+    if(command&&r.page!==this.commandPage(r.sessionId,command))this.queue.withdraw(r.sessionId,command.id)
+    // The menu is read from the workspace once per binding; later changes publish themselves.
+    if(!this.menus.has(r.sessionId))void this.refreshMenu(r.sessionId).catch(()=>{})
     this.queue.settle(r.sessionId)
   }
   /** The page a pending command expects the person to be on. */
   private commandPage(sessionId:string,command:ChatNavigation):string{
     if(command.target==='page')return command.page??''
-    if(command.target==='view')return this.userViews(sessionId).find(v=>v.id===command.userViewId)?.kind??''
+    if(command.target==='view')return command.page??''
     if(command.target==='columns'||command.target==='filters')return command.page??'list-projects'
     if(command.target==='project')return 'list-projects'
     if(command.target==='todo')return 'my-open-todos'
     return command.manager?'timesheet-approvals':'timesheets'
   }
-  /** Menu entries the page last reported. The browser owns them; the Host mirrors, never invents. */
-  private userViews(sessionId:string):readonly UserViewSummary[]{return this.pages.get(sessionId)?.views??[]}
+  /** Menu entries last read from this session's workspace. */
+  private userViews(sessionId:string):readonly UserViewSummary[]{return this.menus.get(sessionId)??[]}
+  /**
+   * Re-read this session's menu entries from its workspace and publish them to the page.
+   * @param sessionId - session whose workspace and enterprise identity select the menu.
+   * @returns the entries now published.
+   */
+  async refreshMenu(sessionId:string):Promise<readonly UserViewSummary[]>{
+    const home=this.homes.get(sessionId)
+    if(!home){this.menus.delete(sessionId);return []}
+    const views=await this.userViewRegistry.list(sessionId,home.scope)
+    if(this.homes.get(sessionId)!==home)return this.userViews(sessionId)
+    if(JSON.stringify(views)!==JSON.stringify(this.menus.get(sessionId))){this.menus.set(sessionId,views);this.queue.changed(sessionId)}
+    return views
+  }
   currentPage(sessionId:string){
     const p=this.pages.get(sessionId),home=this.homes.get(sessionId)
     if(!p||!home||p.connectionId!==home.connectionId)throw new OryhClientError('当前页面正在同步，请稍后重试。','request-failed')
@@ -195,19 +215,21 @@ export class BusinessChat {
     })}finally{this.queue.withdraw(id,command.id)}
   }
   /**
-   * Add a menu entry the person asked for: one existing list, narrowed by server-side filters.
+   * Add a menu entry the person asked for: one existing list, narrowed by server-side filters, saved in
+   * the Harness workspace this session belongs to.
    *
    * The list is read once with the filters before anything is saved. That read is the validation —
    * the records service refuses a key the endpoint does not declare, which matters because the server
    * would otherwise ignore it and show every row under a label that says it is filtered — and it
    * tells the model how many rows the entry holds, so an empty result is noticed rather than shipped.
+   * The write is durable on return; the page learns of it from the command stream, so no page needs
+   * to be open for this to succeed.
    * @param id - session asking.
    * @param label - the person's own name for the entry.
    * @param kind - the existing list it narrows.
    * @param filters - equality filters, as `{field, value}` pairs.
-   * @param signal - cancels the wait for the page to apply it.
    */
-  async addUserView(id:string,label:string,kind:string,filters:readonly {field:string;value:string}[],signal:AbortSignal){
+  async addUserView(id:string,label:string,kind:string,filters:readonly {field:string;value:string}[]){
     const home=this.homes.get(id)
     if(!home)throw new OryhClientError('请先在 Chat 中选择会话并等待已关联。','request-failed')
     if(!Object.hasOwn(recordSpecs,kind))throw new OryhClientError('菜单项只能建在已有列表之上：销售订单、库存余额、库存流水或收发货。','request-failed')
@@ -215,41 +237,28 @@ export class BusinessChat {
     requirePage((await this.controller.verifyConnection(home.connectionId)).identity,list)
     const name=String(label??'').trim()
     if(!name||name.length>24)throw new OryhClientError('菜单名称需为 1–24 个字。','request-failed')
-    const views=this.userViews(id)
-    if(views.some(v=>v.label===name))throw new OryhClientError(`已经有名为“${name}”的菜单项。`,'request-failed')
-    if(views.length>=30)throw new OryhClientError('菜单项已达 30 个上限，请先删除不用的。','request-failed')
     if(!Array.isArray(filters)||filters.some(f=>typeof f?.field!=='string'||typeof f?.value!=='string'))throw new OryhClientError('筛选条件格式无效。','request-failed')
     const conditions=Object.fromEntries(filters.map(f=>[f.field,f.value]))
     if(Object.keys(conditions).length!==filters.length)throw new OryhClientError('同一字段只能出现一次。','request-failed')
     const probe=await this.ctx.oryhRecords.recordList({connectionId:home.connectionId,kind:list,page:1,query:'',filters:conditions})
     if(this.homes.get(id)!==home)throw new OryhClientError('企业页面已改变。','request-failed')
     const view:UserViewSummary={id:randomUUID(),label:name,kind:list,filters:conditions}
-    const command:ChatNavigation={id:randomUUID(),target:'menu',menu:{op:'add',view},expiresAt:Date.now()+10000}
-    this.queue.issue(id,command)
-    try{return await this.queue.wait<string>(id,'navigation',{
-      invalid:()=>this.homes.get(id)!==home||!this.queue.holds(id,command.id)?'菜单修改已取消。':undefined,
-      until:()=>this.userViews(id).some(v=>v.id===view.id)?JSON.stringify({added:view,rows:probe.total,notice:probe.total===0?'按这些条件当前没有记录。请确认字段取值是否正确，必要时删除重建。':'菜单项已添加，只保存在当前浏览器。'}):undefined,
-      expired:'页面未确认菜单修改，请重新读取当前页面。',timeoutMs:10000,signal,
-    })}finally{this.queue.withdraw(id,command.id)}
+    const views=await this.userViewRegistry.add(id,home.scope,view)
+    this.menus.set(id,views);this.queue.changed(id)
+    return JSON.stringify({added:view,rows:probe.total,notice:probe.total===0?'按这些条件当前没有记录。请确认字段取值是否正确，必要时删除重建。':'菜单项已添加，保存在当前会话所在的 workspace。'})
   }
   /**
-   * Remove a menu entry the person made.
+   * Remove a menu entry the person made, from this session's workspace.
    * @param id - session asking.
    * @param userViewId - the entry, as `oryh_current_page` lists it.
-   * @param signal - cancels the wait for the page to apply it.
    */
-  async removeUserView(id:string,userViewId:string,signal:AbortSignal){
+  async removeUserView(id:string,userViewId:string){
     const home=this.homes.get(id)
     if(!home)throw new OryhClientError('请先在 Chat 中选择会话并等待已关联。','request-failed')
-    const view=this.userViews(id).find(v=>v.id===userViewId)
-    if(!view)throw new OryhClientError('没有这个菜单项，请先读取当前页面的 userMenu。','request-failed')
-    const command:ChatNavigation={id:randomUUID(),target:'menu',menu:{op:'remove',userViewId},expiresAt:Date.now()+10000}
-    this.queue.issue(id,command)
-    try{return await this.queue.wait<string>(id,'navigation',{
-      invalid:()=>this.homes.get(id)!==home||!this.queue.holds(id,command.id)?'菜单修改已取消。':undefined,
-      until:()=>this.userViews(id).some(v=>v.id===userViewId)?undefined:`已删除菜单项“${view.label}”，未修改任何业务记录。`,
-      expired:'页面未确认菜单修改，请重新读取当前页面。',timeoutMs:10000,signal,
-    })}finally{this.queue.withdraw(id,command.id)}
+    const removed=await this.userViewRegistry.remove(id,home.scope,userViewId)
+    if(!removed)throw new OryhClientError('没有这个菜单项，请先读取当前页面的 userMenu。','request-failed')
+    await this.refreshMenu(id)
+    return `已删除菜单项“${removed.label}”，未修改任何业务记录。`
   }
   /**
    * Open a menu entry the person made, and wait until the page shows it.
@@ -260,11 +269,12 @@ export class BusinessChat {
   async openUserView(id:string,userViewId:string,signal:AbortSignal){
     const home=this.homes.get(id)
     if(!home)throw new OryhClientError('请先在 Chat 中选择会话并等待已关联。','request-failed')
-    const view=this.userViews(id).find(v=>v.id===userViewId)
+    const view=(await this.refreshMenu(id)).find(v=>v.id===userViewId)
     if(!view)throw new OryhClientError('没有这个菜单项，请先读取当前页面的 userMenu。','request-failed')
     requirePage((await this.controller.verifyConnection(home.connectionId)).identity,view.kind)
     if(this.pages.get(id)?.context?.view?.id===userViewId)return JSON.stringify(this.currentPage(id))
-    const command:ChatNavigation={id:randomUUID(),target:'view',userViewId,expiresAt:Date.now()+15000}
+    // The command names the list the entry narrows, so a page sync can tell it apart without a lookup.
+    const command:ChatNavigation={id:randomUUID(),target:'view',userViewId,page:view.kind,expiresAt:Date.now()+15000}
     this.queue.issue(id,command)
     try{return await this.queue.wait<string>(id,'navigation',{
       invalid:()=>this.homes.get(id)!==home||!this.queue.holds(id,command.id)?'页面导航已取消。':undefined,
@@ -299,7 +309,8 @@ export class BusinessChat {
   /** Every command pending for one session, composed from the queue and both children. */
   snapshot(sessionId:string):import('./types.js').CommandSnapshot{
     const navigation=this.queue.peek(sessionId),timesheet=this.timesheet.pending(sessionId),project=this.project.pending(sessionId),review=this.reviews.state(sessionId)
-    return {...(navigation?{navigation}:{}),...(timesheet?{timesheet}:{}),...(project?{project}:{}),...(review?{review}:{})}
+    const userViews=this.menus.get(sessionId)
+    return {...(navigation?{navigation}:{}),...(timesheet?{timesheet}:{}),...(project?{project}:{}),...(review?{review}:{}),...(userViews?{userViews}:{})}
   }
   /**
    * Follow this session's pending commands: a baseline, then the full set after every change.
@@ -435,13 +446,13 @@ export class BusinessChat {
     ctx.tools.register(defineTool({name:'oryh_inventory_filters',description:'配置库存流水查询工具栏（不是显示列）。fields 为额外查询字段，支持 product_code 产品编码；空数组移除并清空产品筛选。仅增加查询框时不传 productCode；用户指定产品时传精确编码以填写并查询，空字符串清空。库存项编号原条件保留。产品支持多选：先用 oryh_search_products 搜索，再传 productIds 完整数组（并集）；空数组清空，不与 productCode 同传。先读当前页面，不猜产品编号。',parameters:{fields:{type:'array',required:true,items:{type:'string'}},productCode:{type:'string'},productIds:{type:'array',items:{type:'string'}}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(a,e)=>{if(!e.agent)throw new Error('需要会话');return this.configureInventoryFilters(String(e.agent.id),a.fields,a.productCode,e.signal,a.productIds)}}))
     ctx.tools.register(defineTool({name:'oryh_record_columns',description:'调整当前销售订单、库存余额、库存流水或 Shipment 列表的显示列和顺序。先读取当前页面 availableColumns；至少保留一列。只改变显示，不修改数据。',parameters:{columns:{type:'array',required:true,items:{type:'string'}}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(a,e)=>{if(!e.agent)throw new Error('需要会话');return this.configureRecordColumns(String(e.agent.id),a.columns,e.signal)}}))
     ctx.tools.register(defineTool({name:'oryh_record_filter_fields',description:'读取某个列表在当前部署上可以按哪些字段筛选（来自 ORYH 自己的接口说明）。新增菜单项前先调用，只能用这里返回的字段。只读。',parameters:{kind:{type:'string',required:true,enum:['sales-orders','inventory-items','inventory-item-details','shipments']}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(a,e)=>{if(!e.agent)throw new Error('需要会话');const home=this.homes.get(String(e.agent.id));if(!home)throw new OryhClientError('请先在 Chat 中选择会话并等待已关联。','request-failed');return JSON.stringify(await this.ctx.oryhRecords.recordFilterFields(home.connectionId,a.kind as import('@oryh/ai-client-records').RecordKind))}}))
-    ctx.tools.register(defineTool({name:'oryh_menu_add',description:'按用户要求在左侧菜单新增一个菜单项：在已有列表上加服务端筛选条件，并用用户起的名字显示，例如“入库单”= 收发货列表里方向为入库的记录。先用 oryh_record_filter_fields 确认字段，字段取值以 ORYH 的 skill 或接口说明为准，不要猜。只改菜单显示，不修改业务数据；只保存在当前浏览器。',parameters:{label:{type:'string',required:true,description:'用户起的菜单名称，1–24 个字'},kind:{type:'string',required:true,enum:['sales-orders','inventory-items','inventory-item-details','shipments']},filters:{type:'array',required:true,items:{type:'object',additionalProperties:false,properties:{field:{type:'string',required:true},value:{type:'string',required:true}}}}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(a,e)=>{if(!e.agent)throw new Error('需要会话');return this.addUserView(String(e.agent.id),a.label,a.kind,a.filters,e.signal)}}))
-    ctx.tools.register(defineTool({name:'oryh_menu_remove',description:'删除用户自己添加的菜单项。userViewId 取自 oryh_current_page 返回的 userMenu。不修改业务数据。',parameters:{userViewId:{type:'string',required:true}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(a,e)=>{if(!e.agent)throw new Error('需要会话');return this.removeUserView(String(e.agent.id),a.userViewId,e.signal)}}))
+    ctx.tools.register(defineTool({name:'oryh_menu_add',description:'按用户要求在左侧菜单新增一个菜单项：在已有列表上加服务端筛选条件，并用用户起的名字显示，例如“入库单”= 收发货列表里方向为入库的记录。先用 oryh_record_filter_fields 确认字段，字段取值以 ORYH 的 skill 或接口说明为准，不要猜。只改菜单显示，不修改业务数据；保存在当前会话所在的 workspace。',parameters:{label:{type:'string',required:true,description:'用户起的菜单名称，1–24 个字'},kind:{type:'string',required:true,enum:['sales-orders','inventory-items','inventory-item-details','shipments']},filters:{type:'array',required:true,items:{type:'object',additionalProperties:false,properties:{field:{type:'string',required:true},value:{type:'string',required:true}}}}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(a,e)=>{if(!e.agent)throw new Error('需要会话');return this.addUserView(String(e.agent.id),a.label,a.kind,a.filters)}}))
+    ctx.tools.register(defineTool({name:'oryh_menu_remove',description:'删除用户自己添加的菜单项。userViewId 取自 oryh_current_page 返回的 userMenu。不修改业务数据。',parameters:{userViewId:{type:'string',required:true}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(a,e)=>{if(!e.agent)throw new Error('需要会话');return this.removeUserView(String(e.agent.id),a.userViewId)}}))
     ctx.tools.register(defineTool({name:'oryh_open_view',description:'打开用户自己添加的菜单项并等待页面回执。userViewId 取自 oryh_current_page 返回的 userMenu。只导航，不写入业务数据。',parameters:{userViewId:{type:'string',required:true}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(a,e)=>{if(!e.agent)throw new Error('需要会话');return this.openUserView(String(e.agent.id),a.userViewId,e.signal)}}))
     ctx.tools.register(defineTool({name:'oryh_project_columns',description:'调整项目列表显示列及顺序。传入完整列配置，必须保留 name；仅修改显示，不修改业务数据。',parameters:{columns:{type:'array',required:true,items:{type:'string',enum:['name','code','status','client','startDate','endDate','createdAt','updatedAt']}}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(a,e)=>{if(!e.agent)throw new Error('需要会话');return this.configureProjectColumns(String(e.agent.id),a.columns,e.signal)}}))
     ctx.tools.register(defineTool({name:'oryh_navigate',description:'按用户意图打开右侧业务菜单，等待页面回执。只导航，不写入业务数据；页面数据仍可能加载中。',parameters:{page:{type:'string',required:true,enum:pageIds()}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(a,e)=>{if(!e.agent)throw new Error('需要会话');return this.navigate(String(e.agent.id),a.page,e.signal)}}))
     ctx.tools.register(defineTool({name:'oryh_open_project',description:'打开右侧新建项目表单。检查真实权限并保留已有未保存内容，不创建项目。之后读取表单再填写。',parameters:{},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(_a,e)=>{if(!e.agent)throw new Error('需要会话');return this.openProject(String(e.agent.id),e.signal)}}))
-    ctx.tools.register(defineTool({name:'oryh_current_page',description:'每次处理业务请求先读取右侧实时页面、列表或详情上下文及当前插件能力。页面切换后以此为准，不沿用历史页面。',parameters:{},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(_a,e)=>{if(!e.agent)throw new Error('需要会话');return JSON.stringify(this.currentPage(String(e.agent.id)))}}))
+    ctx.tools.register(defineTool({name:'oryh_current_page',description:'每次处理业务请求先读取右侧实时页面、列表或详情上下文及当前插件能力。页面切换后以此为准，不沿用历史页面。',parameters:{},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(_a,e)=>{if(!e.agent)throw new Error('需要会话');const id=String(e.agent.id);await this.refreshMenu(id).catch(()=>{});return JSON.stringify(this.currentPage(id))}}))
     const todoOutput={schema:{type:'string'} as const,render:(_a:unknown,value:string)=>[{type:'text' as const,text:value}]}
     ctx.tools.register(defineTool({name:'oryh_visible_todos',description:'读取右侧待办列表当前页的可见顺序、标题和版本。用户说第一条、第二条或某标题时先调用此工具；无需手动选中。',parameters:{},output:todoOutput,execute:async(_a,e)=>{if(!e.agent)throw new Error('需要会话');return JSON.stringify(await this.visibleTodos(String(e.agent.id)))}}))
     ctx.tools.register(defineTool({name:'oryh_open_todo',description:'按刚读取的可见列表序号打开右侧待办详情，并返回关联业务单据的最新详情。序号从 1 开始；列表变化则拒绝。只读，不审批。',parameters:{position:{type:'integer',required:true,description:'当前可见页序号，从 1 开始'},revision:{type:'string',required:true,description:'oryh_visible_todos 返回的列表版本'}},output:todoOutput,execute:async(args,e)=>{if(!e.agent)throw new Error('需要会话');return JSON.stringify(await this.openTodo(String(e.agent.id),args.position,args.revision,e.signal))}}))
@@ -467,6 +478,7 @@ export class BusinessChat {
       ctx.effect(()=>agent.ctx.systemPrompt.context({name:'oryh-current-page',order:10000,text:()=>{try{return JSON.stringify(this.currentPage(String(agent.id)))}catch{return '当前网页上下文尚未同步。不得把聊天历史中的页面当作当前页面；请先读取 oryh_current_page。'}}}),'oryh page context')
     }
     this.reviews.install()
+    this.userViewRegistry.install()
     ctx.on('agent/created',({agent})=>mount(agent));ctx.agents.list().forEach(mount)
     ctx.on('tools/pre-execute',async(exec,next)=>toolNames.includes(exec.name)&&exec.agent?next():{kind:'deny',reason:'ORYH 仅开放待办查询、工时读取和工时建议工具；正式确认只能在业务页面完成。'})
     ctx.effect(()=>()=>{this.bindings.clear();this.homes.clear();this.pages.clear();this.queue.disposeAll();mounted.clear()},'oryh business bindings')

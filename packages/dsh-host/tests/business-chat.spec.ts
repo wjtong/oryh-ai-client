@@ -364,63 +364,89 @@ describe('command stream',()=>{
 })
 describe('menu entries a person adds through chat',()=>{
  const inbound={field:'direction',value:'inbound'}
- it('reads the list with the filters first, then waits for the page to hold the entry',async()=>{
+ /**
+  * In-memory stand-ins for the Harness storage domain and workspace registry. Two workspaces, so the
+  * tests can show an entry belongs to the workspace its session runs in.
+  */
+ function harness(f:Awaited<ReturnType<typeof setup>>,cwd='/ws/a'){
+  const rows=new Map<string,unknown>()
+  const table={get:(k:string)=>rows.get(k),put:async(k:string,v:unknown)=>{rows.set(k,v)},delete:async(k:string)=>rows.delete(k),entries:()=>rows.entries(),keys:()=>rows.keys(),get size(){return rows.size}}
+  const storage={open:vi.fn(async()=>({name:'oryh_user_views',table:()=>table,close:async()=>{}}))}
+  const workspaces={resolveByPath:async(path:string)=>path==='/ws/a'?{id:'wsA'}:path==='/ws/b'?{id:'wsB'}:undefined}
+  Object.assign(f.agent.session.header,{cwd})
+  Object.assign(f.ctx,{get:(name:string)=>name==='storageDomain'?storage:name==='workspaceRegistry'?workspaces:undefined,effect:()=>{}})
+  return {rows,storage}
+ }
+ it('reads the list with the filters first, then saves the entry in the session workspace',async()=>{
   const f=await setup();try{
+   const {rows}=harness(f)
    const recordList=vi.fn(async()=>({rows:[],page:1,pages:1,total:7,fetchedAt:'now'}))
    Object.assign(f.ctx,{oryhRecords:{recordList}})
    await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
-   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos',views:[]})
-   const pending=f.chat.addUserView('s','入库单','shipments',[inbound],new AbortController().signal)
-   await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
-   // The read is the validation: the records service refuses an undeclared key before the menu changes.
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos'})
+   const receipt=JSON.parse(await f.chat.addUserView('s','入库单','shipments',[inbound]))
+   // The read is the validation: the records service refuses an undeclared key before anything is saved.
    expect(recordList).toHaveBeenCalledWith(expect.objectContaining({kind:'shipments',filters:{direction:'inbound'}}))
-   const n=f.chat.snapshot('s').navigation!
-   expect(n).toMatchObject({target:'menu',menu:{op:'add',view:{label:'入库单',kind:'shipments',filters:{direction:'inbound'}}}})
-   // A menu edit belongs to no page, so the person moving to another page must not withdraw it.
-   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'timesheets',views:[]})
-   expect(f.chat.snapshot('s').navigation?.id).toBe(n.id)
-   const view=(n.menu as {op:'add';view:import('../src/types.js').UserViewSummary}).view
-   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:3,page:'timesheets',navigationId:n.id,views:[view]})
-   expect(JSON.parse(await pending)).toMatchObject({added:{label:'入库单'},rows:7})
-   // The model learns the entry by the person's own name.
-   expect(f.chat.currentPage('s').userMenu).toEqual([view])
-   await expect(f.chat.addUserView('s','入库单','shipments',[inbound],new AbortController().signal)).rejects.toThrow(/已经有/)
+   expect(receipt).toMatchObject({added:{label:'入库单',kind:'shipments',filters:{direction:'inbound'}},rows:7})
+   // Durable on return, with no page acknowledgement: the entry is in the workspace's table.
+   const [key,stored]=[...rows.entries()][0]!
+   expect(key.startsWith('wsA ')).toBe(true)
+   expect((stored as {views:unknown[]}).views).toHaveLength(1)
+   // Published to the page, and visible to the model by the person's own name.
+   expect(f.chat.snapshot('s').userViews).toEqual([receipt.added])
+   expect(f.chat.currentPage('s').userMenu).toEqual([receipt.added])
+   await expect(f.chat.addUserView('s','入库单','shipments',[inbound])).rejects.toThrow(/已经有/)
   }finally{await f.close()}
  })
 
  it('changes nothing when the list refuses the filters',async()=>{
   const f=await setup();try{
+   const {rows}=harness(f)
    const recordList=vi.fn(async()=>{throw new Error('列表不支持按“directon”筛选。可用字段：direction')})
    Object.assign(f.ctx,{oryhRecords:{recordList}})
    await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
-   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos',views:[]})
-   await expect(f.chat.addUserView('s','入库单','shipments',[{field:'directon',value:'inbound'}],new AbortController().signal)).rejects.toThrow(/directon/)
-   expect(f.chat.snapshot('s').navigation).toBeUndefined()
-   await expect(f.chat.addUserView('s','入库单','purchase-requests',[inbound],new AbortController().signal)).rejects.toThrow(/已有列表/)
-   await expect(f.chat.addUserView('s','','shipments',[inbound],new AbortController().signal)).rejects.toThrow(/1–24/)
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos'})
+   await expect(f.chat.addUserView('s','入库单','shipments',[{field:'directon',value:'inbound'}])).rejects.toThrow(/directon/)
+   expect(rows.size).toBe(0)
+   await expect(f.chat.addUserView('s','入库单','purchase-requests',[inbound])).rejects.toThrow(/已有列表/)
+   await expect(f.chat.addUserView('s','','shipments',[inbound])).rejects.toThrow(/1–24/)
   }finally{await f.close()}
  })
 
- it('opens an entry only once the page shows it, and removes one only once it is gone',async()=>{
+ it('keeps a separate menu per workspace',async()=>{
+  const a=await setup(),b=await setup();try{
+   const stored=harness(a,'/ws/a')
+   Object.assign(a.ctx,{oryhRecords:{recordList:async()=>({rows:[],page:1,pages:1,total:0,fetchedAt:'now'})}})
+   await a.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   await a.chat.addUserView('s','入库单','shipments',[inbound])
+   // Another session in a different workspace, over the same storage, sees none of it.
+   harness(b,'/ws/b')
+   Object.assign(b.ctx,{get:(name:string)=>name==='storageDomain'?stored.storage:name==='workspaceRegistry'?{resolveByPath:async()=>({id:'wsB'})}:undefined})
+   await b.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   expect(await b.chat.refreshMenu('s')).toEqual([])
+  }finally{await a.close();await b.close()}
+ })
+
+ it('opens an entry only once the page shows it, and removes one from the workspace',async()=>{
   const f=await setup();try{
-   const view={id:'0b7c1f0e-2d1a-4d5e-9a3b-6c8d9e0f1a2b',label:'入库单',kind:'shipments' as const,filters:{direction:'inbound'}}
+   harness(f)
+   Object.assign(f.ctx,{oryhRecords:{recordList:async()=>({rows:[],page:1,pages:1,total:0,fetchedAt:'now'})}})
    await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
-   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos',views:[view]})
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos'})
+   const view=JSON.parse(await f.chat.addUserView('s','入库单','shipments',[inbound])).added
    await expect(f.chat.openUserView('s','missing',new AbortController().signal)).rejects.toThrow(/没有这个菜单项/)
 
    const opening=f.chat.openUserView('s',view.id,new AbortController().signal)
    await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
    const open=f.chat.snapshot('s').navigation!
-   expect(open).toMatchObject({target:'view',userViewId:view.id})
-   // The page reports the list the entry narrows, with the entry itself in the context.
-   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'shipments',navigationId:open.id,views:[view],context:{key:'shipments:list',title:'入库单',detail:'',scope:'',view}})
+   // The command names the list the entry narrows, so a page sync on that list keeps it alive.
+   expect(open).toMatchObject({target:'view',userViewId:view.id,page:'shipments'})
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'shipments',navigationId:open.id,context:{key:'shipments:list',title:'入库单',detail:'',scope:'',view}})
    expect(JSON.parse(await opening)).toMatchObject({page:'shipments',title:'入库单'})
 
-   const removing=f.chat.removeUserView('s',view.id,new AbortController().signal)
-   await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation?.target).toBe('menu'))
-   const remove=f.chat.snapshot('s').navigation!
-   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:3,page:'my-open-todos',navigationId:remove.id,views:[]})
-   expect(await removing).toContain('已删除菜单项“入库单”')
+   expect(await f.chat.removeUserView('s',view.id)).toContain('已删除菜单项“入库单”')
+   expect(f.chat.snapshot('s').userViews).toEqual([])
+   await expect(f.chat.removeUserView('s',view.id)).rejects.toThrow(/没有这个菜单项/)
   }finally{await f.close()}
  })
 })
