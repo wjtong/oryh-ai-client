@@ -6,6 +6,14 @@
 
 关联文档：[技术架构](04-technical-architecture.md)、[认证与登录](09-authentication-and-login.md)、[插件迁移记录](14-dsh-plugin-migration.md)、[重构评审](18-plugin-split-review-2026-09-12.md)。评审后的修复已有后续提交；实施前按届时分支重新确认，不能把旧评审条目一律当成未解决问题。
 
+> **2026-09-13 修订：Skills 接通后，本方案的安全前提变了。** 客户端现在按 ORYH 对通用 agent 的既有方案装载 personal skill bundle，并为 agent 打开了 `skill` 与 `bash`（[ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md)、[Skills 装载](23-oryh-skills.md)）。三处结论因此需要重写，且都往更严的方向走：
+>
+> 1. **§1 与 §5.3 的"不提供任意 Shell"不再成立。** ORYH 把业务逻辑放在 skill 里，skill 的步骤是"运行这个脚本"，没有 shell 整套能力就是死的。收窄不再由 Profile 承担。
+> 2. **客户端现在执行租户编写的代码。** skill 由租户管理员编写、服务端下发、随时可改。桌面版上这是"用户自己的机器跑自己雇主的脚本"；多租户服务器上，这是**共享主机上按租户身份执行外部代码**——正是 §5.3 自己写的"需要运行不受信任代码"的情形，那一段的结论（独立 worker/执行容器）因此从备选升级为默认选项。
+> 3. **skills 目录是凭据存储。** bundle 里有该人的 `ORYH_API_KEY` 明文。§6.2 的"凭据只在 vault"必须补充这一例外并按凭据对待该目录。
+>
+> 具体修改见下面各节的同日期注记；验收侧的变化见 [S0 验收](21-s0-acceptance.md) S0-2。
+
 ## 1. 目标、决策与非目标
 
 目标：ORYH AI Client 与 ORYH 一起部署在服务器上，作为独立应用容器对外提供浏览器入口。一个实例同时服务多个 tenant、多个用户；用户登录后自动获得自己的工作空间，能够使用传统业务页面和原生 Harness Chat。
@@ -16,7 +24,8 @@
 - 每个 `(oryhDeploymentId, tenantId, userId)` 对应独立 Harness 运行时、运行时 HOME、凭据范围与数据根。
 - 同一身份可以拥有多个逻辑 Workspace；每个 Workspace 可以拥有多个 Session。
 - 运行时按需启动、空闲回收，不能等同于“每个注册用户永久常驻一个进程”。
-- 首版只开放受控业务能力，不提供任意 Shell、代码执行、服务器目录浏览或用户安装插件。
+- 首版只开放受控业务能力：不提供服务器目录浏览、用户安装插件、任意 MCP 连接或管理员工具集。
+  > **2026-09-13 修订。** "不提供任意 Shell、代码执行"已不成立：`skill` 与 `bash` 已进入 agent 的工具允许列表，因为 ORYH 的业务逻辑以 skill 交付、其步骤靠脚本执行。能力边界因此从 Profile 下移到 OS 与部署形态，见 §5.3。
 - 复用 Harness 的 Profile、Session、Agent、模型、Composer、Connection、Gateway、Remote、Slot 及生命周期。不重写聊天前端、模型循环或第二套业务页面框架。
 
 明确区分：服务实例是对外产品；容器是部署单元；Harness runtime 是执行与状态单元；Workspace 是归属和组织单元。一个容器可托管多个 runtime。仅建立多个 Workspace 目录不能代替授权隔离。
@@ -131,7 +140,17 @@ RuntimeManager 需提供：
 
 ### 5.3 安全能力边界
 
-第一版采用受限业务 Profile：不开放任意 Shell、代码执行、自由文件路径、用户安装/修改插件、任意 Hook、任意 MCP 服务连接或恢复管理员工具集。审核全部原生 Remote 命名空间，包括 Session、Workspace、模型设置、文件、插件管理和导出接口；不能仅限制模型工具白名单。
+第一版采用受限业务 Profile：不开放自由文件路径、用户安装/修改插件、任意 Hook、任意 MCP 服务连接或恢复管理员工具集。审核全部原生 Remote 命名空间，包括 Session、Workspace、模型设置、文件、插件管理和导出接口；不能仅限制模型工具白名单。
+
+> **2026-09-13 修订：Shell 已开放，隔离要求随之升级。**
+>
+> `skill` 与 `bash` 现在在 agent 的允许列表里（[ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md)）。这不是放松，而是把收窄的位置换了：Profile 不再是边界，OS 身份与部署形态才是。三条随之变成硬要求：
+>
+> - **per-uid 从"应该"变成"必须"。** 每个身份要有自己的 OS 用户和自己的 `DSH_AGENTS_HOME`。同一个 skills 根就是同一个人的凭据（见 §6.2 注记），而现在 agent 有 shell，可以直接读它够得着的任何文件。"同 uid 但目录不同"不构成隔离。
+> - **执行的是租户编写的代码。** skill 由租户管理员编写、服务端下发、随时可改，客户端不审查其内容（也不该审查——这正是 ORYH 把业务逻辑放在 agent 端的用意）。因此本节原本写的"若需要运行不受信任代码，采用独立 worker/执行容器"现在就是当前情形：**每身份独立执行容器应作为默认形态评估**，单容器多 uid 需要额外论证才能采用，而不是反过来。
+> - **横向影响面要按"任意命令"评估，而不是按业务工具评估。** 容器内的网络出口、可写路径、进程与内核接口、宿主挂载都在 agent 可触及范围内；`workspace-write` 之类的沙箱策略是 Harness 自己的批准机制，不能当作租户间的安全边界。
+>
+> 仍然不变的是：ORYH 侧的授权没有放松——每个 API 自己有 `require_permission`，bundle 只包含该人角色已覆盖的 skill。放开的是执行手段，不是业务权限。
 
 独立进程不是强沙箱。若多个进程使用同一 OS 用户并可读共享目录，不能声称已实现文件隔离。服务器组合应使用可落实的独立 OS 身份及目录权限，或其他等效隔离；不得给子进程数据库管理员凭据、全局主密钥或全局 runtime 控制权。
 
@@ -149,6 +168,7 @@ RuntimeManager 需提供：
 | 业务草稿、意图、确认及核对状态 | 服务器事务存储适配器 | 保留版本、一次性确认和结果不明状态 |
 | 上传文件与生成附件 | 首版隔离持久卷；后续可对象存储 | 下载始终校验归属，不作为公共静态资源 |
 | 显示偏好、固定查询 | 服务端按 owner/workspace/view 保存 | 浏览器仅做缓存 |
+| ORYH skill bundle | 每身份独立的 `DSH_AGENTS_HOME/skills`，权限 0700 | 含该人 `ORYH_API_KEY` 明文；按凭据对待，不进备份、诊断转储与导出 |
 | 正式工时、项目、库存等 | ORYH | 只调用 ORYH API，不直写其数据库 |
 
 建议逻辑表：`principals`、`login_sessions`、`workspaces`、`runtime_leases`、`credential_refs`、`model_profiles`、`view_preferences`、`operation_intents`、`audit_events`。物理表与是否新增 Session 归属索引在 P0 之后确定，不能制造第二个 Session 内容事实源。
@@ -160,6 +180,15 @@ RuntimeManager 需提供：
 提供服务器 CredentialVault 适配器，替换桌面 Keychain。访问令牌、刷新令牌、模型 Key 采用经过维护的加密方案，使用 KMS/Secrets 服务或外部挂载的主密钥；主密钥不写镜像、业务数据库或源码。记录 key version，定义轮换和备份恢复路径。
 
 浏览器、Session、模型输入和普通日志不包含真实凭据。runtime 如需凭据，只能得到本身份授权的最小范围；可通过私有凭据代理按 owner 注入。运行参数、进程环境及诊断转储也要避免泄漏。
+
+> **2026-09-13 修订：skills 目录是一处有意为之的凭据例外。** ORYH 给通用 agent 的 bundle 会把该人的 `ORYH_API_KEY` 渲染进 skill 文件，本客户端按原样落盘（[ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md)）。"凭据只在 vault 里"因此要补一句：**skills 根本身就是凭据存储**，必须按凭据对待——
+>
+> - 每身份独立目录、0700，不随容器镜像或共享卷分发；
+> - 不进备份、日志、诊断转储与任何导出（今天的实现把 bundle 原样写盘，没有做脱敏，也不应该做）；
+> - 断开连接或撤销设备时一并清除该目录，否则吊销只吊销了 vault 里那份；
+> - 轮换 key 后必须强制重新同步 bundle（`force`），因为文件内容变了而服务端清单不变。
+>
+> ADR-0002 §9 提到的"服务端提供无凭据 canonical skill 内容"如果落地，这一整段例外就可以取消——对服务器版来说它比桌面版更有价值。
 
 刷新令牌轮转按凭据记录串行化并使用版本比较。多个标签页或请求同时到期，只执行一次刷新；撤销与刷新竞态不能重新激活已撤销凭据。
 
@@ -200,7 +229,9 @@ RuntimeManager 需提供：
 | `packages/store` 及领域存储接口 | 实现服务器适配器与并发版本语义，保留现有领域操作行为 |
 | `packages/dsh-host` | 明确 local/server 模式及可信 runtime owner；由已验证服务器组合启用，不能简单删 developmentOnly 检查 |
 | `packages/web` | 自动 Workspace、企业选择、连接状态、服务端偏好；保留原生 Chat 和现有业务视图 |
-| `packages/dsh-bundle` | 新增受限服务器 Profile，管理可用原生能力与用户设置权限 |
+| `packages/dsh-bundle` | 新增受限服务器 Profile，管理可用原生能力与用户设置权限；`skill-filesystem`/`tool-skill`/`tool-bash` 保持由 agent preset 提供，**不要在 host plane 重新打开**（会遮蔽 preset 注册的 `skill`，catalog 就不再发布，见 [Skills 装载](23-oryh-skills.md) §5） |
+| skill bundle 同步 | 每身份一次下载与落盘。要定义触发时机与并发：租户管理员改一条业务逻辑会让该租户**所有**身份的 bundle 同时失效，重启或重连时容易形成同时拉取；`/my/skills/manifest` 先比清单已经挡掉大部分，但仍需退避与错峰 |
+| 模型额度归属 | 提交前规范核对要调用模型；额度耗尽会让该身份**无法提交**（强制模式，见 [提交前核对](22-timesheet-submit-review.md)）。共享额度下一个租户可以耗尽其他租户的提交能力，因此额度必须按身份或租户计量 |
 | 领域包 | 原则上不改业务规则，只接受可信身份和存储适配器 |
 | 部署脚本/镜像 | 固定 Harness 版本及补丁、构建生成 Remote、准备持久目录和进程权限 |
 
