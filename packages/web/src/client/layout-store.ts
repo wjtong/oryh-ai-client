@@ -3,8 +3,10 @@ import {createViewPreference} from './view-preferences.js'
 import { defineStore } from '@deepseek-ai/dsh-client-store'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { OperationId } from '@oryh/ai-client-core/types'
-export type BusinessView = OperationId | import('@oryh/ai-client-records').RecordKind | 'settings' | 'timesheets' | 'timesheet-approvals'
-export interface FrameIdentity { company: string; email: string; allowedPages?: string[] }
+/** A built-in page, or a menu entry the person made (`view:<id>`). */
+export type BusinessView = OperationId | import('@oryh/ai-client-records').RecordKind | 'settings' | 'timesheets' | 'timesheet-approvals' | `view:${string}`
+/** Who is signed in, and what the menu may show them: built-in pages they may open, and their own entries. */
+export interface FrameIdentity { company: string; email: string; allowedPages?: string[]; views?: { id: string; label: string }[] }
 export interface FrameState {
   identity?: FrameIdentity | undefined
   /** Global central panel selected through the native sidebar; null keeps the Conversation. */
@@ -23,7 +25,9 @@ export interface FrameState {
   rightbarFullscreen: boolean
 }
 const framePreferenceSchema=z.object({
- page:z.enum(['my-open-todos','my-expense-claims','list-projects','sales-orders','inventory-items','inventory-item-details','shipments','settings','timesheets','timesheet-approvals']).catch('my-open-todos'),
+ // A user view survives reload by id; whether it still exists is the workbench's call, since the
+ // list lives in a different store. An id-shaped string is all this layer can check.
+ page:z.union([z.enum(['my-open-todos','my-expense-claims','list-projects','sales-orders','inventory-items','inventory-item-details','shipments','settings','timesheets','timesheet-approvals']),z.string().regex(/^view:[0-9a-f-]{36}$/).transform(v=>v as `view:${string}`)]).catch('my-open-todos'),
  collapsed:z.boolean().catch(true), chatWidth:z.number().finite().min(280).max(3000).catch(360),
  menuHeight:z.number().finite().min(0).max(2000).catch(0),
  chatVisible:z.boolean().catch(true), focus:z.enum(['business','chat']).catch('business'),

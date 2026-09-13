@@ -1,4 +1,4 @@
-import type {OryhRecordRemote,RecordQuery,RecordPage,ProductSearch,ProductOptions} from '@oryh/ai-client-records'
+import type {OryhRecordRemote,RecordQuery,RecordPage,ProductSearch,ProductOptions,RecordFilterField} from '@oryh/ai-client-records'
 import type {OryhProjectRemote,ProjectIntent,ProjectOptions} from '@oryh/ai-client-projects'
 import type {ProjectPrepareRequest,ProjectChatState} from './types.js'
 import type { ChatPageRequest, ChatHomeRequest, CommandFrame } from './types.js'
@@ -95,6 +95,7 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('reviewClear') reviewClear(request: { sessionId: string }): Promise<void> { return this.call(async () => { this.ctx.oryhChat.reviews.clear(request.sessionId) }) }
   @Remote('productSearch') productSearch(r:ProductSearch):Promise<ProductOptions>{return this.call(()=>this.ctx.oryhRecords.productSearch(r))}
   @Remote('recordList') recordList(r:RecordQuery):Promise<RecordPage>{return this.call(()=>this.ctx.oryhRecords.recordList(r))}
+  @Remote('recordFilterFields') recordFilterFields(r:{connectionId:string;kind:RecordQuery['kind']}):Promise<RecordFilterField[]>{return this.call(()=>this.ctx.oryhRecords.recordFilterFields(r.connectionId,r.kind))}
   @Remote('projectOptions') projectOptions(r:ConnectionRequest):Promise<ProjectOptions>{return this.call(()=>this.ctx.oryhProjects.projectOptions(r.connectionId))}
   @Remote('projectPrepare') projectPrepare(r:ProjectPrepareRequest):Promise<ProjectIntent>{return this.call(()=>this.ctx.oryhProjects.projectPrepare(r.connectionId,r.fields))}
   @Remote('projectConfirm') projectConfirm(r:ConfirmDraftRequest):Promise<ProjectIntent>{return this.call(()=>this.ctx.oryhProjects.projectConfirm(r.connectionId,r.id,r.revision,r.token))}

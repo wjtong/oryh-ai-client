@@ -20,3 +20,4 @@ export * from './local-runtime.js'
 // @oryh/ai-client-records, -timesheets, -todos, -projects and -expenses. Consumers import
 // them directly, so nothing can reach a domain through the core.
 export { WorkflowDefinitions } from './workflow.js'
+export { ListParameters, parameters as listParameters, type ListParameter } from './list-parameters.js'

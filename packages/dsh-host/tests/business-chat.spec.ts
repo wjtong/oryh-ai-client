@@ -362,3 +362,65 @@ describe('command stream',()=>{
   }finally{await f.close()}
  })
 })
+describe('menu entries a person adds through chat',()=>{
+ const inbound={field:'direction',value:'inbound'}
+ it('reads the list with the filters first, then waits for the page to hold the entry',async()=>{
+  const f=await setup();try{
+   const recordList=vi.fn(async()=>({rows:[],page:1,pages:1,total:7,fetchedAt:'now'}))
+   Object.assign(f.ctx,{oryhRecords:{recordList}})
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos',views:[]})
+   const pending=f.chat.addUserView('s','入库单','shipments',[inbound],new AbortController().signal)
+   await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+   // The read is the validation: the records service refuses an undeclared key before the menu changes.
+   expect(recordList).toHaveBeenCalledWith(expect.objectContaining({kind:'shipments',filters:{direction:'inbound'}}))
+   const n=f.chat.snapshot('s').navigation!
+   expect(n).toMatchObject({target:'menu',menu:{op:'add',view:{label:'入库单',kind:'shipments',filters:{direction:'inbound'}}}})
+   // A menu edit belongs to no page, so the person moving to another page must not withdraw it.
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'timesheets',views:[]})
+   expect(f.chat.snapshot('s').navigation?.id).toBe(n.id)
+   const view=(n.menu as {op:'add';view:import('../src/types.js').UserViewSummary}).view
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:3,page:'timesheets',navigationId:n.id,views:[view]})
+   expect(JSON.parse(await pending)).toMatchObject({added:{label:'入库单'},rows:7})
+   // The model learns the entry by the person's own name.
+   expect(f.chat.currentPage('s').userMenu).toEqual([view])
+   await expect(f.chat.addUserView('s','入库单','shipments',[inbound],new AbortController().signal)).rejects.toThrow(/已经有/)
+  }finally{await f.close()}
+ })
+
+ it('changes nothing when the list refuses the filters',async()=>{
+  const f=await setup();try{
+   const recordList=vi.fn(async()=>{throw new Error('列表不支持按“directon”筛选。可用字段：direction')})
+   Object.assign(f.ctx,{oryhRecords:{recordList}})
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos',views:[]})
+   await expect(f.chat.addUserView('s','入库单','shipments',[{field:'directon',value:'inbound'}],new AbortController().signal)).rejects.toThrow(/directon/)
+   expect(f.chat.snapshot('s').navigation).toBeUndefined()
+   await expect(f.chat.addUserView('s','入库单','purchase-requests',[inbound],new AbortController().signal)).rejects.toThrow(/已有列表/)
+   await expect(f.chat.addUserView('s','','shipments',[inbound],new AbortController().signal)).rejects.toThrow(/1–24/)
+  }finally{await f.close()}
+ })
+
+ it('opens an entry only once the page shows it, and removes one only once it is gone',async()=>{
+  const f=await setup();try{
+   const view={id:'0b7c1f0e-2d1a-4d5e-9a3b-6c8d9e0f1a2b',label:'入库单',kind:'shipments' as const,filters:{direction:'inbound'}}
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'my-open-todos',views:[view]})
+   await expect(f.chat.openUserView('s','missing',new AbortController().signal)).rejects.toThrow(/没有这个菜单项/)
+
+   const opening=f.chat.openUserView('s',view.id,new AbortController().signal)
+   await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+   const open=f.chat.snapshot('s').navigation!
+   expect(open).toMatchObject({target:'view',userViewId:view.id})
+   // The page reports the list the entry narrows, with the entry itself in the context.
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'shipments',navigationId:open.id,views:[view],context:{key:'shipments:list',title:'入库单',detail:'',scope:'',view}})
+   expect(JSON.parse(await opening)).toMatchObject({page:'shipments',title:'入库单'})
+
+   const removing=f.chat.removeUserView('s',view.id,new AbortController().signal)
+   await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation?.target).toBe('menu'))
+   const remove=f.chat.snapshot('s').navigation!
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:3,page:'my-open-todos',navigationId:remove.id,views:[]})
+   expect(await removing).toContain('已删除菜单项“入库单”')
+  }finally{await f.close()}
+ })
+})

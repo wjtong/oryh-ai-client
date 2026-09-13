@@ -36,8 +36,11 @@ interface ErrorBody {
   readonly detail?: unknown
 }
 
+/** Where ORYH mounts its versioned API; also the prefix its OpenAPI document uses for path keys. */
+export const API_PREFIX = '/api/v1'
+
 function apiPath(origin: string, path: string): string {
-  return `${origin}/api/v1${path}`
+  return `${origin}${API_PREFIX}${path}`
 }
 
 function errorDetail(value: unknown): string | undefined {
@@ -225,6 +228,28 @@ export class OryhHttpClient {
     } finally {
       if (this.#refreshes.get(connectionId) === refresh) this.#refreshes.delete(connectionId)
     }
+  }
+
+  /**
+   * ORYH's own OpenAPI document, which says what each list endpoint accepts.
+   *
+   * It is served at the application root rather than under the API prefix, and it is public, so
+   * it is fetched WITHOUT the access key: the key authorizes business API calls and has no reason
+   * to travel to anything else.
+   * @param connectionId - verified connection whose deployment to describe.
+   * @returns the parsed OpenAPI document.
+   */
+  async schema(connectionId: ConnectionId): Promise<unknown> {
+    this.assertOpen(connectionId)
+    const connection = this.connections.require(connectionId)
+    const response = await this.fetcher(`${connection.origin}/openapi.json`, {
+      signal: this.requestSignal(connectionId),
+      method: 'GET',
+      redirect: 'error',
+      headers: { Accept: 'application/json' },
+    })
+    if (!response.ok) throw new OryhClientError(`ORYH did not serve its API schema (HTTP ${response.status}).`, 'invalid-response')
+    return response.json()
   }
 
   private async send(connectionId: ConnectionId, origin: string, request: OryhRequest, accessKey: string): Promise<FetchResponse> {
