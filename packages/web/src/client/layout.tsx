@@ -7,7 +7,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { IconChecklist, IconReceipt, IconFolder, IconSettings, IconLayoutSidebarLeftCollapse, IconMessage, IconFilter } from '@tabler/icons-react'
 import { PAGES, type PageId } from '@oryh/ai-client-pages'
 import { createFrameStore, type BusinessView, type FrameIdentity } from './layout-store.js'
-import type { OryhKey } from './locale.js'
+import { pageLabels } from './page-labels.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -17,22 +17,23 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 type FrameProps = PropsRuntime<'root'> & PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'shell.overlay' | 'oryh.business'> & PropsStore<ReturnType<typeof createFrameStore>> & PropsLocale<'oryh'>
 
 /**
- * Menu presentation for each registered page. The registry owns identity, order and
- * access; only the icon and the locale key live here, because neither belongs in a
- * React-free package the Host also reads. Missing or misspelled entries fail to compile.
+ * Menu icon for each registered page. The registry owns identity, order and access, and
+ * `page-labels.ts` owns what a page is called; only the icon lives here, because it does not
+ * belong in a React-free package the Host also reads. Missing entries fail to compile.
  */
-const menu: Record<PageId, { label: OryhKey; icon: typeof IconChecklist }> = {
-  'my-open-todos': { label: 'text8', icon: IconChecklist },
-  'my-expense-claims': { label: 'text10', icon: IconReceipt },
-  timesheets: { label: 'tsMine', icon: IconChecklist },
-  'timesheet-approvals': { label: 'tsApprovals', icon: IconChecklist },
-  'list-projects': { label: 'text12', icon: IconFolder },
-  'sales-orders': { label: 'salesOrders', icon: IconReceipt },
-  'inventory-items': { label: 'inventoryItems', icon: IconFolder },
-  'inventory-item-details': { label: 'inventoryDetails', icon: IconChecklist },
-  shipments: { label: 'shipments', icon: IconReceipt },
-  settings: { label: 'text15', icon: IconSettings },
+const menuIcons: Record<PageId, typeof IconChecklist> = {
+  'my-open-todos': IconChecklist,
+  'my-expense-claims': IconReceipt,
+  timesheets: IconChecklist,
+  'timesheet-approvals': IconChecklist,
+  'list-projects': IconFolder,
+  'sales-orders': IconReceipt,
+  'inventory-items': IconFolder,
+  'inventory-item-details': IconChecklist,
+  shipments: IconReceipt,
+  settings: IconSettings,
 }
+const menu = (id: PageId) => ({ label: pageLabels[id], icon: menuIcons[id] })
 
 /**
  * The official ORYH logo: four connected records around one trusted center, plus the wordmark.
@@ -135,10 +136,10 @@ function Frame({ useStore, actions, renderSlot, t }: FrameProps) {
     <aside className="oryh-navigation" aria-label={t('businessNavigation')}>
       <div className="oryh-brand"><OryhLogo compact={compact}/></div>
       <nav ref={menuRef} className="oryh-menu" aria-label={t('text14')} style={menuHeight > 0 ? { height: `${menuHeight}px` } : undefined}>
-        {PAGES.filter(page=>page.id!=='settings'&&state.identity?.allowedPages?.includes(page.id)).map(page => {const {label, icon: Icon} = menu[page.id]; return <button key={page.id} title={t(label)} aria-label={t(label)} aria-current={state.page === page.id ? 'page' : undefined} onClick={() => actions.navigate(page.id)}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>})}
+        {PAGES.filter(page=>page.id!=='settings'&&state.identity?.allowedPages?.includes(page.id)).map(page => {const {label, icon: Icon} = menu(page.id); return <button key={page.id} title={t(label)} aria-label={t(label)} aria-current={state.page === page.id ? 'page' : undefined} onClick={() => actions.navigate(page.id)}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>})}
         {/* The person's own entries. Their names are data, not locale keys: nothing here translates them. */}
         {(state.identity?.views??[]).map(view => {const page=`view:${view.id}` as const; return <button key={page} className="oryh-user-view" title={view.label} aria-label={view.label} aria-current={state.page === page ? 'page' : undefined} onClick={() => actions.navigate(page)}><IconFilter size={19}/>{!compact && <span>{view.label}</span>}</button>})}
-        {(() => {const {label, icon: Icon} = menu.settings; return <button key="settings" title={t(label)} aria-label={t(label)} aria-current={state.page === 'settings' ? 'page' : undefined} onClick={() => actions.navigate('settings')}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>})()}
+        {(() => {const {label, icon: Icon} = menu('settings'); return <button key="settings" title={t(label)} aria-label={t(label)} aria-current={state.page === 'settings' ? 'page' : undefined} onClick={() => actions.navigate('settings')}><Icon size={19}/>{!compact && <span>{t(label)}</span>}</button>})()}
       </nav>
       {!compact && <div className="oryh-menu-resizer" role="separator" aria-label={t('resizeMenu')} aria-orientation="horizontal" aria-controls="oryh-native-sidebar" tabIndex={0} title={t('resizeMenuHint')}
         onPointerDown={e=>{if(e.button!==0)return;e.preventDefault();e.currentTarget.focus();e.currentTarget.setPointerCapture(e.pointerId)

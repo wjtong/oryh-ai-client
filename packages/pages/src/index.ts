@@ -78,14 +78,14 @@ export const PAGES: readonly PageDefinition[] = [
     access: i => employee(i) && any(i, 'timesheet.submit_own', 'timesheet.advance', 'approval.record'),
   },
   { id: 'timesheet-approvals', title: '工时审批', access: i => employee(i) && any(i, 'approval.record') },
-  { id: 'list-projects', title: '项目列表', access: i => any(i, 'master_data.manage', 'users.manage') },
+  { id: 'list-projects', title: '项目', access: i => any(i, 'master_data.manage', 'users.manage') },
   {
     id: 'sales-orders', title: '销售订单',
     access: i => any(i, 'order.submit_own', 'order.advance', 'approval.record'),
   },
   { id: 'inventory-items', title: '库存余额', access: i => any(i, 'inventory.manage') },
   { id: 'inventory-item-details', title: '库存流水', access: i => any(i, 'inventory.manage') },
-  { id: 'shipments', title: 'Shipment 收发货', access: i => any(i, 'shipment.manage') },
+  { id: 'shipments', title: 'Shipment · 收发货', access: i => any(i, 'shipment.manage') },
   { id: 'settings', title: '企业连接', access: () => true },
 ]
 

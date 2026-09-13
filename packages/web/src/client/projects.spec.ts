@@ -6,7 +6,7 @@ import {ProjectPanel} from './projects.js'
 import {RemoteContext} from './remote.js'
 vi.mock('./business-page.js',()=>({BusinessPage:({onNewProject}:any)=>h('button',{onClick:onNewProject},'新建项目')}))
 vi.mock('./todo-chat.js',async()=>({BusinessSessionContext:(await import('react')).createContext<string|undefined>(undefined)}))
-vi.mock('@fluentui/react-components',()=>({Button:({appearance,children,...props}:any)=>h('button',{type:'button',...props},children),Dialog:({open,children}:any)=>open?h('div',{role:'dialog'},children):null,...Object.fromEntries(['DialogSurface','DialogBody','DialogTitle','DialogContent','DialogActions'].map(n=>[n,({children}:any)=>h('div',null,children)]))}))
+vi.mock('@fluentui/react-components',()=>({Spinner:()=>null,MessageBar:({children}:any)=>h('div',{role:'alert'},children),MessageBarBody:({children}:any)=>h('span',null,children),Button:({appearance,icon,children,...props}:any)=>h('button',{type:'button',...props},children),Dialog:({open,children}:any)=>open?h('div',{role:'dialog'},children):null,...Object.fromEntries(['DialogSurface','DialogBody','DialogTitle','DialogContent','DialogActions'].map(n=>[n,({children}:any)=>h('div',null,children)]))}))
 it('requires a separate explicit confirmation and leaves failures in the form',async()=>{
  globalThis.IS_REACT_ACT_ENVIRONMENT=true
  let reject!:(e:Error)=>void

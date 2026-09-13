@@ -2,6 +2,7 @@ import {useRef, useState} from 'react'
 import {Button} from '@fluentui/react-components'
 import {IconPlus, IconTrash, IconArrowBackUp} from '@tabler/icons-react'
 import type {TimesheetFields, TimesheetLine, TimesheetOptions} from '@oryh/ai-client-timesheets'
+import {EmptyState} from './list-kit.js'
 
 /** A local aggregate draft. No row control writes to the business server. */
 export function TimesheetEditor({fields,options,busy,dirty,existing,error,onChange,onSave,onDiscard}:{
@@ -16,7 +17,7 @@ export function TimesheetEditor({fields,options,busy,dirty,existing,error,onChan
   function add(){onChange({...fields,entries:[...fields.entries,{work_date:fields.entries.at(-1)?.work_date||fields.period_start,hours:0,work_type:options.workTypes[0]?.name||'',project_id:'',task:'',notes:''}]});requestAnimationFrame(()=>root.current?.querySelector<HTMLInputElement>('.timesheet-entry:last-child input')?.focus())}
   return <form ref={root} className="timesheet-editor" onSubmit={e=>{e.preventDefault();onSave()}}>
     <fieldset disabled={busy} className="timesheet-editor-fields"><legend className="sr-only">{existing?'编辑工时':'新建工时单'}</legend>
-      <section className="form-section"><div className="form-section-heading"><div><h2>基本信息</h2><p>选择申报期间，记录本次工作的整体说明。</p></div><span className="record-status status-neutral">{dirty?'未保存修改':'已保存'}</span></div>
+      <section className="form-section"><div className="form-section-heading"><div><h2>基本信息</h2><p>选择申报期间，记录本次工作的整体说明。</p></div></div>
         <div className="timesheet-period"><label>开始日期<input required type="date" value={fields.period_start} onChange={e=>onChange({...fields,period_start:e.target.value})}/></label><label>结束日期<input required type="date" min={fields.period_start} value={fields.period_end} onChange={e=>onChange({...fields,period_end:e.target.value})}/></label><label className="timesheet-narrative">工作说明 <span className="field-optional">选填</span><textarea rows={2} maxLength={10000} placeholder="概述本期工作，也可通过 Chat 填写" value={fields.source_report_text} onChange={e=>onChange({...fields,source_report_text:e.target.value})}/></label></div>
       </section>
       <section className="form-section timesheet-lines" aria-label="工时明细"><div className="form-section-heading"><div><h2>工时明细 <span className="section-count">{fields.entries.length}</span></h2><p>每项工作一条明细，所有修改随整单一起保存。</p></div><Button icon={<IconPlus size={16}/>} disabled={fields.entries.length>=100} onClick={add}>添加明细</Button></div>
@@ -32,7 +33,7 @@ export function TimesheetEditor({fields,options,busy,dirty,existing,error,onChan
           </div>
           <Button className="timesheet-entry-remove" appearance="subtle" size="small" icon={<IconTrash size={16}/>} aria-label={`删除第 ${index+1} 条明细`} title="删除明细（保存后生效）" onClick={()=>{setRemoved({line,index});onChange({...fields,entries:fields.entries.filter((_,i)=>i!==index)})}}/>
         </div>)}</div>
-        {!fields.entries.length&&<div className="empty-state"><h3>还没有工时明细</h3><p>添加一条工作记录，或通过 Chat 填写。</p><Button onClick={add} icon={<IconPlus size={16}/>}>添加第一条明细</Button></div>}
+        {!fields.entries.length&&<EmptyState filtered={false} title="还没有工时明细" hint="添加一条工作记录，或通过 Chat 填写。"><Button onClick={add} icon={<IconPlus size={16}/>}>添加第一条明细</Button></EmptyState>}
         {removed&&<div className="timesheet-undo" role="status"><span>已从草稿移除一条明细</span><Button appearance="subtle" size="small" disabled={fields.entries.length>=100} icon={<IconArrowBackUp size={15}/>} onClick={()=>{const entries=[...fields.entries];entries.splice(Math.min(removed.index,entries.length),0,removed.line);onChange({...fields,entries});setRemoved(undefined)}}>撤销删除</Button></div>}
       </section>
     </fieldset>

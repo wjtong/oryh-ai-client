@@ -4,7 +4,7 @@ import type {ConnectionSummary} from '@oryh/ai-client-core'
 import type {RecordKind} from '@oryh/ai-client-records'
 import {recordColumns, recordDefaultColumns} from '@oryh/ai-client-records'
 import type {ProjectColumn} from '@oryh/dsh-host/types'
-import {defaultProjectColumns, projectColumnLabels} from './project-columns.js'
+import {defaultProjectColumns, projectColumnLabels} from './project-column-catalog.js'
 
 type List = RecordKind | 'list-projects'
 export function columnPreferenceScope(connection: ConnectionSummary): string {

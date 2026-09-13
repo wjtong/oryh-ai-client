@@ -4,8 +4,10 @@ import {createRoot} from 'react-dom/client'
 import {it,expect,vi} from 'vitest'
 import {RecordPanel} from './records.js'
 import {RemoteContext} from './remote.js'
+import {formatDisplayValue} from './list-kit.js'
+vi.mock('./locale.js',async importOriginal=>{const actual=await importOriginal<typeof import('./locale.js')>();return {...actual,useText:()=>(key:keyof typeof actual.dictionaries)=>actual.dictionaries[key]}})
 vi.mock('./product-picker.js',()=>({ProductPicker:()=>h('button',null,'选择产品')}))
-vi.mock('@fluentui/react-components',()=>({Button:({appearance,size,children,...props}:any)=>h('button',props,children),Field:({label,children}:any)=>h('label',null,label,children),Input:({onChange,...props}:any)=>h('input',{...props,onChange:(e:any)=>onChange?.(e,{value:e.target.value})})}))
+vi.mock('@fluentui/react-components',()=>({Spinner:()=>null,MessageBar:({children}:any)=>h('div',{role:'alert'},children),MessageBarBody:({children}:any)=>h('span',null,children),Button:({appearance,size,icon,children,...props}:any)=>h('button',props,children),Field:({label,children}:any)=>h('label',null,label,children),Input:({onChange,...props}:any)=>h('input',{...props,onChange:(e:any)=>onChange?.(e,{value:e.target.value})})}))
 it('updates ledger columns and page context without fetching again, and retains record access',async()=>{
  globalThis.IS_REACT_ACT_ENVIRONMENT=true
  const recordList=vi.fn(async()=>({rows:[{id:'r',title:'issued',fields:[{label:'产品编码',value:'P-1'},{label:'现存数量变动',value:'-1'},{label:'创建时间',value:'2026-09-01T08:00:00Z'}]}],page:1,pages:1,total:1,fetchedAt:''}))
@@ -14,8 +16,9 @@ it('updates ledger columns and page context without fetching again, and retains 
  try{
   await act(async()=>render(['quantity_on_hand_diff']))
   await act(async()=>render(['product_code','created_at','quantity_on_hand_diff']))
-  expect(Array.from(node.querySelectorAll('th')).map(n=>n.textContent)).toEqual(['产品编码','创建时间','现存数量变动'])
-  expect(node.querySelector('tbody')?.textContent).toContain('P-12026-09-01T08:00:00Z-1')
+  expect(Array.from(node.querySelectorAll('th:not(.row-open-cell)')).map(n=>n.textContent)).toEqual(['产品编码','创建时间','现存数量变动'])
+  // Timestamps read as the rest of the workbench writes time, not as the raw ISO string.
+  expect(node.querySelector('tbody')?.textContent).toContain(`P-1${formatDisplayValue('2026-09-01T08:00:00Z')}-1`)
   expect(recordList).toHaveBeenCalledTimes(1)
   expect(onContext.mock.lastCall?.[0].columns).toEqual(['product_code','created_at','quantity_on_hand_diff'])
   await act(async()=>node.querySelector<HTMLButtonElement>('.record-link')!.click())

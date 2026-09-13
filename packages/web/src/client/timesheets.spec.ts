@@ -7,7 +7,11 @@ import {RemoteContext} from './remote.js'
 import {LocaleContext,dictionaries} from './locale.js'
 // Test the business interaction; native Fluent rendering is checked in the browser.
 vi.mock('@fluentui/react-components',()=>({
-  Button:({appearance,children,...props}:any)=>h('button',{type:'button',...props},children),
+  Button:({appearance,size,icon,children,...props}:any)=>h('button',{type:'button',...props},children),
+  Field:({label,children}:any)=>h('label',null,label,children),
+  Input:({contentBefore,onChange,...props}:any)=>h('input',{...props,onChange:(e:any)=>onChange?.(e,{value:e.target.value})}),
+  Select:({children,...props}:any)=>h('select',props,children),
+  Spinner:()=>null,MessageBar:({children}:any)=>h('div',{role:'alert'},children),MessageBarBody:({children}:any)=>h('span',null,children),
   Dialog:({open,children}:any)=>open?h('div',{role:'dialog'},children):null,
   ...Object.fromEntries(['DialogActions','DialogBody','DialogContent','DialogSurface','DialogTitle'].map(name=>[name,({children}:any)=>h('div',null,children)])),
 }))
