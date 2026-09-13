@@ -3,15 +3,18 @@ import {ProjectTable,projectColumnLabels,defaultProjectColumns} from './project-
 import type {ProjectColumn} from '@oryh/dsh-host/types';
 import type {OryhProject} from '@oryh/ai-client-core/types';
 import { TodoChat } from './todo-chat.js';
-import { useBusinessText } from './locale.js';
+import { useBusinessText, useText } from './locale.js';
+import { pageLabels } from './page-labels.js';
+import { statusLabel, statusTone } from './status-words.js';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Badge, Button, Field, Input, MessageBar, MessageBarBody, Select, Spinner } from '@fluentui/react-components';
-import { IconArrowLeft, IconArrowUpRight, IconSearch, IconRefresh, IconPlus, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
+import { Button, Field, Input, MessageBar, MessageBarBody, Select } from '@fluentui/react-components';
+import { IconArrowUpRight, IconSearch } from '@tabler/icons-react';
+import { BackToList, ClearConditionsButton, EmptyState, ErrorNote, ListFooter, ListLoading, NewButton, PageHeader, RefreshButton, RowOpenCell, RowOpenHeader, StatusPill, formatDateTime, formatDisplayValue } from './list-kit.js';
 import type { ConnectionSummary, OperationId, OryhOperationResult, SavedOperationView } from '@oryh/ai-client-core';
 import { useOryhRemote } from './remote.js';
-import { businessRows, emptyFilter, filterRows, statusLabel, type ViewFilter } from './business-data.js';
+import { businessRows, emptyFilter, filterRows, type ViewFilter } from './business-data.js';
 import type { PageContext } from './workbench.js';
-export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectColumns,connection, operationId, active, onContext, onNewExpense, onNewProject }: {
+export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectColumns,connection, operationId, active, onContext, onNewExpense, onNewProject, tabs }: {
     projectColumns?:ProjectColumn[];
     onProjectColumns?:(columns:ProjectColumn[])=>void;
     connection: ConnectionSummary;
@@ -20,8 +23,11 @@ export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectCol
     onContext: (value: PageContext) => void;
     onNewExpense: (() => void) | undefined;
     onNewProject?:()=>void;
+    /** The page's views, shown under its title while the list is open. */
+    tabs?: ReactNode;
 }): ReactNode {
     const t = useBusinessText();
+    const text = useText();
     const remote = useOryhRemote();
     const [result, setResult] = useState<OryhOperationResult>();
     const [busy, setBusy] = useState(false);
@@ -58,11 +64,13 @@ export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectCol
     const selected = rows.find(row => row.id === selectedId);
     const pages = Math.max(1, Math.ceil(filtered.length / 12));
     const currentPage = Math.min(page, pages);
-    const title = operationId === 'list-projects' ? t("text26") : operationId === 'my-expense-claims' ? t("text27") : t("text8");
+    const title = text(pageLabels[operationId]);
     const dateLabel = operationId === 'list-projects' ? t("text28") : operationId === 'my-expense-claims' ? t("text29") : t("text30");
     const invalidDates = Boolean(filter.from && filter.to && filter.from > filter.to);
-    const conditions = [filter.text && t("text31", { value0: filter.text }), filter.status && t("text32", { value0: statusLabel(filter.status, t) }), filter.from && t("text33", { value0: dateLabel, value1: filter.from }), filter.to && t("text34", { value0: filter.to })].filter(Boolean).join(' · ');
+    const conditions = [filter.text && t("text31", { value0: filter.text }), filter.status && t("text32", { value0: statusLabel(filter.status) }), filter.from && t("text33", { value0: dateLabel, value1: filter.from }), filter.to && t("text34", { value0: filter.to })].filter(Boolean).join(' · ');
     const total = result?.result.meta.total;
+    // Filtering happens in the browser, so a count is only a total when every server row was loaded.
+    const complete = total !== null && total !== undefined && rows.length >= total;
     const scope = t("text37", { value0: rows.length, value1: total !== null && total !== undefined ? t("text35", { value0: total }) : t("text36") });
     useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
     useEffect(() => { if (active && !loaded.current) {
@@ -132,33 +140,33 @@ export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectCol
         }
     }
     return <div ref={root} className="business-page">
-    <header className="business-page-header">
-      {selected ? <><Button appearance="subtle" icon={<IconArrowLeft size={17}/>} onClick={returnToList}>{t("text49")}</Button><div className="record-heading"><h1>{selected.title}</h1><Badge appearance="tint">{statusLabel(selected.status, t)}</Badge></div></> : <div className="list-actions"><div><h1>{title}</h1><span className="muted">{result ? t("text54", { value0: rows.length }) : t("text55")}</span></div><div className="toolbar"><Button disabled={busy} icon={<IconRefresh size={17}/>} onClick={() => void load()}>{t("text56")}</Button>{onNewProject&&<Button appearance="primary" onClick={onNewProject}>新建项目</Button>}{onNewExpense && <Button appearance="primary" icon={<IconPlus size={17}/>} onClick={onNewExpense}>{t("text57")}</Button>}</div></div>}
-    </header>
-    {error && <MessageBar intent="error"><MessageBarBody>{error} {result && t("text47")}</MessageBarBody><Button disabled={busy} onClick={() => void load()}>{t("text48")}</Button></MessageBar>}
+    {selected
+      ? <PageHeader back={<BackToList onClick={returnToList}/>} title={selected.title} status={<StatusPill tone={statusTone(selected.status)}>{statusLabel(selected.status)}</StatusPill>}/>
+      : <PageHeader title={title} tabs={tabs} actions={<><RefreshButton disabled={busy} onClick={() => void load()}/>{onNewProject && <NewButton onClick={onNewProject}>新建项目</NewButton>}{onNewExpense && <NewButton onClick={onNewExpense}>{t("text57")}</NewButton>}</>}/>}
+    {error && <ErrorNote message={<>{error} {result && t("text47")}</>} disabled={busy} onRetry={() => void load()}/>}
     {active && operationId === 'my-open-todos' && <TodoChat connectionId={connection.id} visibleTodos={busy||invalidDates?[]:filtered.slice((currentPage-1)*12,currentPage*12).map(r=>({id:r.id,title:r.title}))} listContext={JSON.stringify({currentPage,filter,busy})} onOpen={openRecord} {...(todoNavigationId?{navigationId:todoNavigationId}:{})} {...(selected?.id ? { todoId: selected.id } : {})}/>}
-    {selected ? <section className="surface record-detail">{operationId === 'my-open-todos' ? <PreferenceDetails preferenceKey={`${operationId}:section0`}><summary>待办摘要与原系统入口</summary><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></PreferenceDetails> : <><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl><p className="muted">{t("text51")}</p><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></>}</section>
+    {selected ? <section className="surface record-detail">{operationId === 'my-open-todos' ? <PreferenceDetails preferenceKey={`${operationId}:section0`}><summary>待办摘要与原系统入口</summary><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{formatDisplayValue(value)}</dd></div>)}</dl><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></PreferenceDetails> : <><dl className="detail-grid"><dt>{t("text50")}</dt><dd>{selected.id}</dd>{selected.fields.map(([name, value]) => <div className="detail-pair" key={name}><dt>{name}</dt><dd>{formatDisplayValue(value)}</dd></div>)}</dl><p className="muted">{t("text51")}</p><Button as="a" href={`${connection.origin}/console/objects/${selected.entityType}/${encodeURIComponent(selected.id)}`} target="_blank" rel="noreferrer" icon={<IconArrowUpRight size={17}/>}>{t("text52")}</Button></>}</section>
             : <>
       {selectedId && !selected && <MessageBar><MessageBarBody>{t("text53")}</MessageBarBody></MessageBar>}
       <section className="surface table-surface" aria-label={title}>
         <div className="query-toolbar"><Field label={t("text58")}><Input contentBefore={<IconSearch size={16}/>} placeholder={t("text59")} value={filter.text} onChange={(_, data) => update({ text: data.value })}/></Field>
-          <Field label={t("text60")}><Select value={filter.status} onChange={event => update({ status: event.target.value })}><option value="">{t("text61")}</option>{[...new Set([...rows.map(row => row.status), ...(filter.status ? [filter.status] : [])])].map(status => <option key={status} value={status}>{statusLabel(status, t)}</option>)}</Select></Field>
+          <Field label={t("text60")}><Select value={filter.status} onChange={event => update({ status: event.target.value })}><option value="">{t("text61")}</option>{[...new Set([...rows.map(row => row.status), ...(filter.status ? [filter.status] : [])])].map(status => <option key={status} value={status}>{statusLabel(status)}</option>)}</Select></Field>
         </div><PreferenceDetails preferenceKey={`${operationId}:section1`} className="advanced-filters"><summary>更多筛选与排序{(filter.from || filter.to || !filter.descending) ? " · 已设置" : ""}</summary><div className="advanced-filter-fields">
           <Field label={t("text62", { value0: dateLabel })}><Input type="date" value={filter.from} onChange={(_, data) => update({ from: data.value })}/></Field>
           <Field label={t("text63")}><Input type="date" value={filter.to} onChange={(_, data) => update({ to: data.value })}/></Field>
           <Field label={t("text64")}><Select value={filter.descending ? 'desc' : 'asc'} onChange={event => update({ descending: event.target.value === 'desc' })}><option value="desc">{t("text65")}</option><option value="asc">{t("text66")}</option></Select></Field>
         </div></PreferenceDetails>
         {operationId==='list-projects'&&onProjectColumns&&<PreferenceDetails preferenceKey={`${operationId}:section2`} className="advanced-filters"><summary>显示列</summary><div className="project-column-options">{(Object.keys(projectColumnLabels) as ProjectColumn[]).map(c=><label key={c}><input type="checkbox" checked={projectColumns.includes(c)} disabled={c==='name'} onChange={e=>onProjectColumns(e.target.checked?[...projectColumns,c]:projectColumns.filter(k=>k!==c))}/>{projectColumnLabels[c]}</label>)}<Button appearance="subtle" size="small" onClick={()=>onProjectColumns([...defaultProjectColumns])}>恢复默认列</Button></div></PreferenceDetails>}
-        {conditions && <div className="filter-summary"><span>{conditions || t("text67")}</span>{conditions && <Button appearance="subtle" size="small" onClick={() => { setFilter(emptyFilter); setPage(1); }}>{t("text68")}</Button>}</div>}
-        {invalidDates && <MessageBar intent="error"><MessageBarBody>{t("text69")}</MessageBarBody></MessageBar>}
-        {busy && <div className="list-loading" role="status"><Spinner size="tiny"/>{t("text70")}</div>}
-        {!result && !busy ? <div className="empty-state"><h3>{t("text71")}</h3><p>{t("text72")}</p></div> : result && <>
-          {operationId==='list-projects'?<ProjectTable columns={projectColumns} projects={invalidDates?[]:filtered.slice((currentPage-1)*12,currentPage*12).map(row=>(result.result.data as OryhProject[]).find(p=>p.id===row.id)!)} onOpen={openRecord}/>:<div className="table-scroll"><table><caption className="sr-only">{title}{t("text73")}</caption><thead><tr><th scope="col">{t("text75")}</th><th scope="col">{t("text60")}</th><th scope="col">{operationId === 'my-expense-claims' ? t("text77") : t("text78")}</th><th scope="col">{dateLabel}</th><th scope="col"><span className="sr-only">{t("text79")}</span></th></tr></thead><tbody>{!invalidDates && filtered.slice((currentPage - 1) * 12, currentPage * 12).map(row => <tr key={row.id}><td><button className="record-link" data-row-id={row.id} onClick={event => openRecord(row.id)}>{row.title}</button></td><td><span className={`record-status status-${row.status === 'open' || row.status === 'submitted' ? 'pending' : 'neutral'}`}>{statusLabel(row.status, t)}</span></td><td>{row.secondary || '—'}</td><td className="numeric">{row.date || '—'}</td><td><Button appearance="subtle" size="small" aria-label={t("text80", { value0: row.title })} icon={<IconChevronRight size={16}/>} onClick={event => openRecord(row.id)}/></td></tr>)}</tbody></table></div>}
-          {(filtered.length === 0 || invalidDates) && <div className="empty-state"><h3>{conditions ? t("text81") : t("text82")}</h3><p>{conditions ? t("text83") : t("text84")}</p></div>}
-          <footer className="table-footer"><span>{t("text85")}{invalidDates ? 0 : filtered.length}{t("text86")}</span><div className="pagination"><Button size="small" aria-label={t("text87")} disabled={currentPage <= 1} icon={<IconChevronLeft size={16}/>} onClick={() => setPage(currentPage - 1)}/><span>{currentPage} / {pages}</span><Button size="small" aria-label={t("text88")} disabled={currentPage >= pages} icon={<IconChevronRight size={16}/>} onClick={() => setPage(currentPage + 1)}/></div></footer>
+        {conditions && <div className="filter-summary"><span>{conditions}</span><ClearConditionsButton onClick={() => { setFilter(emptyFilter); setPage(1); }}/></div>}
+        {invalidDates && <ErrorNote message={t("text69")}/>}
+        {busy && <ListLoading/>}
+        {!result && !busy ? <EmptyState filtered={false} title={t("text71")} hint={t("text72")}/> : result && <>
+          {operationId==='list-projects'?<ProjectTable columns={projectColumns} projects={invalidDates?[]:filtered.slice((currentPage-1)*12,currentPage*12).map(row=>(result.result.data as OryhProject[]).find(p=>p.id===row.id)!)} onOpen={openRecord}/>:<div className="table-scroll"><table><caption className="sr-only">{title}{t("text73")}</caption><thead><tr><th scope="col">{t("text75")}</th><th scope="col">{t("text60")}</th><th scope="col">{operationId === 'my-expense-claims' ? t("text77") : t("text78")}</th><th scope="col">{dateLabel}</th><RowOpenHeader/></tr></thead><tbody>{!invalidDates && filtered.slice((currentPage - 1) * 12, currentPage * 12).map(row => <tr key={row.id}><td><button className="record-link" data-row-id={row.id} onClick={event => openRecord(row.id)}>{row.title}</button></td><td><StatusPill tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusPill></td><td>{row.secondary || '—'}</td><td className="numeric">{row.date || '—'}</td><RowOpenCell title={row.title} onOpen={() => openRecord(row.id)}/></tr>)}</tbody></table></div>}
+          {(filtered.length === 0 || invalidDates) && <EmptyState filtered={Boolean(conditions)} {...(conditions && !complete ? { hint: '筛选只作用于本次载入的记录；调整或清空筛选条件后再看。' } : {})}/>}
+          <ListFooter count={invalidDates ? 0 : filtered.length} partial={!complete} page={currentPage} pages={pages} onPage={setPage}/>
         </>}
       </section>
-      <div className="data-caption"><span>{scope}</span>{result && <time dateTime={result.executedAt}>{t("text89")}{new Date(result.executedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>}</div>
+      <div className="data-caption"><span>{scope}</span>{result && <time dateTime={result.executedAt}>{t("text89")}{formatDateTime(result.executedAt)}</time>}</div>
       <PreferenceDetails preferenceKey={`${operationId}:section3`} className="saved-queries"><summary>{t("text90")}{saved.length ? ` · ${saved.length}` : ''}</summary><p>{t("text91")}</p><div className="toolbar"><Input aria-label={t("text92")} placeholder={t("text93")} value={label} onChange={(_, data) => setLabel(data.value)}/><Button disabled={busy || !result || !label.trim()} onClick={() => void save()}>{t("text94")}</Button></div>{saveMessage && <p role="status">{saveMessage}</p>}{saved.map(entry => <div className="saved-entry" key={entry.id}><span>{entry.label}</span><Button size="small" disabled={busy} onClick={() => { setFilter(emptyFilter); setPage(1); void load(entry.id); }}>{t("text95")}</Button></div>)}</PreferenceDetails>
     </>}
   </div>;

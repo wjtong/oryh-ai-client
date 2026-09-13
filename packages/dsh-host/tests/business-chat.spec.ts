@@ -127,7 +127,7 @@ describe('root page context',()=>{
    await f.chat.select({sessionId:'s',connectionId,timesheetPage:'form'})
    await f.chat.timesheet.sync({sessionId:'s',connectionId,pageKey:'form',revision:1,manager:false,fields:{period_start:'',period_end:'',source_report_text:'',entries:[]}})
    f.agent.status='running'
-   f.chat.pageSync({sessionId:'s',connectionId,viewId:'view',revision:2,page:'list-projects',context:{key:'list-projects:list',title:'项目列表',detail:'筛选：技改',scope:'7 条'}})
+   f.chat.pageSync({sessionId:'s',connectionId,viewId:'view',revision:2,page:'list-projects',context:{key:'list-projects:list',title:'项目',detail:'筛选：技改',scope:'7 条'}})
    expect(f.chat.currentPage('s')).toMatchObject({page:'list-projects',capabilities:{create:true}})
    expect(f.chat.timesheet.current('s')).toBeUndefined()
    await expect(f.chat.timesheet.read('s')).rejects.toThrow()
@@ -148,7 +148,7 @@ describe('root page context',()=>{
    await reading
    f.chat.pageSync({sessionId:'s',connectionId,viewId:'view',revision:2,page:'list-projects'})
    release();await expect(pending).rejects.toThrow(/旧页面/)
-   expect(f.chat.currentPage('s').title).toBe('项目列表')
+   expect(f.chat.currentPage('s').title).toBe('项目')
   }finally{await f.close()}
  })
 })

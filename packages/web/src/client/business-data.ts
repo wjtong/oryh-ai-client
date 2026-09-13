@@ -20,7 +20,6 @@ export interface ViewFilter {
     descending: boolean;
 }
 export const emptyFilter: ViewFilter = { text: '', status: '', from: '', to: '', descending: true };
-export function statusLabel(value: string, t: BusinessText = defaultText): string { const statuses: Record<string, string> = { open: t("text171"), draft: t("text172"), submitted: t("text101"), approved: t("text173"), rejected: t("text174"), cancelled: t("text175"), active: t("text176"), closed: t("text177"), completed: t("text178") }; return statuses[value] ?? value; }
 export function businessRows(result: OryhOperationResult, t: BusinessText = defaultText): BusinessRow[] {
     if (result.operationId === 'list-projects')
         return (result.result.data as readonly OryhProject[]).map(row => ({ id: row.id, title: row.name, status: row.status, date: row.startDate ?? '', secondary: row.client ?? '', entityType: 'project', fields: [["创建时间", row.createdAt ?? "—"], ["更新时间", row.updatedAt ?? "—"], [t("text179"), row.code ?? '—'], [t("text76"), row.client ?? '—'], [t("text28"), row.startDate ?? '—'], [t("text180"), row.endDate ?? '—']] }));

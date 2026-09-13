@@ -1,6 +1,9 @@
-import { useBusinessText } from './locale.js';
+import { useBusinessText, useText } from './locale.js';
+import { pageLabels } from './page-labels.js';
+import { statusLabel, type StatusTone } from './status-words.js';
+import { BackToList, EmptyState, ErrorNote, ListFooter, ListLoading, NewButton, PageHeader, RefreshButton, RowOpenCell, RowOpenHeader, StatusPill, formatDate } from './list-kit.js';
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Badge, Button, Card, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Link, MessageBar, MessageBarBody, Select, Spinner, Text, Textarea, Title2 } from '@fluentui/react-components';
+import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Link, MessageBar, MessageBarBody, Select, Text, Textarea } from '@fluentui/react-components';
 import type { ConnectionSummary } from '@oryh/ai-client-core';
 import { EXPENSE_OBJECT_TYPE } from '@oryh/ai-client-expenses/contracts';
 import type { ExpenseDraft, ExpenseFields, ExpenseLine, ExpenseState } from '@oryh/ai-client-expenses';
@@ -8,24 +11,28 @@ import { useOryhRemote } from './remote.js';
 import { useCommands } from './command-stream.js';
 import { BusinessSessionContext } from './todo-chat.js';
 import type { PageContext } from './workbench.js';
-function today(): string {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
+function today(): string { return formatDate(new Date()); }
 function newLine(category: string): ExpenseLine { return { expenseDate: today(), category, amount: '', merchant: '', invoiceNumber: '', notes: '' }; }
 function blank(category: string): ExpenseFields { return { title: '', claimDate: today(), currency: 'CNY', items: [newLine(category)] }; }
+/** Local states that wait on the person: a confirmation to give, or a result to reconcile. */
+function draftTone(state: ExpenseState): StatusTone {
+    return ['review-create', 'review-submit', 'unknown-create', 'unknown-submit', 'submitted'].includes(state) ? 'pending' : 'neutral';
+}
 function total(fields: ExpenseFields): string {
     const cents = fields.items.reduce((sum, row) => sum + Math.round((Number(row.amount) || 0) * 100), 0);
     return (cents / 100).toFixed(2);
 }
 /** Traditional expense editing and explicit confirmations; no model or automatic business writes. */
-export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest = 0 }: {
+export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest = 0, tabs }: {
     connection: ConnectionSummary;
+    /** The page's views, shown under its title while the draft list is open. */
+    tabs?: ReactNode;
     onDirtyChange: (dirty: boolean) => void;
     onContext?: (value: PageContext) => void;
     newRequest?: number;
 }): ReactNode {
     const t = useBusinessText();
+    const text = useText();
     const names: Record<ExpenseState, string> = {
         editing: t("text22"), 'review-create': t("text96"), creating: t("text97"), created: t("text98"),
         'review-submit': t("text99"), submitting: t("text100"), submitted: t("text101"), 'unknown-create': t("text102"), 'unknown-submit': t("text103"),
@@ -48,6 +55,8 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
     const [editor, setEditor] = useState(false);
     const [leaveAction, setLeaveAction] = useState<(() => void) | undefined>();
     const [draftSession, setDraftSession] = useState(0);
+    const [draftPage, setDraftPage] = useState(1);
+    const draftPages = Math.max(1, Math.ceil(drafts.length / 12)), currentDraftPage = Math.min(draftPage, draftPages);
     const contextCallback = useRef(onContext);
     contextCallback.current = onContext;
     const lastNewRequest = useRef(0);
@@ -182,29 +191,23 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
         else seat.scrollTop = listPosition.current;
     }, [editor]);
     return <section ref={panel} className="expense-panel">
-    <div className="list-actions business-page-header">
-      <div><h1>{editor ? t("text113") : t("text22")}</h1><span className="muted">{editor ? t("text114") : t("text115")}</span></div>
-      <div className="toolbar">
-        {editor && <Button disabled={busy} onClick={() => leave(() => { setEditor(false); setDirty(false); dirtyRef.current = false; onDirtyChange(false); })}>{t("text116")}</Button>}
-        {!editor && <Button appearance="primary" disabled={busy} onClick={() => choose()}>{t("text57")}</Button>}
-        <Button disabled={busy || dirty} onClick={() => {
-            void run(async () => {
-                const rows = await remote.expenseList(connection.id);
-                if (!alive.current)
-                    return;
-                setDrafts(rows);
-                const current = rows.find(row => row.id === selected?.id);
-                if (current)
-                    accept(current);
-            });
-        }}>{t("text117")}</Button>
-      </div>
-    </div>
-    {busy && <Spinner size="tiny" label={t("text118")}/>}
-    {error && <MessageBar intent="error"><MessageBarBody>{error}</MessageBarBody></MessageBar>}
-    {!editor && <div className="surface table-surface"><div className="table-scroll"><table><thead><tr><th scope="col">{t("text119")}</th><th scope="col">{t("text60")}</th><th scope="col">{t("text120")}</th><th scope="col">{t("text121")}</th></tr></thead><tbody>{drafts.map(row => <tr key={row.id}><td><button className="record-link" disabled={busy} onClick={() => choose(row)}>{row.fields.title || t("text122")}</button></td><td><Badge appearance="tint">{names[row.state]}</Badge></td><td className="numeric">{row.fields.currency} {total(row.fields)}</td><td>{new Date(row.updatedAt).toLocaleDateString('zh-CN')}</td></tr>)}</tbody></table></div>{drafts.length === 0 && !busy && <div className="empty-state"><h3>{t("text123")}</h3><p>{t("text124")}</p><Button appearance="primary" onClick={() => choose()}>{t("text125")}</Button></div>}</div>}
+    {editor
+      ? <PageHeader back={<BackToList disabled={busy} onClick={() => leave(() => { setEditor(false); setDirty(false); dirtyRef.current = false; onDirtyChange(false); })}/>} title={t("text113")}
+          status={<StatusPill tone={selected && !dirty ? draftTone(selected.state) : 'neutral'}>{selected && !dirty ? names[selected.state] : t("text105")}</StatusPill>} note={dirty ? t("text126") : t("text114")}/>
+      : <PageHeader title={text(pageLabels['my-expense-claims'])} note={t("text115")} tabs={tabs} actions={<>
+          <RefreshButton disabled={busy || dirty} onClick={() => {
+              void run(async () => {
+                  const rows = await remote.expenseList(connection.id);
+                  if (alive.current)
+                      setDrafts(rows);
+              });
+          }}/>
+          <NewButton disabled={busy} onClick={() => choose()}>{t("text57")}</NewButton>
+        </>}/>}
+    {busy && <ListLoading label={t("text118")}/>}
+    {error && <ErrorNote message={error}/>}
+    {!editor && <div className="surface table-surface"><div className="table-scroll"><table><thead><tr><th scope="col">{t("text119")}</th><th scope="col">{t("text60")}</th><th scope="col">{t("text120")}</th><th scope="col">{t("text121")}</th><RowOpenHeader/></tr></thead><tbody>{drafts.slice((currentDraftPage - 1) * 12, currentDraftPage * 12).map(row => <tr key={row.id}><td><button className="record-link" disabled={busy} onClick={() => choose(row)}>{row.fields.title || t("text122")}</button></td><td><StatusPill tone={draftTone(row.state)}>{names[row.state]}</StatusPill></td><td className="numeric">{row.fields.currency} {total(row.fields)}</td><td className="numeric">{formatDate(row.updatedAt)}</td><RowOpenCell title={row.fields.title || t("text122")} disabled={busy} onOpen={() => choose(row)}/></tr>)}</tbody></table></div>{drafts.length === 0 && !busy && <EmptyState filtered={false} title={t("text123")} hint={t("text124")}/>}<ListFooter count={drafts.length} page={currentDraftPage} pages={draftPages} disabled={busy} onPage={setDraftPage}/></div>}
     {editor && <div className="surface expense-editor">
-      <div><Badge>{selected ? names[selected.state] : t("text105")}</Badge> {dirty && <Text>{t("text126")}</Text>}</div>
       {selected?.message && <MessageBar><MessageBarBody>{selected.message}</MessageBarBody></MessageBar>}
       <h3 className="form-section-title">{t("text127")}</h3>
       <fieldset disabled={busy || !editable} style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: 12 }}>
@@ -268,7 +271,7 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
                     });
                 }}>{t("text148")}</Button>}
       </div>
-      {selected?.claimId && <div><Text>{t("text149")}{selected.claimId}{t("text150")}{selected.serverStatus}</Text><br /><Link href={`${connection.origin}/console/objects/expense_claim/${encodeURIComponent(selected.claimId)}`} target="_blank" rel="noreferrer">{t("text151")}</Link></div>}
+      {selected?.claimId && <div><Text>{t("text149")}{selected.claimId}{t("text150")}{selected.serverStatus ? statusLabel(selected.serverStatus) : '—'}</Text><br /><Link href={`${connection.origin}/console/objects/expense_claim/${encodeURIComponent(selected.claimId)}`} target="_blank" rel="noreferrer">{t("text151")}</Link></div>}
       <Dialog open={dialog} onOpenChange={(_, data) => { if (!busy) { setDialog(data.open); if (!data.open) normReset(); } }}>
         <DialogSurface><DialogBody><DialogTitle>{selected?.confirmation?.action === 'submit' ? t("text152") : t("text153")}</DialogTitle>
           <DialogContent>
@@ -305,6 +308,6 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
       <Button disabled={busy} onClick={() => { const action = leaveAction; setLeaveAction(undefined); action?.(); }}>{t("text168")}</Button>
       <Button appearance="primary" disabled={busy} onClick={() => { void run(async () => { const draft = await remote.expenseSave(connection.id, { ...(selected ? { id: selected.id, revision: selected.revision } : {}), fields }); accept(draft); const action = leaveAction; setLeaveAction(undefined); action?.(); }); }}>{t("text169")}</Button>
     </DialogActions></DialogBody></DialogSurface></Dialog>
-    <Text size={200}>{t("text170")}</Text>
+    <p className="data-caption">{t("text170")}</p>
   </section>;
 }

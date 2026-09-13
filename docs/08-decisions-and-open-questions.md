@@ -47,6 +47,7 @@
 | D-030 | skills 根（`<agentsHome>/skills`）含该人的 `ORYH_API_KEY`，共享主机上必须按 uid 隔离 | [ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md)、[S0 验收](21-s0-acceptance.md) |
 | D-031 | 提交前的规范核对具有强制力，且适用于**每一个带 workflow definition 的 object_type**（当前已接入 `timesheet_header`、`expense_claim`）：只有 agent 回报 `passed` 才能提交，`flagged` 与核对不可用一律禁用确认；闸门在各领域 service 的 `confirm()`，不只是禁用按钮。阈值仍不写进代码，判断仍来自 agent | [提交前核对](22-timesheet-submit-review.md) |
 | D-032 | 用户可通过 Chat 自建菜单项：已有列表 + 服务端筛选 + 用户命名，不授予任何权限；筛选键对照部署 OpenAPI 校验（服务端静默忽略未声明参数），读不到 schema 时拒绝筛选；保存在会话所在的 Harness workspace（`ctx.storageDomain` 存储域，按 workspace + 企业身份区分，不写入 workspace 目录），租户范围定义待 ORYH 提供服务端资源 | [用户自定义菜单项](24-user-menu-views.md) |
+| D-033 | 业务页面的共享表达（打开一行、返回、刷新、新建、状态、条数与分页、空态、读取中、出错、时间格式）只在 `list-kit.tsx` 定义一次，页面组合使用，测试扫描源码阻止手写；页面名称以 `page-labels.ts` 为唯一来源，页面注册表标题与之保持一致；状态词只翻译 ORYH 默认状态机的状态名，租户自定义状态原样显示 | [业务页面表达约定](25-ui-conventions.md) |
 
 ## 3. 建议等待批准
 
