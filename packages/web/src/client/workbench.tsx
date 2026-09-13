@@ -29,6 +29,8 @@ export interface PageContext {
     content?: string;
     columns?: string[];
     queryFields?:string[];
+    /** Query-field values applied to the list, which the Host compares when it waits for a query-bar change. */
+    queryValues?:Record<string,string>;
     productCode?:string;
     productIds?:string[];
     availableColumns?:{id:string;label:string}[];

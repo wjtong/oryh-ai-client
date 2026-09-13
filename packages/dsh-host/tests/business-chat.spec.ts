@@ -230,36 +230,76 @@ for(const kind of ['sales-orders','inventory-items','inventory-item-details','sh
   }finally{await f.close()}
  })
 }
-it('adds the inventory query field only after acknowledgement and validates fields',async()=>{
+/** What `GET /inventory-item-details` declares on a real deployment: no effective-date parameter. */
+const detailFields=[{name:'inventory_item_id',type:'string'},{name:'reason',type:'string'},{name:'entity_type',type:'string'},{name:'include_archived_items',type:'boolean'}]
+
+it('offers query fields the list endpoint declares, and the product query on inventory movements',async()=>{
  const f=await setup();try{
+  f.ctx.oryhRecords={recordFilterFields:async()=>detailFields,recordList:async()=>({rows:[],page:1,pages:1,total:4,fetchedAt:'now'})} as never
   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
   const context={key:'inventory-item-details:list',title:'库存流水',detail:'',scope:'',queryFields:[] as string[]}
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'inventory-item-details',context})
-  await expect(f.chat.configureInventoryFilters('s',['password'],undefined,new AbortController().signal)).rejects.toThrow(/配置无效/)
-  const pending=f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal)
+  const pending=f.chat.configureQueryFields('s',['product_code','reason'],[{field:'reason',value:'sale'}],undefined,new AbortController().signal)
   await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
   const n=(f.chat.snapshot('s').navigation)!
-  expect(n).toMatchObject({target:'filters',queryFields:['product_code']})
-  expect(n).not.toHaveProperty('productCode')
-  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'inventory-item-details',navigationId:n.id,context:{...context,queryFields:['product_code']}})
-  expect(await pending).toContain('查询栏已更新')
+  expect(n).toMatchObject({target:'filters',page:'inventory-item-details',queryFields:['product_code','reason'],queryValues:{reason:'sale'}})
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'inventory-item-details',navigationId:n.id,context:{...context,queryFields:['product_code','reason'],queryValues:{reason:'sale'}}})
+  const receipt=await pending
+  expect(receipt).toContain('查询栏已更新')
+  expect(receipt).toContain('共 4 条')
+ }finally{await f.close()}
+})
+
+it('says plainly that ORYH does not support a field the endpoint does not declare',async()=>{
+ const f=await setup();try{
+  f.ctx.oryhRecords={recordFilterFields:async()=>detailFields} as never
+  await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+  const context={key:'inventory-item-details:list',title:'库存流水',detail:'',scope:'',queryFields:[] as string[]}
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'inventory-item-details',context})
+  // The reported case: 生效日期 is not a query parameter of this endpoint. The refusal must name the gap
+  // as the server's and steer away from an invented on-page workaround.
+  const refusal=f.chat.configureQueryFields('s',['effective_at'],undefined,undefined,new AbortController().signal)
+  await expect(refusal).rejects.toThrow(/ORYH 目前不支持按“effective_at”查询库存流水/)
+  await expect(f.chat.configureQueryFields('s',['effective_at'],undefined,undefined,new AbortController().signal)).rejects.toThrow(/不要建议在页面上自行筛选/)
+  // The search box already owns its field, so it is not offered twice.
+  await expect(f.chat.configureQueryFields('s',['inventory_item_id'],undefined,undefined,new AbortController().signal)).rejects.toThrow(/不支持/)
+  // A value must belong to a field that is shown.
+  await expect(f.chat.configureQueryFields('s',['reason'],[{field:'entity_type',value:'x'}],undefined,new AbortController().signal)).rejects.toThrow(/已显示的查询字段/)
+  expect(f.chat.snapshot('s').navigation).toBeUndefined()
  }finally{await f.close()}
 })
 
 it('hydrates multi-product selections before sending them to the page',async()=>{
  const f=await setup();try{
   const products=[{id:'a',name:'Product A',code:'A'},{id:'b',name:'Product B',code:'B'}]
-  f.ctx.oryhRecords={productSearch:async()=>({rows:products,total:2,pages:1})} as never
+  f.ctx.oryhRecords={recordFilterFields:async()=>detailFields,productSearch:async()=>({rows:products,total:2,pages:1})} as never
   await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
   const context={key:'inventory-item-details:list',title:'库存流水',detail:'',scope:''}
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'inventory-item-details',context})
-  await expect(f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal,['a','a'])).rejects.toThrow(/选择无效/)
-  const pending=f.chat.configureInventoryFilters('s',['product_code'],undefined,new AbortController().signal,['a','b'])
+  await expect(f.chat.configureQueryFields('s',['product_code'],undefined,undefined,new AbortController().signal,['a','a'])).rejects.toThrow(/选择无效/)
+  const pending=f.chat.configureQueryFields('s',['product_code'],undefined,undefined,new AbortController().signal,['a','b'])
   await new Promise(r=>setTimeout(r,0))
   await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
   const n=(f.chat.snapshot('s').navigation)!
   expect(n.products).toEqual(products)
   f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'inventory-item-details',navigationId:n.id,context:{...context,queryFields:['product_code'],productIds:['a','b']}})
+  expect(await pending).toContain('查询栏已更新')
+ }finally{await f.close()}
+})
+
+it('configures the query bar of any list, not only inventory movements',async()=>{
+ const f=await setup();try{
+  f.ctx.oryhRecords={recordFilterFields:async()=>[{name:'direction',type:'string'},{name:'keyword',type:'string'}],recordList:async()=>({rows:[],page:1,pages:1,total:0,fetchedAt:'now'})} as never
+  await f.chat.select({sessionId:'s',connectionId,homeOnly:true})
+  const context={key:'shipments:list',title:'收发货',detail:'',scope:'',queryFields:[] as string[]}
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:1,page:'shipments',context})
+  // Product queries exist only for inventory movements.
+  await expect(f.chat.configureQueryFields('s',['product_code'],undefined,undefined,new AbortController().signal)).rejects.toThrow(/不支持/)
+  const pending=f.chat.configureQueryFields('s',['direction'],undefined,undefined,new AbortController().signal)
+  await vi.waitFor(async()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+  const n=(f.chat.snapshot('s').navigation)!
+  expect(n).toMatchObject({target:'filters',page:'shipments',queryFields:['direction']})
+  f.chat.pageSync({sessionId:'s',connectionId,viewId:'v',revision:2,page:'shipments',navigationId:n.id,context:{...context,queryFields:['direction']}})
   expect(await pending).toContain('查询栏已更新')
  }finally{await f.close()}
 })

@@ -8,7 +8,11 @@ export const pagePreference = z.number().int().min(1).max(1000000).catch(1)
 export const booleanPreference = z.boolean().catch(false)
 export const filterPreference = z.object({text:textPreference,status:textPreference,from:textPreference,to:textPreference,descending:z.boolean().catch(true)}).catch({text:'',status:'',from:'',to:'',descending:true})
 export const productPreference = z.array(z.object({id:z.string().max(200),name:z.string().max(1000),code:z.string().max(1000)})).max(50).catch([])
-export const queryFieldsPreference = z.array(z.enum(['product_code'])).transform(v=>[...new Set(v)]).catch([])
+// Field names only. Which fields a list really accepts is the deployment's answer, checked when the page
+// loads them — this schema must not decide it, or it becomes one more hardcoded list.
+export const queryFieldsPreference = z.array(z.string().regex(/^[a-z_][a-z0-9_]{0,63}$/)).max(20).transform(v=>[...new Set(v)]).catch([])
+/** Query-field values keyed by field name; empty values are dropped rather than sent. */
+export const queryValuesPreference = z.record(z.string().regex(/^[a-z_][a-z0-9_]{0,63}$/), z.string().max(200)).catch({})
 
 export function createViewPreference<T>(scope:string|undefined,key:string,initial:T,schema:z.ZodType<T>) {
  const store=createSnapshotStore<T>(initial,scope===undefined?undefined:{persist:{name:`oryh.view.v1:${scope}:${key}`}})

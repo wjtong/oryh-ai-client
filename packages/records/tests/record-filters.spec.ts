@@ -62,3 +62,22 @@ describe('server-side record filters',()=>{
   await expect(records.recordFilterFields('c','../auth/me' as never)).rejects.toThrow()
  })
 })
+
+describe('filters alongside a product query',()=>{
+ it('applies declared filters to every movement read, so the product query stays server-filtered',async()=>{
+  const request=vi.fn(async(_c:unknown,req:{path:string})=>req.path.startsWith('/inventory-items?')
+   ?{data:[{id:'i1',product_id:'p1',product_code:'P-1'}],meta:{total:1,pages:1}}
+   :{data:[{id:'d1',inventory_item_id:'i1',effective_at:'2026-09-01',created_at:'2026-09-01'}],meta:{total:1,pages:1}})
+  const detailFields:RecordFilterField[]=[{name:'inventory_item_id',type:'string'},{name:'reason',type:'string'}]
+  const records=new RecordService({request} as unknown as RecordHttp,async()=>connection,()=>connection,async()=>detailFields)
+  await records.recordList({connectionId:'c',kind:'inventory-item-details',page:1,query:'',productIds:['p1'],filters:{reason:'sale'}})
+  const detailRead=request.mock.calls.map(c=>c[1].path).find(p=>p.startsWith('/inventory-item-details?'))
+  expect(detailRead).toContain('inventory_item_id=i1')
+  expect(detailRead).toContain('reason=sale')
+ })
+
+ it('refuses an inventory-item filter, which the product query already decides',async()=>{
+  const records=new RecordService({request:vi.fn()} as unknown as RecordHttp,async()=>connection,()=>connection,async()=>[{name:'inventory_item_id',type:'string'}])
+  await expect(records.recordList({connectionId:'c',kind:'inventory-item-details',page:1,query:'',productIds:['p1'],filters:{inventory_item_id:'x'}})).rejects.toThrow(/库存项编号/)
+ })
+})

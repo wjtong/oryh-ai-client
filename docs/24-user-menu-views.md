@@ -67,14 +67,31 @@ FastAPI **会静默忽略没有声明的查询参数**。一个拼错的键，�
 
 内置菜单的名称仍然写死在客户端（菜单名来自 locale 字典，`en` 目前指向中文字典）。用户菜单项的名字是数据，不经过 locale，也不被翻译。
 
-## 7. 落点
+## 7. 查询栏的查询字段也改为读部署声明
+
+同一个问题的另一处：列表查询栏"查询字段"原先写死，只有库存流水能加、只能加"产品"（`oryh_inventory_filters` 只接受 `product_code`，页面偏好的 schema 也用 `z.enum(['product_code'])` 限死）。用户说"查询字段，添加生效日期"时，agent 只能拒绝，还自己编了一句"建议在右侧页面自行筛选"——页面上并没有这种筛选。
+
+现在：
+
+- **可加的查询字段来自部署的 OpenAPI**，和菜单项用同一套 `recordFilterFields`，四个列表都适用。搜索框自己占用的字段不重复提供；库存流水另外保留客户端组合的"产品"查询。
+- **字段取值作为服务端查询参数发送**。产品查询是逐个库存项向服务端取流水，其余查询字段一并带上，所以产品和其它字段可以同时用，结果仍由服务端筛选、总数准确。
+- **`oryh_record_query` 取代 `oryh_inventory_filters`**。请求的字段不在接口声明里时，报错直接写明"ORYH 目前不支持按该字段查询"，并提示不要建议在页面上自行筛选；系统提示也改为同样的要求。
+- 页面偏好只校验字段名的**格式**，不再校验字段是否"被允许"——那由部署决定，页面加载后按声明过滤。
+
+实测（库存流水，10 条：issued 4、received 4、import_override 1、damaged 1）："查询字段，添加生效日期"——agent 列出接口实际声明的字段，回答"ORYH 目前不支持按生效日期筛选库存流水记录"，不再编造替代办法；"查询字段添加变动原因，查 received 的"——工具栏出现"变动原因"，结果共 4 条，全部为 received。
+
+`GET /inventory-item-details` 目前没有日期参数。ORYH 已确认会增加日期区间参数；加上后它会自动出现在可加的查询字段里，客户端不需要改动。
+
+修这处时还顺带去掉了一次重复请求：Chat 下发查询条件后，页面既因条件变化重新查询，又多触发了一次相同的刷新。
+
+## 8. 落点
 
 | 位置 | 变化 |
 | --- | --- |
 | `packages/core/src/http.ts` | `API_PREFIX`；`schema()` 不带 key 取 OpenAPI |
 | `packages/core/src/list-parameters.ts` | 新增：从部署 schema 读出列表可筛选参数 |
-| `packages/records/src/{contracts,service}.ts` | `RecordQuery.filters`；`recordFilterFields`；`checkedFilters` 校验后作为查询参数发送 |
+| `packages/records/src/{contracts,service,inventory-product-query}.ts` | `RecordQuery.filters`；`recordFilterFields`；`checkedFilters` 校验后作为查询参数发送；产品查询同时带上其它查询字段 |
 | `packages/dsh-host/src/user-views.ts` | 新增：`UserViewRegistry`，按 workspace + 企业身份存取，存储域 `oryh_user_views` |
-| `packages/dsh-host/src/business-chat.ts` | 四个工具；`addUserView`/`removeUserView`/`openUserView`；`refreshMenu`；命令快照发布 `userViews` |
+| `packages/dsh-host/src/business-chat.ts` | 菜单四个工具；`addUserView`/`removeUserView`/`openUserView`；`refreshMenu`；命令快照发布 `userViews`；`configureQueryFields` 与 `oryh_record_query` |
 | `packages/web/src/client/{user-views.ts,user-view-bridge.tsx}` | 页面侧镜像：从命令流接收菜单项，区分"未收到"与"没有" |
 | `packages/web/src/client/{layout,layout-store,app,workbench,records,chat-navigation}.tsx` | `view:<id>` 页面、菜单渲染、`RecordPanel` 的 `view` 形态 |

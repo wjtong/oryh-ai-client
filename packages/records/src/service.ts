@@ -67,7 +67,9 @@ export class RecordService implements OryhRecordRemote {
   if(filters===null||typeof filters!=='object'||Array.isArray(filters))throw new OryhClientError('筛选条件无效。','request-failed')
   const entries=Object.entries(filters)
   if(entries.length>10||entries.some(([k,v])=>typeof k!=='string'||!/^[a-z_][a-z0-9_]{0,63}$/.test(k)||typeof v!=='string'||!v.length||v.length>200))throw new OryhClientError('筛选条件无效：最多 10 个，键为字段名，值不能为空。','request-failed')
-  if(q.productCode?.trim()||q.productIds?.length)throw new OryhClientError('筛选条件不能与产品关联查询同时使用。','request-failed')
+  // A product query walks inventory items and reads each one's movements by `inventory_item_id`, so that
+  // key is the query's own. Every other declared filter rides along on those reads, still server-side.
+  if((q.productCode?.trim()||q.productIds?.length)&&Object.hasOwn(filters,'inventory_item_id'))throw new OryhClientError('产品查询已按库存项取数，不能再指定库存项编号作为查询条件。','request-failed')
   if(!this.declared)throw new OryhClientError('当前部署无法读取列表的筛选字段，不能按条件筛选。','invalid-response')
   const fields=new Map((await this.declared(q.connectionId,`/${q.kind}`)).map(f=>[f.name,f.type]))
   const textField=specs[q.kind].query
@@ -103,7 +105,7 @@ export class RecordService implements OryhRecordRemote {
   const params=new URLSearchParams({page:String(q.page),size:'25'});if(q.query.trim())params.set(specs[q.kind].query,q.query.trim())
   for(const [key,value] of filters)params.set(key,value)
   const read=async(path:`/${string}`)=>{if(scope(c)!==scope(this.current(q.connectionId)))throw new OryhClientError('企业连接已变化，请重新查询。','cross-connection-result');return this.http.request(q.connectionId as ConnectionId,{path})}
-  const body=q.productCode?.trim()||q.productIds?.length?await inventoryProductQuery(q,read):await read(`/${q.kind}?${params}`)
+  const body=q.productCode?.trim()||q.productIds?.length?await inventoryProductQuery(q,read,filters):await read(`/${q.kind}?${params}`)
   if(scope(c)!==scope(this.current(q.connectionId)))throw new OryhClientError('企业连接已变化，请重新查询。','cross-connection-result')
   const result=decodeRecordPage(q.kind,body,q.page)
   if(q.kind==='inventory-item-details'){
