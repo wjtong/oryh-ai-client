@@ -80,6 +80,11 @@ export interface CommandSnapshot {
   project?: ProjectChatProposal
   /** Where the pre-submit norm review stands, when one is running. */
   review?: SubmitReviewState
+  /**
+   * Moves when the agent may have changed ORYH data — a turn that ran a skill step through the shell.
+   * Pages re-read what they show whenever `id` changes; nothing says what changed, by design.
+   */
+  serverChange?: { id: string; at: number }
 }
 
 /**

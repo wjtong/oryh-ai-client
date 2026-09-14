@@ -1,5 +1,5 @@
 /** One Host command stream per bound session, shared by every business view. */
-import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { CommandSnapshot } from '@oryh/dsh-host/types'
 import type { ConnectionId } from '@oryh/ai-client-foundation'
 import { LocalRemoteError, useOryhRemote } from './remote.js'
@@ -55,6 +55,38 @@ export const CommandsContext = createContext<CommandStore>(unbound)
 export function useCommands(): CommandState {
   const store = useContext(CommandsContext)
   return useSyncExternalStore(store.subscribe, store.getSnapshot)
+}
+
+/**
+ * Re-read a view when the agent may have changed ORYH data (ADR-0010).
+ *
+ * The Host moves `serverChange` after a turn that ran a skill step through the shell, which is how a
+ * timesheet submitted in Chat comes to read 已提交 in the business pane. A view on screen re-reads at
+ * once; a hidden one remembers and re-reads when it is shown. The marker a view finds when it first
+ * joins the stream is already covered by its own first load, so only later moves count — including
+ * one that arrives in the baseline after a reconnect, since the view may have missed it.
+ * @param active - whether the view is on screen.
+ * @param refresh - re-reads what the view shows; the latest function passed is the one called.
+ */
+export function useServerRefresh(active: boolean, refresh: () => void): void {
+  const { commands, status } = useCommands()
+  const change = commands.serverChange?.id
+  const seen = useRef<string | undefined>(undefined)
+  const joined = useRef(false)
+  const stale = useRef(false)
+  const latest = useRef(refresh)
+  latest.current = refresh
+  useEffect(() => {
+    if (status !== 'synced') return
+    if (!joined.current) { joined.current = true; seen.current = change; return }
+    if (change === undefined || change === seen.current) return
+    seen.current = change
+    if (active) latest.current()
+    else stale.current = true
+  }, [change, status, active])
+  useEffect(() => {
+    if (active && stale.current) { stale.current = false; latest.current() }
+  }, [active])
 }
 
 /**

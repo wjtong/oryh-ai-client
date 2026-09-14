@@ -63,11 +63,11 @@ describe('timesheet suggestions',()=>{
   expect(f.chat.pending('s')).toBeUndefined();await expect(f.chat.propose('s',1,{kind:'create',fields:proposed})).rejects.toThrow(/版本/)
   await expect(f.chat.sync({...f.state,pageKey:'other'})).rejects.toThrow(/页面/);f.chat.clear('s');await expect(f.chat.read('s')).rejects.toThrow(/尚未同步/)
  })
- it('rejects unknown targets, guessed projects, invalid hours and cross-menu approvals',async()=>{
+ it('rejects unknown targets, guessed projects, invalid hours and approvals staged on the page',async()=>{
   const f=setup();await f.chat.sync(f.state);await expect(f.chat.read('s','foreign')).rejects.toThrow(/不在/)
   await expect(f.chat.propose('s',1,{kind:'create',fields:{...proposed,entries:[{...proposed.entries[0],hours:25}]}})).rejects.toThrow(/24/)
   await expect(f.chat.propose('s',1,{kind:'create',fields:{...proposed,entries:[{...proposed.entries[0],project_id:'foreign'}]}})).rejects.toThrow(/项目/)
-  await expect(f.chat.propose('s',1,{kind:'approve',headerId:'h',todoId:'t',decision:'approved',comment:'同意'})).rejects.toThrow(/菜单/)
+  await expect(f.chat.propose('s',1,{kind:'approve',headerId:'h',todoId:'t',decision:'approved',comment:'同意'})).rejects.toThrow(/skill/)
  })
  it('rejects a project whose asserted name does not match the id it resolved to',async()=>{
   // The observed defect: a well-formed id that is not the project the user asked for. An id-only
@@ -205,10 +205,16 @@ describe('timesheet suggestions',()=>{
   await f.chat.reviewStart('s','h');f.chat.clear('s')
   expect(f.reviews.state('s')).toBeUndefined()
  })
- it('restricts approval proposals to the current managers todo and never confirms',async()=>{
-  const f=setup();f.binding.manager=true;await f.chat.sync({...f.state,manager:true})
-  await expect(f.chat.propose('s',1,{kind:'approve',headerId:'h',todoId:'foreign',decision:'approved',comment:'同意'})).rejects.toThrow(/当前员工/)
-  await f.chat.propose('s',1,{kind:'approve',headerId:'h',todoId:'t',decision:'approved',comment:'同意'});expect(f.confirm).not.toHaveBeenCalled()
+ it('leaves submitting and approving to the agent in the conversation instead of staging them on the page',async()=>{
+  // ADR-0010: the agent writes through ORYH's skills and confirms in the conversation, so nothing
+  // here may route a submit or an approval to the page's confirmation dialog.
+  const f=setup();await f.chat.sync(f.state)
+  await expect(f.chat.propose('s',1,{kind:'submit',headerId:'h'})).rejects.toThrow(/skill/)
+  f.binding.manager=true;await f.chat.sync({...f.state,manager:true})
+  await expect(f.chat.propose('s',1,{kind:'approve',headerId:'h',todoId:'t',decision:'approved',comment:'同意'})).rejects.toThrow(/skill/)
+  // The approval page has no form to fill at all.
+  await expect(f.chat.propose('s',1,{kind:'create',fields:proposed})).rejects.toThrow(/审批页面没有可填写的表单/)
+  expect(f.chat.pending('s')).toBeUndefined();expect(f.prepare).not.toHaveBeenCalled();expect(f.confirm).not.toHaveBeenCalled()
  })
  it('discards in-flight reads when the user leaves the page',async()=>{
   const f=setup();await f.chat.sync(f.state);let release!:()=>void

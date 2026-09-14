@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { Button } from '@fluentui/react-components'
 import type { ConnectionId } from '@oryh/ai-client-foundation'
 import type { TodoDocument } from '@oryh/ai-client-todos'
-import { useCommands } from './command-stream.js'
+import { useCommands, useServerRefresh } from './command-stream.js'
 import { useOryhRemote } from './remote.js'
 import { formatDateTime, formatDisplayValue } from './list-kit.js'
 import { statusLabel } from './status-words.js'
@@ -15,6 +15,8 @@ export function TodoChat({connectionId,todoId,visibleTodos=[],listContext='',nav
   const listJson=JSON.stringify({visibleTodos,listContext}),listRevision=useMemo(()=>crypto.randomUUID(),[listJson])
   const openCallback=useRef(onOpen);openCallback.current=onOpen
   const [message,setMessage]=useState(''),[ready,setReady]=useState(false),[retry,setRetry]=useState(0),[document,setDocument]=useState<TodoDocument>(),[error,setError]=useState('')
+  // The linked document may have been changed in Chat; reading it again is the same re-sync as the button.
+  useServerRefresh(true,()=>setRetry(n=>n+1))
   useEffect(()=>{
     let alive=true
     setReady(false);setDocument(undefined);setError('');setMessage(sessionId?(todoId?'正在同步 Chat 上下文…':'请打开一条待办后询问 Chat。'):'请先在 Chat 中选择或创建一个会话。')

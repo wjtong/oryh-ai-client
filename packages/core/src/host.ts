@@ -72,7 +72,16 @@ export class OryhClientHost {
   /** Which object types this tenant governs with a workflow definition; shared by every domain. */
   createWorkflowDefinitions() { return new WorkflowDefinitions(this.#http) }
   /** ORYH skill bundle installer; the credential stays inside the shared HTTP client. */
-  createSkillBundle(root: string) { return new SkillBundleService(this.#http, root) }
+  createSkillBundle(root: string) {
+    // The holder is read from the connection as already verified. Starting a verification here would
+    // clear the connection's in-flight business reads, and a skill sync runs whenever the workbench opens.
+    return new SkillBundleService(this.#http, root, async id => {
+      await this.#ready
+      await this.#verifications.get(id)
+      const { origin, identity } = this.#connections.requireVerified(id)
+      return { origin, tenantId: identity.tenant.id, userId: identity.user.id, employeeId: identity.user.employeeId, tenantName: identity.tenant.name ?? identity.tenant.slug, email: identity.user.email }
+    })
+  }
 
   /** Start browser-backed device authorization for one ORYH deployment. */
   async beginDeviceConnection(origin: string, clientName: string): Promise<DeviceConnectionAttempt> {

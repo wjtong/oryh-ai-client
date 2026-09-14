@@ -7,6 +7,7 @@ import {Button,Field,Input} from '@fluentui/react-components'
 import type {RecordKind,RecordPage,BusinessRecord,ProductOption,RecordFilterField} from '@oryh/ai-client-records'
 import type {PageContext} from './workbench.js'
 import {useOryhRemote} from './remote.js'
+import {useServerRefresh} from './command-stream.js'
 import {BackToList,ClearConditionsButton,EmptyState,ErrorNote,ListFooter,ListLoading,PageHeader,RefreshButton,RowOpenCell,RowOpenHeader,StatusPill,formatDateTime,formatDisplayValue} from './list-kit.js'
 import {useText} from './locale.js'
 import {pageLabels} from './page-labels.js'
@@ -38,6 +39,10 @@ export function RecordPanel({kind,view,filterCommand,columns,onColumns,connectio
  const activeValues=Object.fromEntries(Object.entries(appliedValues).filter(([id,value])=>value&&id!=='product_code'&&shownFields.includes(id)))
  const activeKey=JSON.stringify(activeValues)
  const handledFilter=useRef('')
+ // After a write made in Chat the list re-reads in place: the rows stay on screen, and an open record
+ // stays open with its new values instead of closing as a fresh query would.
+ const softReload=useRef(false)
+ useServerRefresh(true,()=>{softReload.current=true;setReload(v=>v+1)})
  function configureFields(fields:string[]){
   const keep=(v:Record<string,string>)=>Object.fromEntries(Object.entries(v).filter(([id])=>fields.includes(id)))
   setQueryFields(fields);setValues(keep(values));setAppliedValues(keep(appliedValues))
@@ -53,7 +58,7 @@ export function RecordPanel({kind,view,filterCommand,columns,onColumns,connectio
   // and the extra counter sent the same request a second time.
   if(filterCommand.queryValues!==undefined||filterCommand.products!==undefined){setSearch(query);setPage(1)}
  },[filterCommand,kind,view])
- useEffect(()=>{let live=true;setBusy(true);setError('');setData(undefined);setSelected(undefined);void api.recordList({connectionId,kind,page,query:search,...(view?{filters:view.filters}:{...(kind==='inventory-item-details'?{productIds:appliedProducts.map(p=>p.id)}:{}),...(Object.keys(activeValues).length?{filters:activeValues}:{})})}).then(value=>{if(live){setData(value);if(page>Math.max(1,value.pages))setPage(Math.max(1,value.pages))}}).catch(e=>{if(live)setError(e instanceof Error?e.message:'查询失败')}).finally(()=>{if(live)setBusy(false)});return()=>{live=false}},[api,connectionId,kind,view,page,search,reload,appliedProducts,activeKey])
+ useEffect(()=>{let live=true;const soft=softReload.current;softReload.current=false;if(!soft){setBusy(true);setData(undefined);setSelected(undefined)}setError('');void api.recordList({connectionId,kind,page,query:search,...(view?{filters:view.filters}:{...(kind==='inventory-item-details'?{productIds:appliedProducts.map(p=>p.id)}:{}),...(Object.keys(activeValues).length?{filters:activeValues}:{})})}).then(value=>{if(live){setData(value);if(soft)setSelected(current=>current&&(value.rows.find(row=>row.id===current.id)??current));if(page>Math.max(1,value.pages))setPage(Math.max(1,value.pages))}}).catch(e=>{if(live)setError(e instanceof Error?e.message:'查询失败')}).finally(()=>{if(live)setBusy(false)});return()=>{live=false}},[api,connectionId,kind,view,page,search,reload,appliedProducts,activeKey])
  useEffect(()=>{callback.current({key:`${kind}:${selected?.id??'list'}`,title:selected?.title??title,detail:[filterText&&`筛选：${filterText}`,search].filter(Boolean).join(' · ')||'默认查询',scope:view?'用户菜单项 · 服务端筛选 · 只读':appliedProducts.length?'产品关联查询 · 只读':'服务端分页 · 只读',...(view?{view}:{}),queryFields,queryValues:activeValues,productIds:appliedProducts.map(p=>p.id),columns,availableColumns:Object.entries(catalog).map(([id,label])=>({id,label})),content:JSON.stringify({loading:busy,error,page: data?.page??page,pages:data?.pages,total:data?.total,query:search,productIds:appliedProducts.map(p=>p.id),queryDraft:{[searchField]:query,products,values},queryValues:activeValues,availableQueryFields:availableFields.map(({id,label,type})=>({id,label,type})),fetchedAt:data?.fetchedAt,selected,visibleRows:selected?[]:data?.rows??[]})})},[kind,view,selected,busy,error,page,search,data,columns,queryFields,appliedProducts,query,products,values,activeKey,declared])
  return <section className="business-page oryh-records" aria-busy={busy}>
   {selected?<PageHeader back={<BackToList onClick={()=>setSelected(undefined)}/>} title={selected.title}/>:<PageHeader title={title} actions={<RefreshButton disabled={busy} onClick={()=>setReload(v=>v+1)}/>}/>}

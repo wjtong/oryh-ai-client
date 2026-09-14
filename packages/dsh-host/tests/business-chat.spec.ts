@@ -61,7 +61,7 @@ describe('open existing timesheet navigation',()=>{
    await expect(f.chat.select({sessionId:'s',connectionId,timesheetPage:'page',navigationId:n.id,manager:!manager})).rejects.toThrow(/正在回答/)
    await f.chat.select({sessionId:'s',connectionId,timesheetPage:'page',navigationId:n.id,manager})
    await f.chat.timesheet.sync({sessionId:'s',connectionId,pageKey:'page',navigationId:n.id,revision:1,manager,headerId:'header',...(manager?{todoId:'todo'}:{})})
-   expect(await pending).toContain('指定工时已在右侧打开')
+   expect(await pending).toContain('指定工时已在中间栏打开')
   }finally{await f.close()}
  })
  it('does not publish navigation for an inaccessible record',async()=>{
@@ -487,6 +487,84 @@ describe('menu entries a person adds through chat',()=>{
    expect(await f.chat.removeUserView('s',view.id)).toContain('已删除菜单项“入库单”')
    expect(f.chat.snapshot('s').userViews).toEqual([])
    await expect(f.chat.removeUserView('s',view.id)).rejects.toThrow(/没有这个菜单项/)
+  }finally{await f.close()}
+ })
+})
+
+describe('the agent as the primary client',()=>{
+ const principal={origin:'https://oryh.example',tenantId:'tenant',userId:'user',employeeId:'employee',tenantName:'晶诚',email:'hua@example.invalid'}
+ /** The chat with its tools and listeners installed, on a context that records both. */
+ async function installed(connections=1,holder:typeof principal|null=null){
+  const directory=await mkdtemp(join(tmpdir(),'oryh-chat-'))
+  const agent={id:'s',status:'idle',session:{header:{isSeeded:false,parentSession:undefined as string|undefined}}}
+  const identity={id:connectionId,origin:'https://oryh.example',identity:{permissions:[],tenant:{id:'tenant',name:'晶诚'},user:{id:'user',email:'hua@example.invalid',employeeId:'employee'}}}
+  const tools=new Map<string,{execute:(args:unknown,exec:unknown)=>Promise<string>}>()
+  const listeners=new Map<string,((...args:never[])=>unknown)[]>()
+  const ctx={
+   agents:{get:(id:string)=>id==='s'?agent:undefined,list:()=>[]},
+   tools:{register:(tool:{name:string})=>{tools.set(tool.name,tool as never)}},
+   systemPrompt:{section:()=>{}},
+   effect:()=>{},
+   on:(name:string,fn:(...args:never[])=>unknown)=>{listeners.set(name,[...(listeners.get(name)??[]),fn])},
+  } as unknown as Context
+  const controller={verifyConnection:async()=>identity,listConnections:async()=>[identity,{...identity,id:'c2'}].slice(0,connections)} as unknown as OryhClientController
+  const sync=vi.fn(async()=>({installed:true,root:'/skills',skills:[],message:'已安装。'}))
+  const skills={sync,installedPrincipal:()=>holder} as unknown as import('@oryh/ai-client-core').SkillBundleService
+  const chat=new BusinessChat(ctx,controller,{read:async()=>({})} as unknown as TodoDetailService,directory,undefined,undefined,skills)
+  chat.install()
+  const exec={agent:{id:'s'},signal:new AbortController().signal}
+  return {chat,sync,exec,
+   tool:(name:string)=>tools.get(name)!,
+   /** A tool call finishing, through the same waterfall the tool runtime drives. */
+   ran:async(name:string)=>{for(const fn of listeners.get('tools/post-execute')??[])await (fn as unknown as (e:unknown,r:unknown,n:()=>Promise<unknown>)=>Promise<unknown>)({name,agent:{id:'s'}},{},async()=>({kind:'accept'}))},
+   status:(status:string)=>{for(const fn of listeners.get('agent/status')??[])(fn as unknown as (p:unknown)=>void)({agent:{id:'s',inbox:{nextTurn:[]}},status})},
+   denied:async(name:string)=>{let result:unknown;for(const fn of listeners.get('tools/pre-execute')??[])result=await (fn as unknown as (e:unknown,n:()=>Promise<unknown>)=>Promise<unknown>)({name,agent:{id:'s'}},async()=>({kind:'allow'}));return result as {kind:string;reason?:string}},
+   bindHome:()=>chat.select({sessionId:'s',connectionId,homeOnly:true}),
+   close:()=>rm(directory,{recursive:true,force:true})}
+ }
+ it('answers that no page is open instead of failing, so the agent carries on through skills',async()=>{
+  const f=await installed();try{
+   const page=JSON.parse(await f.tool('oryh_current_page').execute({},f.exec))
+   expect(page.page).toBeNull()
+   expect(page.notice).toMatch(/skill/)
+   await expect(f.tool('oryh_navigate').execute({page:'timesheets'},f.exec)).rejects.toThrow(/没有打开的业务页面/)
+  }finally{await f.close()}
+ })
+ it('syncs skills for the only enterprise when no page is bound, and asks when there are several',async()=>{
+  const one=await installed(1);try{await one.tool('oryh_skill_sync').execute({},one.exec);expect(one.sync).toHaveBeenCalledWith(connectionId,true)}finally{await one.close()}
+  const two=await installed(2);try{await expect(two.tool('oryh_skill_sync').execute({},two.exec)).rejects.toThrow(/多个企业连接/);expect(two.sync).not.toHaveBeenCalled()}finally{await two.close()}
+ })
+ it('tells the agent whose skills it would write with, and whether that is this session enterprise',async()=>{
+  const none=await installed(1,null);try{expect(none.chat.skillIdentity('s')).toMatch(/oryh_skill_sync/)}finally{await none.close()}
+  const same=await installed(1,principal);try{
+   expect(same.chat.skillIdentity('s')).toContain('属于：晶诚 · hua@example.invalid。')
+   await same.bindHome();expect(same.chat.skillIdentity('s')).toMatch(/身份一致/)
+  }finally{await same.close()}
+  // After switching accounts the bundle can belong to someone else: the agent must not write with it.
+  const other=await installed(1,{...principal,userId:'someone-else',email:'other@example.invalid'});try{
+   await other.bindHome();expect(other.chat.skillIdentity('s')).toMatch(/不一致.*oryh_skill_sync/)
+  }finally{await other.close()}
+ })
+ it('moves the server-change marker when a turn that ran the shell ends, and only then',async()=>{
+  const f=await installed();try{
+   await f.ran('oryh_current_page');f.status('idle')
+   expect(f.chat.snapshot('s').serverChange).toBeUndefined()
+   await f.ran('bash');f.status('running')
+   expect(f.chat.snapshot('s').serverChange).toBeUndefined()
+   f.status('idle')
+   const first=f.chat.snapshot('s').serverChange
+   expect(first).toBeDefined()
+   // An idle that follows a turn with no shell leaves it alone; the next shell turn moves it again.
+   f.status('idle');expect(f.chat.snapshot('s').serverChange).toEqual(first)
+   await f.ran('bash');f.status('idle')
+   expect(f.chat.snapshot('s').serverChange?.id).not.toBe(first!.id)
+  }finally{await f.close()}
+ })
+ it('never tells the agent that a write has to be confirmed on the page',async()=>{
+  const f=await installed();try{
+   const decision=await f.denied('some_other_tool')
+   expect(decision.kind).toBe('deny')
+   expect(decision.reason).not.toMatch(/页面/)
   }finally{await f.close()}
  })
 })

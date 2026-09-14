@@ -1,6 +1,6 @@
 # ADR-0009：Chat 栏是一个通用 ORYH agent，按 ORYH 自己的方案装载 Skills
 
-状态：接受
+状态：接受；「边界」中「三栏的业务写入仍需用户在页面确认」一条已被 [ADR-0010](0010-agent-is-the-primary-client.md) 取代（2026-09-14）
 日期：2026-09-12
 
 ## 背景
@@ -36,7 +36,7 @@ ORYH 对通用 agent 已有现成接入方案（见 calwbiz `docs/manual/connect
 
 - **授权仍在服务端。** 每个 ORYH API 都有自己的 `require_permission`；bundle 只包含持有人角色已覆盖的 skill。客户端不判断某个 skill 能做什么。
 - **凭据仍不进模型上下文、Session、日志与遥测。** 变的是"skill 文件里有 ORYH 渲染的 key"，不是"我们把 key 喂给模型"。`OryhHttpClient` 持有的凭据仍然只在 Host 进程内。
-- **三栏的业务写入仍需用户在页面确认。** `oryh_*` 工具依旧只读或只生成建议，正式保存/提交/审批由用户在中间栏完成（[docs/22](../22-timesheet-submit-review.md) 的提交前规范复核也不改变这一点）。
+- ~~**三栏的业务写入仍需用户在页面确认。**~~（已被 [ADR-0010](0010-agent-is-the-primary-client.md) 取代：agent 是主客户端，写入按 skill 在对话里确认后执行，中间栏是辅助视图。） `oryh_*` 工具依旧只读或只生成建议，正式保存/提交/审批由用户在中间栏完成（[docs/22](../22-timesheet-submit-review.md) 的提交前规范复核也不改变这一点）。
 
 ## 取代与修订
 
