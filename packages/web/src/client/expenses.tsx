@@ -8,7 +8,7 @@ import type { ConnectionSummary } from '@oryh/ai-client-core';
 import { EXPENSE_OBJECT_TYPE } from '@oryh/ai-client-expenses/contracts';
 import type { ExpenseDraft, ExpenseFields, ExpenseLine, ExpenseState } from '@oryh/ai-client-expenses';
 import { useOryhRemote } from './remote.js';
-import { useCommands } from './command-stream.js';
+import { useCommands, useServerRefresh } from './command-stream.js';
 import { BusinessSessionContext } from './todo-chat.js';
 import type { PageContext } from './workbench.js';
 function today(): string { return formatDate(new Date()); }
@@ -23,8 +23,10 @@ function total(fields: ExpenseFields): string {
     return (cents / 100).toFixed(2);
 }
 /** Traditional expense editing and explicit confirmations; no model or automatic business writes. */
-export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest = 0, tabs }: {
+export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest = 0, tabs, active = true }: {
     connection: ConnectionSummary;
+    /** Whether the drafts view is on screen, so a change made in Chat is read when it is shown. */
+    active?: boolean;
     /** The page's views, shown under its title while the draft list is open. */
     tabs?: ReactNode;
     onDirtyChange: (dirty: boolean) => void;
@@ -116,6 +118,25 @@ export function ExpensePanel({ connection, onDirtyChange, onContext, newRequest 
             choose();
         }
     }, [newRequest, busy]);
+    /**
+     * Local drafts are this page's own, but the claim a draft created lives in ORYH and may have been
+     * submitted in Chat. So the list re-reads, and an open draft that created a claim asks the server
+     * where it stands — a read, never a write. A draft with unsaved edits is left alone, and a mismatch
+     * found in passing is not shown as an error: the draft's own 核对服务端结果 is where that is dealt with.
+     */
+    useServerRefresh(active, () => {
+        void run(async () => {
+            const rows = await remote.expenseList(connection.id);
+            if (!alive.current)
+                return;
+            setDrafts(rows);
+            const open = rows.find(row => row.id === selected?.id);
+            if (open?.claimId === undefined || dirtyRef.current)
+                return;
+            try { accept(await remote.expenseReconcile(connection.id, open.id, open.revision)); }
+            catch { /* reported by the draft's own reconcile, not by a background refresh */ }
+        });
+    });
     function leave(action: () => void) { if (dirty)
         setLeaveAction(() => action);
     else

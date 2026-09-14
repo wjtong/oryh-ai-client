@@ -3,6 +3,7 @@ import {ProjectTable,projectColumnLabels,defaultProjectColumns} from './project-
 import type {ProjectColumn} from '@oryh/dsh-host/types';
 import type {OryhProject} from '@oryh/ai-client-core/types';
 import { TodoChat } from './todo-chat.js';
+import { useServerRefresh } from './command-stream.js';
 import { useBusinessText, useText } from './locale.js';
 import { pageLabels } from './page-labels.js';
 import { statusLabel, statusTone } from './status-words.js';
@@ -57,6 +58,8 @@ export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectCol
     const loaded = useRef(false);
     const alive = useRef(true);
     const running = useRef(false);
+    /** A refresh asked for while a read was running; that read may predate the change, so it runs again. */
+    const again = useRef(false);
     const contextCallback = useRef(onContext);
     contextCallback.current = onContext;
     const rows = useMemo(() => result ? businessRows(result, t) : [], [result, t]);
@@ -82,8 +85,11 @@ export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectCol
             detail: selected ? t("text38") : conditions || t("text39"), scope: result ? `${scope}${error ? t("text40") : ''}` : t("text41"), ...(operationId==='list-projects'?{columns:projectColumns}:{}), content: JSON.stringify({loading:busy,error,filter,page:currentPage,pages,selected:selected??null,visibleRows:busy||invalidDates?[]:filtered.slice((currentPage-1)*12,currentPage*12)}) });
     }, [selected?.id, selected?.title, title, conditions, scope, operationId, result, error, busy, filter, currentPage, pages, filtered, projectColumns]);
     async function load(savedId?: SavedOperationView['id']) {
-        if (running.current)
+        if (running.current) {
+            if (savedId === undefined)
+                again.current = true;
             return;
+        }
         running.current = true;
         setBusy(true);
         setError('');
@@ -112,8 +118,14 @@ export function BusinessPage({ projectColumns=defaultProjectColumns,onProjectCol
             running.current = false;
             if (alive.current)
                 setBusy(false);
+            if (again.current && alive.current) {
+                again.current = false;
+                void load();
+            }
         }
     }
+    // Rows are matched by id, so an open record stays open across the re-read and shows its new state.
+    useServerRefresh(active, () => { if (loaded.current) void load(); });
     function update(patch: Partial<ViewFilter>) { setFilter(current => ({ ...current, ...patch })); setPage(1); }
     async function save() {
         if (!result || running.current || !label.trim())

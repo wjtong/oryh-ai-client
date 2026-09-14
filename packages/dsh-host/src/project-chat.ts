@@ -28,12 +28,12 @@ export class ProjectChat {
     if(!now||now.pageKey!==s.pageKey)return '项目页面已关闭。'
     return now.revision>revision&&JSON.stringify(now.fields)!==JSON.stringify(fields)?'用户已修改表单，请重新读取。':undefined
    },
-   until:()=>this.states.get(id)!.revision>revision?'右侧项目表单已更新，尚未创建，需用户核对确认。':undefined,
+   until:()=>this.states.get(id)!.revision>revision?'中间栏新建项目表单已更新，尚未创建项目。':undefined,
    expired:'填写未获页面确认，请重新读取。',timeoutMs:10000,signal,
   })}finally{if(this.proposals.get(id)===p){this.proposals.delete(id);this.queue.changed(id)}}
  }
  install(){const output={schema:{type:'string'} as const,render:(_a:unknown,value:string)=>[{type:'text' as const,text:value}]}
   this.ctx.tools.register(defineTool({name:'oryh_project_read',description:'读取新建项目表单、版本和实际创建权限。仅返回未保存字段，不返回确认凭据。',parameters:{},output,execute:async(_a,e)=>{if(!e.agent)throw fail('需要会话');return JSON.stringify(await this.read(String(e.agent.id)))}}))
-  this.ctx.tools.register(defineTool({name:'oryh_project_fill',description:'更新右侧未保存的新建项目表单；完整字段中未要求修改的内容保持不变。不会创建项目。日期用 YYYY-MM-DD，空字段用空字符串。',parameters:{revision:{type:'integer',required:true},fields:{type:'object',required:true,additionalProperties:false,properties:{project_name:{type:'string',required:true},project_code:{type:'string',required:true},client:{type:'string',required:true},start_date:{type:'string',required:true},end_date:{type:'string',required:true}}}},output,execute:async(a,e)=>{if(!e.agent)throw fail('需要会话');return this.fill(String(e.agent.id),a.revision,a.fields,e.signal)}}))
+  this.ctx.tools.register(defineTool({name:'oryh_project_fill',description:'帮用户填写中间栏上未保存的新建项目表单；完整字段中未要求修改的内容保持不变。不会创建项目；在对话里直接创建项目请按对应的 skill 执行。日期用 YYYY-MM-DD，空字段用空字符串。',parameters:{revision:{type:'integer',required:true},fields:{type:'object',required:true,additionalProperties:false,properties:{project_name:{type:'string',required:true},project_code:{type:'string',required:true},client:{type:'string',required:true},start_date:{type:'string',required:true},end_date:{type:'string',required:true}}}},output,execute:async(a,e)=>{if(!e.agent)throw fail('需要会话');return this.fill(String(e.agent.id),a.revision,a.fields,e.signal)}}))
  }
 }

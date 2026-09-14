@@ -45,9 +45,10 @@
 | D-028 | 菜单可见性只是入口展示，业务授权始终在服务层执行；将来若有按租户的模块启停，它是独立于用户权限的第二个轴，不并入页面登记表 | [ADR-0008](adr/0008-domain-libraries-not-independent-plugins.md) |
 | D-029 | Chat 栏是一个通用 ORYH agent：按 ORYH 既有方案下载 personal skill bundle 并原样落盘，`skill` 与 `bash` 进入工具允许列表；业务逻辑留在 Skills，不翻译成客户端代码 | [ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md)、[Skills 装载](23-oryh-skills.md) |
 | D-030 | skills 根（`<agentsHome>/skills`）含该人的 `ORYH_API_KEY`，共享主机上必须按 uid 隔离 | [ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md)、[S0 验收](21-s0-acceptance.md) |
-| D-031 | 提交前的规范核对具有强制力，且适用于**每一个带 workflow definition 的 object_type**（当前已接入 `timesheet_header`、`expense_claim`）：只有 agent 回报 `passed` 才能提交，`flagged` 与核对不可用一律禁用确认；闸门在各领域 service 的 `confirm()`，不只是禁用按钮。阈值仍不写进代码，判断仍来自 agent | [提交前核对](22-timesheet-submit-review.md) |
+| D-031 | 提交前的规范核对具有强制力，且适用于**每一个带 workflow definition 的 object_type**（当前已接入 `timesheet_header`、`expense_claim`）：只有 agent 回报 `passed` 才能提交，`flagged` 与核对不可用一律禁用确认；闸门在各领域 service 的 `confirm()`，不只是禁用按钮。阈值仍不写进代码，判断仍来自 agent 。2026-09-14 起此闸门只作用于中间栏页面的提交路径，对话里的提交由 agent 按 skill 核对（D-034） | [提交前核对](22-timesheet-submit-review.md) |
 | D-032 | 用户可通过 Chat 自建菜单项：已有列表 + 服务端筛选 + 用户命名，不授予任何权限；筛选键对照部署 OpenAPI 校验（服务端静默忽略未声明参数），读不到 schema 时拒绝筛选；保存在会话所在的 Harness workspace（`ctx.storageDomain` 存储域，按 workspace + 企业身份区分，不写入 workspace 目录），租户范围定义待 ORYH 提供服务端资源 | [用户自定义菜单项](24-user-menu-views.md) |
 | D-033 | 业务页面的共享表达（打开一行、返回、刷新、新建、状态、条数与分页、空态、读取中、出错、时间格式）只在 `list-kit.tsx` 定义一次，页面组合使用，测试扫描源码阻止手写；页面名称以 `page-labels.ts` 为唯一来源，页面注册表标题与之保持一致；状态词只翻译 ORYH 默认状态机的状态名，租户自定义状态原样显示 | [业务页面表达约定](25-ui-conventions.md) |
+| D-034 | agent 是主客户端、中间栏是辅助视图：保存、提交、审批、创建按 ORYH skill 在对话里确认后执行，客户端不另加页面确认；`oryh_timesheet_propose` 不再承载提交与审批；跑过 `bash` 的回合结束时移动 `serverChange`，页面据此重读并保持打开的单据，有未保存修改时只提示不覆盖；技能包记录持有人，与会话企业身份不一致时先同步、不写入 | [ADR-0010](adr/0010-agent-is-the-primary-client.md)、[方案](26-agent-primary-client.md) |
 
 ## 3. 建议等待批准
 

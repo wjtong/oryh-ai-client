@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { zipSync, strToU8 } from 'fflate'
 import { SkillBundleService, resolveEntry } from '../src/skill-bundle.js'
 import type { ConnectionId } from '../src/brand.js'
@@ -106,5 +106,34 @@ describe('ORYH skill bundle', () => {
     const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
     const service = new SkillBundleService(http(bundle({})).client, root)
     await expect(service.sync(connectionId)).rejects.toThrow(/空的/)
+  })
+
+  it('replaces the bundle when its holder changes, even under an identical manifest', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
+    const alice = { origin: 'https://oryh.example', tenantId: 't', userId: 'alice', employeeId: 'e1', tenantName: 'Acme', email: 'alice@example.invalid' }
+    let holder = alice
+    const service = new SkillBundleService(http(bundle({ 'oryh-acme/SKILL.md': 'hours' })).client, root, async () => holder)
+    expect((await service.sync(connectionId)).principal).toEqual(alice)
+    expect(service.installedPrincipal()).toEqual(alice)
+    expect((await service.sync(connectionId)).installed).toBe(false)
+    // Two people in one tenant can hold exactly the same skills, but each bundle carries its own
+    // person's credential, so switching accounts must still replace it.
+    holder = { ...alice, userId: 'bob', employeeId: 'e2', email: 'bob@example.invalid' }
+    expect((await service.sync(connectionId)).installed).toBe(true)
+    expect(JSON.parse(await readFile(join(root, '.oryh-manifest.json'), 'utf8')).principal.userId).toBe('bob')
+    // A fresh service reads the holder back from disk rather than guessing.
+    const reopened = new SkillBundleService(http(bundle({})).client, root, async () => holder)
+    expect(reopened.installedPrincipal()).toBeUndefined()
+    await vi.waitFor(() => expect(reopened.installedPrincipal()?.userId).toBe('bob'))
+  })
+
+  it('reinstalls once a bundle that recorded no holder, so the holder becomes known', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
+    const transport = http(bundle({ 'oryh-acme/SKILL.md': 'hours' }))
+    await new SkillBundleService(transport.client, root).sync(connectionId)
+    const holder = { origin: 'https://oryh.example', tenantId: 't', userId: 'alice', employeeId: null, tenantName: 'Acme', email: 'alice@example.invalid' }
+    const upgraded = new SkillBundleService(transport.client, root, async () => holder)
+    expect((await upgraded.sync(connectionId)).installed).toBe(true)
+    expect((await upgraded.sync(connectionId)).installed).toBe(false)
   })
 })

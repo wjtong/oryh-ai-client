@@ -1,5 +1,7 @@
 # 项目新建插件
 
+> 2026-09-14（[ADR-0010](adr/0010-agent-is-the-primary-client.md)）：下文是中间栏表单这条路。用户在对话里要求创建项目时，agent 按 ORYH skill 在对话里确认后直接创建；`oryh_open_project` / `oryh_project_fill` 用于帮用户填页面上的表单。
+
 在原生 Chat 中说“新建项目”，或在项目列表点击“新建项目”，打开同一业务表单。Chat 可以填写项目名称、编码、客户、开始日期和结束日期；未指定修改的字段保持原值。名称必填，编码留空时在核对阶段生成，新项目状态为进行中。
 
 实现沿用公开 Tools、Session、Slot/store 和生成的认证 Remote。`oryh_open_project` 等待页面打开回执，`oryh_project_read` 读取字段、版本和实际权限，`oryh_project_fill` 通过版本校验更新未保存字段并等待页面确认。正式创建入口不注册为模型工具。

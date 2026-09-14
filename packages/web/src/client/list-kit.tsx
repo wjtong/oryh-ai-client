@@ -86,6 +86,15 @@ export function ErrorNote({message,onRetry,disabled}:{message:ReactNode;onRetry?
 }
 
 /**
+ * The server may have moved on while a form held unsaved edits — usually a write made in Chat.
+ * Refreshing shows the server's version and gives those edits up, which is why the button says so.
+ * @param onRefresh - discards the unsaved edits and re-reads the document.
+ */
+export function StaleNote({onRefresh,disabled}:{onRefresh:()=>void;disabled?:boolean}){
+ return <MessageBar intent="warning"><MessageBarBody>服务端数据可能已在 Chat 中更新，页面上未保存的修改可能已经过时。</MessageBarBody><Button disabled={Boolean(disabled)} onClick={onRefresh}>放弃修改并刷新</Button></MessageBar>
+}
+
+/**
  * What a list shows when it has no rows. Filtered-to-nothing and genuinely empty say different things,
  * so the page passes which one it is rather than inventing its own sentence.
  * @param filtered - whether search or query conditions are narrowing the list.

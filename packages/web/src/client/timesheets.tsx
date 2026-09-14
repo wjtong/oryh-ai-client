@@ -4,7 +4,7 @@ import {useViewPreference,textPreference,pagePreference,PreferenceDetails} from 
 import type { ChatNavigation } from '@oryh/dsh-host/types'
 import { TimesheetChat } from './timesheet-chat.js'
 import { BusinessSessionContext } from './todo-chat.js'
-import { useCommands } from './command-stream.js'
+import { useCommands, useServerRefresh } from './command-stream.js'
 import { useContext, useEffect, useRef, useState } from 'react'
 import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Select } from '@fluentui/react-components'
 import { IconSearch } from '@tabler/icons-react'
@@ -12,7 +12,7 @@ import type { ConnectionSummary } from '@oryh/ai-client-core/types'
 import { TIMESHEET_OBJECT_TYPE } from '@oryh/ai-client-timesheets/contracts'
 import type { TimesheetAction, TimesheetDetail, TimesheetFields, TimesheetHeader, TimesheetIntent, TimesheetLine, TimesheetOptions, TimesheetTodo } from '@oryh/ai-client-timesheets'
 import { useOryhRemote } from './remote.js'
-import { BackToList, ClearConditionsButton, EmptyState, ErrorNote, ListFooter, ListLoading, NewButton, PageHeader, RefreshButton, RowOpenCell, RowOpenHeader, StatusPill, formatDate, formatDateTime, formatDisplayValue } from './list-kit.js'
+import { BackToList, ClearConditionsButton, EmptyState, ErrorNote, ListFooter, ListLoading, NewButton, PageHeader, RefreshButton, RowOpenCell, RowOpenHeader, StaleNote, StatusPill, formatDate, formatDateTime, formatDisplayValue } from './list-kit.js'
 import { pageLabels } from './page-labels.js'
 import { statusLabel, statusTone } from './status-words.js'
 import { useText } from './locale.js'
@@ -25,8 +25,8 @@ export function TimesheetPanel({connection,manager,active,navigationId,navigatio
   const [headers,setHeaders]=useState<TimesheetHeader[]>([]),[todos,setTodos]=useState<TimesheetTodo[]>([]),[history,setHistory]=useState<TimesheetIntent[]>([])
   const [options,setOptions]=useState<TimesheetOptions>({workTypes:[],projects:[],requirements:[],editableStates:[],submitStates:[]}),[detail,setDetail]=useState<TimesheetDetail>(),[todoId,setTodoId]=useState<string>()
   const [editor,setEditor]=useState(false),[fields,setFields]=useState(blank),[editing,setEditing]=useState<{entryId?:string;line:TimesheetLine}>(),[dirty,setDirty]=useState(false)
-  const [loaded,setLoaded]=useState(false),[leaveOpen,setLeaveOpen]=useState(false)
-  function returnToList(){setDetail(undefined);setEditor(false);setEditing(undefined);setReview(undefined);setDirty(false);setError('');setLeaveOpen(false)}
+  const [loaded,setLoaded]=useState(false),[leaveOpen,setLeaveOpen]=useState(false),[stale,setStale]=useState(false)
+  function returnToList(){setDetail(undefined);setEditor(false);setEditing(undefined);setReview(undefined);setDirty(false);setError('');setLeaveOpen(false);setStale(false)}
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[review,setReview]=useState<TimesheetIntent>(),[query,setQuery]=useViewPreference(`timesheets:${manager}:query`,'',textPreference)
   const [status,setStatus]=useViewPreference(`timesheets:${manager}:status`,'',textPreference),[page,setPage]=useViewPreference(`timesheets:${manager}:page`,1,pagePreference)
   const filteredHeaders=headers.filter(r=>`${r.period_start} ${r.period_end} ${r.status} ${statusLabel(r.status)} ${r.source_report_text}`.includes(query)&&(!status||r.status===status))
@@ -72,9 +72,28 @@ export function TimesheetPanel({connection,manager,active,navigationId,navigatio
     if(dirty)return
     setFields(blank());setEditor(true);setDetail(undefined);setEditing(undefined);setDirty(true);setOpenedNavigationId(navigationId)
   },[navigationId,active,busy,loaded])
-  async function run(fn:()=>Promise<void>) {if(busy)return;setBusy(true);setError('');try{await fn()}catch(e){if(alive.current)setError(e instanceof Error?e.message:t('tsFailed'))}finally{if(alive.current)setBusy(false)}}
-  async function refresh() {const [hs,ts,opts,log]=await Promise.all([manager?Promise.resolve([]):api.timesheetList(connection.id),manager?api.timesheetQueue(connection.id):Promise.resolve([]),api.timesheetOptions(connection.id),api.timesheetHistory(connection.id)]);if(alive.current){setHeaders(hs);setTodos(ts);setOptions(opts);setHistory(log);setLoaded(true)}}
-  async function open(id:string,tid?:string) {const d=await api.timesheetDetail(connection.id,id,tid);if(alive.current){setDetail(d);setTodoId(tid);setComment('');setEditor(Boolean(d.canEdit&&!manager&&hasPermission(connection.identity,'timesheet.submit_own')));setFields({period_start:d.header.period_start,period_end:d.header.period_end,source_report_text:d.header.source_report_text,entries:d.entries.map(l=>({...l}))});setEditing(undefined);setReview(undefined);setMessage('');setDirty(false)}}
+  async function run(fn:()=>Promise<unknown>) {if(busy)return;setBusy(true);setError('');try{await fn()}catch(e){if(alive.current)setError(e instanceof Error?e.message:t('tsFailed'))}finally{if(alive.current)setBusy(false)}}
+  async function refresh() {const [hs,ts,opts,log]=await Promise.all([manager?Promise.resolve([]):api.timesheetList(connection.id),manager?api.timesheetQueue(connection.id):Promise.resolve([]),api.timesheetOptions(connection.id),api.timesheetHistory(connection.id)]);if(alive.current){setHeaders(hs);setTodos(ts);setOptions(opts);setHistory(log);setLoaded(true)}return {hs,ts}}
+  /**
+   * Show what the server holds now, after the agent may have written in Chat (ADR-0010).
+   *
+   * The list re-reads, and an open timesheet is read again and stays open: a draft submitted in Chat
+   * turns into its read-only 已提交 detail, and one approved in Chat leaves the queue with a word why.
+   * Unsaved edits and an open confirmation are never replaced; the page says the server may have
+   * moved on and lets the person choose.
+   */
+  async function followServer() {
+    const {hs,ts}=await refresh()
+    if(!alive.current||!detail)return
+    if(dirty||review){setStale(true);return}
+    const id=detail.header.id
+    if(manager?!ts.some(t=>t.id===todoId):!hs.some(h=>h.id===id)){returnToList();setMessage(manager?'这条审批已处理，已返回审批列表。':'这张工时单已不在你的工时列表中，已返回列表。');return}
+    await open(id,todoId)
+  }
+  const followPending=useRef(false)
+  useServerRefresh(active,()=>{if(busy){followPending.current=true;return}void run(followServer)})
+  useEffect(()=>{if(!busy&&followPending.current){followPending.current=false;void run(followServer)}},[busy])
+  async function open(id:string,tid?:string) {const d=await api.timesheetDetail(connection.id,id,tid);if(alive.current){setStale(false);setDetail(d);setTodoId(tid);setComment('');setEditor(Boolean(d.canEdit&&!manager&&hasPermission(connection.identity,'timesheet.submit_own')));setFields({period_start:d.header.period_start,period_end:d.header.period_end,source_report_text:d.header.source_report_text,entries:d.entries.map(l=>({...l}))});setEditing(undefined);setReview(undefined);setMessage('');setDirty(false)}}
   async function prepare(action:TimesheetAction){const r=await api.timesheetPrepare(connection.id,action);if(alive.current){setReview(r);setHistory(h=>[r,...h.filter(x=>x.id!==r.id)])}}
   function change(f:TimesheetFields){setFields(f);setDirty(true);setReview(undefined)}
   function renderLines(entries:TimesheetLine[]) {const daily=new Map<string,number>();entries.forEach(e=>daily.set(e.work_date,(daily.get(e.work_date)??0)+e.hours));return <><div className="table-scroll"><table><thead><tr>{['tsDate','tsHours','tsType','tsProject','tsTask','tsNotes'].map(k=><th key={k}>{t(k as 'tsDate')}</th>)}</tr></thead><tbody>{entries.map((e,i)=><tr key={i}><td>{e.work_date}</td><td>{e.hours}</td><td>{options.workTypes.find(o=>o.name===e.work_type)?.title||e.work_type||'—'}</td><td>{options.projects.find(o=>o.id===e.project_id)?.name||('projectName' in e ? String(e.projectName) : '')||e.project_id||'—'}</td><td>{e.task||'—'}{'client' in e && Boolean(e.client) && <p>{String(e.client)}</p>}</td><td>{e.notes||'—'}</td></tr>)}</tbody></table></div><p><strong>{t('tsTotal')}：{sum(entries)}</strong></p><p>{t('tsDaily')}：{[...daily].sort().map(([d,n])=>`${d} · ${Number(n.toFixed(6))}h`).join(' / ')}</p></>}
@@ -95,9 +114,9 @@ export function TimesheetPanel({connection,manager,active,navigationId,navigatio
         else if(action.kind==='edit-line'&&action.line)change({...fields,entries:fields.entries.map(l=>l.id===action.entryId?{...action.line!,id:l.id!}:l)})
         else if(action.kind==='delete-line')change({...fields,entries:fields.entries.filter(l=>l.id!==action.entryId)})
       } else if(['update','add-line','edit-line','delete-line'].includes(action.kind))setError('请先打开可编辑的工时单，所有明细修改将在整单中保存。')
-      else void run(()=>prepare(action))
     }}/> }
-    {!editor&&!editing&&!review&&<>{busy&&<ListLoading/>}{error&&<ErrorNote message={error}/>}</>}{message&&<p role="status">{message}</p>}
+    {!editor&&!editing&&!review&&<>{busy&&<ListLoading/>}{error&&<ErrorNote message={error}/>}</>}
+    {stale&&detail&&<StaleNote disabled={busy} onRefresh={()=>{const id=detail.header.id;setDirty(false);setReview(undefined);normReset();void run(()=>open(id,todoId))}}/>}{message&&<p role="status">{message}</p>}
 
     {!editor&&!detail&&<section className="surface table-surface" aria-label={t(manager?'tsApprovals':'tsMine')}><div className="query-toolbar"><Field label="关键词"><Input contentBefore={<IconSearch size={16}/>} placeholder={manager?'审批事项或工作说明':'日期、工作说明或状态'} value={query} onChange={(_,d)=>{setQuery(d.value);setPage(1)}}/></Field>{!manager&&<Field label="状态"><Select value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}}><option value="">全部状态</option>{[...new Set(headers.map(h=>h.status))].map(s=><option key={s} value={s}>{statusLabel(s)}</option>)}</Select></Field>}{(query||status)&&<ClearConditionsButton onClick={()=>{setQuery('');setStatus('');setPage(1)}}/>}</div><div className="table-scroll"><table><thead><tr><th scope="col">{manager?'审批事项':'申报期间'}</th><th scope="col">工作说明</th><th scope="col">状态</th><RowOpenHeader/></tr></thead><tbody>{manager?visibleTodos.map(r=><tr key={r.id}><td><button className="record-link" disabled={busy} onClick={()=>void run(()=>open(r.entity_id,r.id))}>{r.title}</button></td><td>{r.description||'—'}</td><td><StatusPill tone="pending">待审批</StatusPill></td><RowOpenCell title={r.title} disabled={busy} onOpen={()=>void run(()=>open(r.entity_id,r.id))}/></tr>):visibleHeaders.map(r=><tr key={r.id}><td><button className="record-link numeric" disabled={busy} onClick={()=>void run(()=>open(r.id))}>{r.period_start} — {r.period_end}</button></td><td>{r.source_report_text||'—'}</td><td><StatusPill tone={statusTone(r.status)}>{statusLabel(r.status)}</StatusPill></td><RowOpenCell title={`${r.period_start} — ${r.period_end}`} disabled={busy} onOpen={()=>void run(()=>open(r.id))}/></tr>)}</tbody></table></div>{!count&&!busy&&<EmptyState filtered={Boolean(query||status)} {...(query||status?{}:{hint:manager?'新的工时审批将在这里显示。':'新建工时单，或通过 Chat 描述你的工作。'})}/>}<ListFooter count={count} page={currentPage} pages={pages} disabled={busy} onPage={setPage}/></section>}
     {editor&&<TimesheetEditor key={detail?.header.id??'new'} fields={fields} options={options} busy={busy} dirty={dirty} existing={Boolean(detail)} error={review?'':error} onChange={change} onSave={()=>void run(()=>prepare(detail?{kind:'update',headerId:detail.header.id,fields,...(detail.revision?{expectedRevision:detail.revision}:{})}:{kind:'create',fields}))} onDiscard={()=>{if(detail)setFields({period_start:detail.header.period_start,period_end:detail.header.period_end,source_report_text:detail.header.source_report_text,entries:detail.entries.map(l=>({...l}))});else setEditor(false);setDirty(false);setReview(undefined);setError('')}}/>}

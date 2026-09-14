@@ -24,13 +24,45 @@ export interface SkillManifestEntry {
   readonly hash?: string
 }
 
+/**
+ * Whose bundle is on disk.
+ *
+ * ORYH renders the holder's credential and employee id into the bundle, so a skill writes as that
+ * person — whichever connection the chat happens to be bound to. The skills root is one directory, so
+ * this is what lets the client notice that it no longer belongs to the enterprise identity in use.
+ */
+export interface SkillPrincipal {
+  readonly origin: string
+  readonly tenantId: string
+  readonly userId: string
+  readonly employeeId: string | null
+  /** For people to read; never compared. */
+  readonly tenantName: string
+  /** For people to read; never compared. */
+  readonly email: string
+}
+
+/**
+ * Whether two principals are the same person in the same enterprise.
+ * @param a - one principal, possibly unknown.
+ * @param b - the other, possibly unknown.
+ * @returns true only when both are known and name the same deployment, tenant, user and employee.
+ */
+export function samePrincipal(a: SkillPrincipal | undefined, b: SkillPrincipal | undefined): boolean {
+  return a !== undefined && b !== undefined && a.origin === b.origin && a.tenantId === b.tenantId && a.userId === b.userId && a.employeeId === b.employeeId
+}
+
 /** Result of a sync attempt, shaped for a status line rather than a log. */
 export interface SkillSyncResult {
   readonly installed: boolean
   readonly root: string
   readonly skills: readonly string[]
   readonly message: string
+  /** Whose bundle is installed after this sync, when the service can tell. */
+  readonly principal?: SkillPrincipal
 }
+
+interface InstallRecord { manifest?: readonly SkillManifestEntry[]; installed?: readonly string[]; principal?: SkillPrincipal }
 
 /** Directory names a bundle is allowed to create, so a ZIP cannot write outside the skills root. */
 const SAFE_ENTRY = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/
@@ -100,11 +132,27 @@ export function withheld(skill: string): boolean {
 }
 
 export class SkillBundleService {
+  /** Whose bundle the last install recorded: undefined until read, null when none is recorded. */
+  #installed: SkillPrincipal | null | undefined
+
   /**
    * @param http - authenticated ORYH transport; the credential never leaves it.
    * @param root - absolute skills directory, scanned by the agent runtime.
+   * @param principalOf - the verified identity behind a connection; without it no holder is recorded.
    */
-  constructor(private readonly http: OryhHttpClient, private readonly root: string) {}
+  constructor(private readonly http: OryhHttpClient, private readonly root: string, private readonly principalOf?: (connectionId: ConnectionId) => Promise<SkillPrincipal>) {}
+
+  /**
+   * Whose bundle is installed, as last recorded, without waiting.
+   *
+   * Callers that must answer synchronously — the agent's context — get `undefined` once, while the
+   * record is read in the background, rather than a guess.
+   * @returns the holder, `null` when no holder is recorded, or `undefined` while unknown.
+   */
+  installedPrincipal(): SkillPrincipal | null | undefined {
+    if (this.#installed === undefined) void this.record().then(record => { if (this.#installed === undefined) this.#installed = record.principal ?? null })
+    return this.#installed
+  }
 
   /** What the server says this principal is entitled to right now. */
   async manifest(connectionId: ConnectionId): Promise<readonly SkillManifestEntry[]> {
@@ -121,10 +169,10 @@ export class SkillBundleService {
   }
 
   /** What the last install recorded: the entitlement it was for, and the directories it wrote. */
-  private async record(): Promise<{ manifest?: readonly SkillManifestEntry[]; installed?: readonly string[] }> {
+  private async record(): Promise<InstallRecord> {
     try {
       const parsed: unknown = JSON.parse(await readFile(join(this.root, '.oryh-manifest.json'), 'utf8'))
-      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as { manifest?: SkillManifestEntry[] } : {}
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as InstallRecord : {}
     } catch {
       return {}
     }
@@ -140,17 +188,21 @@ export class SkillBundleService {
    * Install the personal bundle when the server's entitlement differs from what is on disk.
    *
    * Comparison is by name, version and hash, which is what the server's manifest is for: it also
-   * reports skills gained or lost through a role change, so a shrinking bundle syncs too.
+   * reports skills gained or lost through a role change, so a shrinking bundle syncs too. It is also
+   * by holder: two people in one tenant can hold identical manifests, and switching between them must
+   * still replace the bundle, because each carries its own person's credential.
    * @param connectionId - verified connection whose principal the bundle belongs to.
    * @param force - install even when the manifests match, for an explicit user-driven refresh.
    * @returns whether anything was written, and the skills now present.
    */
   async sync(connectionId: ConnectionId, force = false): Promise<SkillSyncResult> {
-    const wanted = await this.manifest(connectionId)
-    const current = (await this.record()).manifest
-    const same = current !== undefined && JSON.stringify(current) === JSON.stringify(wanted)
+    const [wanted, principal] = await Promise.all([this.manifest(connectionId), this.principalOf?.(connectionId)])
+    const record = await this.record()
+    const same = record.manifest !== undefined && JSON.stringify(record.manifest) === JSON.stringify(wanted)
+      && (principal === undefined || samePrincipal(record.principal, principal))
     if (same && !force) {
-      return { installed: false, root: this.root, skills: wanted.map(s => s.name), message: '技能已是最新。' }
+      this.#installed = record.principal ?? null
+      return { installed: false, root: this.root, skills: wanted.map(s => s.name), message: '技能已是最新。', ...(record.principal ? { principal: record.principal } : {}) }
     }
     const archive = await this.http.download(connectionId, { path: '/my/skill-bundle' })
     const files = unzipSync(archive)
@@ -185,7 +237,9 @@ export class SkillBundleService {
       await writeFile(destination, files[name]!)
     }
     await mkdir(this.root, { recursive: true })
-    await writeFile(join(this.root, '.oryh-manifest.json'), JSON.stringify({ manifest: wanted, installed: owned }, null, 2))
-    return { installed: true, root: this.root, skills: owned, message: `已安装 ${owned.length} 个 ORYH 技能。` }
+    const written: InstallRecord = { manifest: wanted, installed: owned, ...(principal ? { principal } : {}) }
+    await writeFile(join(this.root, '.oryh-manifest.json'), JSON.stringify(written, null, 2))
+    this.#installed = principal ?? null
+    return { installed: true, root: this.root, skills: owned, message: `已安装 ${owned.length} 个 ORYH 技能。`, ...(principal ? { principal } : {}) }
   }
 }

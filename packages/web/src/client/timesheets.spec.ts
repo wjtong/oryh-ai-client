@@ -90,3 +90,56 @@ describe('whole document editing',()=>{
   }finally{await act(async()=>root.unmount());node.remove()}
  })
 })
+
+describe('following writes made in Chat',()=>{
+ /** A command stream that is already synced, whose server-change marker the test moves by hand. */
+ function stream(){
+  let state={commands:{} as {serverChange?:{id:string;at:number}},status:'synced' as const}
+  const listeners=new Set<()=>void>()
+  return {store:{getSnapshot:()=>state,subscribe:(listener:()=>void)=>{listeners.add(listener);return()=>{listeners.delete(listener)}}},
+   write:(id:string)=>{state={...state,commands:{serverChange:{id,at:Date.now()}}};listeners.forEach(listener=>listener())}}
+ }
+ async function openDraft(){
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true
+  const {CommandsContext}=await import('./command-stream.js')
+  const draft={canEdit:true,revision:'v1',header:{id:'h',employee_id:'e',period_start:'2026-09-07',period_end:'2026-09-11',status:'draft',source_report_text:''},entries:[{id:'a',work_date:'2026-09-07',hours:8,work_type:'regular',project_id:'',task:'装配',notes:''}],approval_records:[]}
+  const submitted={...draft,canEdit:false,header:{...draft.header,status:'submitted'}}
+  let current:typeof draft=draft
+  const api={timesheetList:vi.fn(async()=>[current.header]),timesheetOptions:async()=>({workTypes:[{name:'regular',title:'正常工时'}],projects:[],requirements:[],submitStates:['draft'],editableStates:['draft']}),timesheetHistory:async()=>[],timesheetDetail:vi.fn(async()=>current)}
+  const commands=stream()
+  const node=document.createElement('div');document.body.append(node);const root=createRoot(node)
+  await act(async()=>root.render(h(CommandsContext.Provider,{value:commands.store as never},h(RemoteContext.Provider,{value:api as never},h(LocaleContext.Provider,{value:k=>dictionaries[k]},h(TimesheetPanel,{connection:{id:'c',identity:{permissions:['timesheet.submit_own'],tenant:{name:'Test'},user:{email:'test@example.invalid'}}} as never,manager:false,active:true,navigationId:'open',navigation:{id:'open',headerId:'h',expiresAt:Date.now()+15000},onDirtyChange:()=>{}}))))))
+  return {node,api,commands,submit:()=>{current=submitted},close:async()=>{await act(async()=>root.unmount());node.remove()}}
+ }
+ it('turns the open draft into its submitted detail once Chat submits it, without closing it',async()=>{
+  const f=await openDraft()
+  try{
+   expect(f.node.querySelectorAll('form input[type=number]')).toHaveLength(1)
+   f.submit()
+   await act(async()=>f.commands.write('turn-1'))
+   expect(f.api.timesheetDetail).toHaveBeenCalledTimes(2)
+   expect(f.node.querySelector('h1')?.textContent).toBe('2026-09-07 — 2026-09-11')
+   expect(f.node.querySelector('.page-title .record-status')?.textContent).toBe('已提交')
+   expect(f.node.querySelectorAll('form input[type=number]')).toHaveLength(0)
+   expect(f.node.textContent).toContain('工时详情 · 只读')
+  }finally{await f.close()}
+ })
+ it('keeps unsaved edits when Chat writes, and lets the person choose to see the server version',async()=>{
+  const f=await openDraft()
+  try{
+   const task=f.node.querySelector<HTMLInputElement>('input[placeholder="具体完成了什么工作"]')!
+   const setValue=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!
+   await act(async()=>{setValue.call(task,'改过的内容');task.dispatchEvent(new Event('input',{bubbles:true}))})
+   f.submit()
+   await act(async()=>f.commands.write('turn-1'))
+   // The list re-read, but the form with its unsaved edit is left exactly as it was.
+   expect(f.api.timesheetDetail).toHaveBeenCalledTimes(1)
+   expect(f.node.querySelector<HTMLInputElement>('input[placeholder="具体完成了什么工作"]')?.value).toBe('改过的内容')
+   expect(f.node.textContent).toContain('服务端数据可能已在 Chat 中更新')
+   await act(async()=>Array.from(f.node.querySelectorAll('button')).find(b=>b.textContent==='放弃修改并刷新')!.click())
+   expect(f.api.timesheetDetail).toHaveBeenCalledTimes(2)
+   expect(f.node.querySelector('.page-title .record-status')?.textContent).toBe('已提交')
+   expect(f.node.textContent).not.toContain('服务端数据可能已在 Chat 中更新')
+  }finally{await f.close()}
+ })
+})
