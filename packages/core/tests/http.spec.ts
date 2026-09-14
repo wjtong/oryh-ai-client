@@ -64,6 +64,19 @@ describe('OryhHttpClient', () => {
     })
   })
 
+  it('addresses ORYH\'s MCP endpoint from the deployment root with the same credential', async () => {
+    const connections = new ConnectionRegistry()
+    const connection = connections.add({ origin: 'https://oryh.example', identity: identity() })
+    const credentials = new MemoryCredentialVault()
+    await credentials.write(connection.id, { accessKey: 'access-key', refreshToken: 'refresh-token', expiresAt: null })
+    const fetcher = new ScriptedFetcher([jsonResponse(200, { jsonrpc: '2.0', id: 1, result: {} })])
+    const client = new OryhHttpClient(connections, credentials, fetcher.fetch)
+
+    await client.request(connection.id, { path: '/mcp', root: true, method: 'POST', body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } })
+    expect(fetcher.calls.map(call => call.input)).toEqual(['https://oryh.example/mcp'])
+    expect(header(fetcher.calls[0]?.init, 'X-API-Key')).toBe('access-key')
+  })
+
   it('refreshes an access key before its advertised expiry instead of sending a known-stale request', async () => {
     const connections = new ConnectionRegistry()
     const connection = connections.add({ origin: 'https://oryh.example', identity: identity() })

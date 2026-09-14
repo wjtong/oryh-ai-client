@@ -13,6 +13,7 @@ export * from './host.js'
 export * from './operations.js'
 export * from './remote.js'
 export * from './saved-operations.js'
+export * from './mcp.js'
 export * from './skill-bundle.js'
 export * from './local-runtime.js'
 

@@ -2,137 +2,145 @@ import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, vi } from 'vitest'
-import { zipSync, strToU8 } from 'fflate'
 import { SkillBundleService, resolveEntry } from '../src/skill-bundle.js'
 import type { ConnectionId } from '../src/brand.js'
 
 const connectionId = 'c' as ConnectionId
-const manifest = [{ name: 'oryh-acme-timesheet-submit', version: '3', hash: 'h3' }]
+const manifest = [{ name: 'oryh-timesheet-submit', version: '3', hash: 'h3' }]
+type Skills = Record<string, Record<string, string>>
 
-/** A stand-in for the authenticated transport; the service must never touch a credential itself. */
-function http(zip: Uint8Array, entries: unknown[] = manifest) {
+/**
+ * A stand-in for ORYH: the manifest over REST, the skills over MCP — prompts for SKILL.md, resources
+ * for reference files. The service must never touch a credential itself; the transport carries it.
+ */
+function oryh(skills: Skills, entries: unknown[] = manifest) {
   const calls: string[] = []
+  const answer = (message: { id: number; method: string; params?: { name?: string; uri?: string } }) => {
+    calls.push(message.method)
+    const result = (() => {
+      switch (message.method) {
+        case 'prompts/list': return { prompts: Object.keys(skills).map(name => ({ name, description: name })) }
+        case 'prompts/get': return { messages: [{ role: 'user', content: { type: 'text', text: skills[message.params!.name!]!['SKILL.md'] } }] }
+        case 'resources/list': return { resources: Object.entries(skills).flatMap(([name, files]) => Object.keys(files).filter(path => path !== 'SKILL.md').map(path => ({ uri: `oryh://skills/${name}/${path}` }))) }
+        case 'resources/read': {
+          const [, name, path] = /^oryh:\/\/skills\/([^/]+)\/(.+)$/.exec(message.params!.uri!)!
+          return { contents: [{ uri: message.params!.uri, text: skills[name!]![path!] }] }
+        }
+        default: throw new Error(`unexpected ${message.method}`)
+      }
+    })()
+    return { jsonrpc: '2.0', id: message.id, result }
+  }
   return {
     calls,
     client: {
-      request: async (_id: ConnectionId, r: { path: string }) => { calls.push(r.path); return { data: entries } },
-      download: async (_id: ConnectionId, r: { path: string }) => { calls.push(r.path); return zip },
+      request: async (_id: ConnectionId, r: { path: string; root?: boolean; body?: unknown }) => {
+        if (r.path === '/my/skills/manifest') { calls.push('manifest'); return { data: entries } }
+        expect(r).toMatchObject({ path: '/mcp', root: true })
+        return Array.isArray(r.body) ? r.body.map(answer) : answer(r.body as never)
+      },
     } as never,
   }
 }
 
-const bundle = (files: Record<string, string>) =>
-  zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)])))
-
-describe('ORYH skill bundle', () => {
-  it('installs the bundle and skips the download when the server manifest is unchanged', async () => {
+describe('ORYH skills over MCP', () => {
+  it('installs every skill from MCP and skips the fetch when nothing changed', async () => {
     const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
-    const transport = http(bundle({ 'oryh-acme/SKILL.md': 'hours', 'oryh-acme/scripts/oryh_request.py': 'print(1)' }))
-    const service = new SkillBundleService(transport.client, root)
+    const server = oryh({ 'oryh-timesheet-submit': { 'SKILL.md': '---\nname: oryh-timesheet-submit\n---\nEvery call is one `oryh_request` tool call.', 'references/api.md': 'the API' } })
+    const service = new SkillBundleService(server.client, root)
 
     const first = await service.sync(connectionId)
     expect(first.installed).toBe(true)
-    expect(await readFile(join(root, 'oryh-acme/SKILL.md'), 'utf8')).toBe('hours')
-    expect(await readFile(join(root, 'oryh-acme/scripts/oryh_request.py'), 'utf8')).toBe('print(1)')
+    expect(await readFile(join(root, 'oryh-timesheet-submit/SKILL.md'), 'utf8')).toContain('oryh_request')
+    expect(await readFile(join(root, 'oryh-timesheet-submit/references/api.md'), 'utf8')).toBe('the API')
+    expect(JSON.parse(await readFile(join(root, '.oryh-manifest.json'), 'utf8')).delivery).toBe('mcp')
 
-    // The manifest is the whole point of the endpoint: an unchanged entitlement must not re-download.
-    const second = await service.sync(connectionId)
-    expect(second.installed).toBe(false)
-    expect(transport.calls.filter(p => p === '/my/skill-bundle')).toHaveLength(1)
-
-    // An explicit refresh still re-downloads, because a rotated key changes the files themselves.
+    // The manifest is what says whether anything changed: an unchanged entitlement fetches nothing.
+    const before = server.calls.filter(call => call === 'prompts/get').length
+    expect((await service.sync(connectionId)).installed).toBe(false)
+    expect(server.calls.filter(call => call === 'prompts/get')).toHaveLength(before)
+    // An explicit refresh still fetches everything again.
     expect((await service.sync(connectionId, true)).installed).toBe(true)
   })
 
-  it('replaces a company directory wholesale so a withdrawn skill disappears', async () => {
+  it('replaces skills a bundle installed, even under an unchanged manifest, because their files carry the key', async () => {
     const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
-    await mkdir(join(root, 'oryh-acme'), { recursive: true })
-    await writeFile(join(root, 'oryh-acme/stale.md'), 'revoked by a role change')
-    const service = new SkillBundleService(http(bundle({ 'oryh-acme/SKILL.md': 'fresh' })).client, root)
-    await service.sync(connectionId)
-    await expect(readFile(join(root, 'oryh-acme/stale.md'), 'utf8')).rejects.toThrow()
-    expect(await readFile(join(root, 'oryh-acme/SKILL.md'), 'utf8')).toBe('fresh')
+    await mkdir(join(root, 'calwbiz-acme-timesheet-submit/scripts'), { recursive: true })
+    await writeFile(join(root, 'calwbiz-acme-timesheet-submit/SKILL.md'), 'api_key: "the person\'s key"')
+    await writeFile(join(root, 'calwbiz-acme-timesheet-submit/scripts/oryh_request.py'), 'DEFAULT_API_KEY = "the person\'s key"')
+    await writeFile(join(root, '.oryh-manifest.json'), JSON.stringify({ manifest, installed: ['calwbiz-acme-timesheet-submit'] }))
+    const service = new SkillBundleService(oryh({ 'oryh-timesheet-submit': { 'SKILL.md': 'over MCP' } }).client, root)
+
+    expect((await service.sync(connectionId)).installed).toBe(true)
+    await expect(readFile(join(root, 'calwbiz-acme-timesheet-submit/SKILL.md'), 'utf8')).rejects.toThrow()
+    await expect(readFile(join(root, 'calwbiz-acme-timesheet-submit/scripts/oryh_request.py'), 'utf8')).rejects.toThrow()
+    expect(await readFile(join(root, 'oryh-timesheet-submit/SKILL.md'), 'utf8')).toBe('over MCP')
   })
 
-  it('lifts skills out of the company directory, because the runtime scans one level', async () => {
+  it('replaces a skill directory wholesale, and removes a skill the server stopped serving', async () => {
     const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
-    const transport = http(bundle({
-      'calwbiz-acme/README.md': 'describes the bundle, not a skill',
-      'calwbiz-acme/calwbiz-acme-timesheet-submit/SKILL.md': 'hours',
-      'calwbiz-acme/calwbiz-acme-timesheet-submit/scripts/oryh_request.py': 'print(1)',
-      'oryh-connect/SKILL.md': 'the shared connect skill ships at the top level',
-    }))
-    const service = new SkillBundleService(transport.client, root)
-    const result = await service.sync(connectionId)
+    await new SkillBundleService(oryh({ 'oryh-timesheet-submit': { 'SKILL.md': 'hours' }, 'oryh-approve': { 'SKILL.md': 'approve' } }).client, root).sync(connectionId)
+    await writeFile(join(root, 'oryh-timesheet-submit/stale.md'), 'left behind')
 
-    expect(await readFile(join(root, 'calwbiz-acme-timesheet-submit/SKILL.md'), 'utf8')).toBe('hours')
-    expect(await readFile(join(root, 'calwbiz-acme-timesheet-submit/scripts/oryh_request.py'), 'utf8')).toBe('print(1)')
-    expect(await readFile(join(root, 'oryh-connect/SKILL.md'), 'utf8')).toMatch(/connect skill/)
-    // The company directory itself must not survive: the scanner would read it as a broken skill.
-    await expect(readFile(join(root, 'calwbiz-acme/README.md'), 'utf8')).rejects.toThrow()
-    expect([...result.skills].sort()).toEqual(['calwbiz-acme-timesheet-submit', 'oryh-connect'])
-
-    // A later bundle that drops a skill must remove the directory the earlier one installed.
-    const next = new SkillBundleService(http(bundle({ 'calwbiz-acme/oryh-connect/SKILL.md': 'kept' }), [{ name: 'other' }]).client, root)
-    await next.sync(connectionId)
-    await expect(readFile(join(root, 'calwbiz-acme-timesheet-submit/SKILL.md'), 'utf8')).rejects.toThrow()
-    expect(await readFile(join(root, 'oryh-connect/SKILL.md'), 'utf8')).toBe('kept')
+    // A role change withdraws a skill: the next install must not keep it.
+    await new SkillBundleService(oryh({ 'oryh-timesheet-submit': { 'SKILL.md': 'fresh' } }, [{ name: 'changed' }]).client, root).sync(connectionId)
+    await expect(readFile(join(root, 'oryh-timesheet-submit/stale.md'), 'utf8')).rejects.toThrow()
+    await expect(readFile(join(root, 'oryh-approve/SKILL.md'), 'utf8')).rejects.toThrow()
+    expect(await readFile(join(root, 'oryh-timesheet-submit/SKILL.md'), 'utf8')).toBe('fresh')
   })
 
   it('withholds ORYH\'s own installer skill, because this client is the installer', async () => {
     const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
-    const service = new SkillBundleService(http(bundle({
-      'calwbiz-acme/calwbiz-acme-skill-sync/SKILL.md': 'a second installer',
-      'calwbiz-acme/calwbiz-acme-timesheet-submit/SKILL.md': 'hours',
-    })).client, root)
-    const result = await service.sync(connectionId)
-    await expect(readFile(join(root, 'calwbiz-acme-skill-sync/SKILL.md'), 'utf8')).rejects.toThrow()
-    expect(await readFile(join(root, 'calwbiz-acme-timesheet-submit/SKILL.md'), 'utf8')).toBe('hours')
-    expect(result.skills).toEqual(['calwbiz-acme-timesheet-submit'])
+    const result = await new SkillBundleService(oryh({ 'oryh-skill-sync': { 'SKILL.md': 'a second installer' }, 'oryh-timesheet-submit': { 'SKILL.md': 'hours' } }).client, root).sync(connectionId)
+    await expect(readFile(join(root, 'oryh-skill-sync/SKILL.md'), 'utf8')).rejects.toThrow()
+    expect(result.skills).toEqual(['oryh-timesheet-submit'])
   })
 
-  it('refuses an archive entry that would escape the skills directory', async () => {
+  it('refuses a server name that would escape the skills directory, writing nothing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
     for (const name of ['../escaped.md', 'oryh-acme/../../escaped.md', '/etc/passwd', 'a\\b.md']) {
       expect(() => resolveEntry(root, name)).toThrow(/unsafe name|outside the skills directory/)
     }
-    // Nothing is written when any entry is unsafe: a half-applied bundle mixes two versions.
-    const service = new SkillBundleService(http(bundle({ 'oryh-acme/SKILL.md': 'ok', '../escaped.md': 'no' })).client, root)
+    const service = new SkillBundleService(oryh({ 'oryh-ok': { 'SKILL.md': 'ok' }, '..': { 'SKILL.md': 'no' } }).client, root)
     await expect(service.sync(connectionId)).rejects.toThrow(/unsafe name/)
-    await expect(readFile(join(root, 'oryh-acme/SKILL.md'), 'utf8')).rejects.toThrow()
+    await expect(readFile(join(root, 'oryh-ok/SKILL.md'), 'utf8')).rejects.toThrow()
+    const nested = new SkillBundleService(oryh({ 'oryh-ok': { 'SKILL.md': 'ok', '../../escaped.md': 'no' } }).client, root)
+    await expect(nested.sync(connectionId)).rejects.toThrow(/unsafe name/)
+    await expect(readFile(join(root, 'oryh-ok/SKILL.md'), 'utf8')).rejects.toThrow()
   })
 
-  it('rejects an empty archive rather than wiping the installed skills', async () => {
+  it('rejects an empty skill list rather than wiping the installed skills', async () => {
     const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
-    const service = new SkillBundleService(http(bundle({})).client, root)
-    await expect(service.sync(connectionId)).rejects.toThrow(/空的/)
+    await new SkillBundleService(oryh({ 'oryh-timesheet-submit': { 'SKILL.md': 'hours' } }).client, root).sync(connectionId)
+    await expect(new SkillBundleService(oryh({}, [{ name: 'changed' }]).client, root).sync(connectionId)).rejects.toThrow(/没有通过 MCP 提供任何技能/)
+    expect(await readFile(join(root, 'oryh-timesheet-submit/SKILL.md'), 'utf8')).toBe('hours')
   })
 
-  it('replaces the bundle when its holder changes, even under an identical manifest', async () => {
+  it('replaces the skills when their holder changes, even under an identical manifest', async () => {
     const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
     const alice = { origin: 'https://oryh.example', tenantId: 't', userId: 'alice', employeeId: 'e1', tenantName: 'Acme', email: 'alice@example.invalid' }
     let holder = alice
-    const service = new SkillBundleService(http(bundle({ 'oryh-acme/SKILL.md': 'hours' })).client, root, async () => holder)
+    const service = new SkillBundleService(oryh({ 'oryh-timesheet-submit': { 'SKILL.md': 'hours' } }).client, root, async () => holder)
     expect((await service.sync(connectionId)).principal).toEqual(alice)
     expect(service.installedPrincipal()).toEqual(alice)
     expect((await service.sync(connectionId)).installed).toBe(false)
-    // Two people in one tenant can hold exactly the same skills, but each bundle carries its own
-    // person's credential, so switching accounts must still replace it.
+    // Two people in one tenant can hold exactly the same skills, but each person's skills speak for
+    // that person, so switching accounts must still replace them.
     holder = { ...alice, userId: 'bob', employeeId: 'e2', email: 'bob@example.invalid' }
     expect((await service.sync(connectionId)).installed).toBe(true)
     expect(JSON.parse(await readFile(join(root, '.oryh-manifest.json'), 'utf8')).principal.userId).toBe('bob')
     // A fresh service reads the holder back from disk rather than guessing.
-    const reopened = new SkillBundleService(http(bundle({})).client, root, async () => holder)
+    const reopened = new SkillBundleService(oryh({}).client, root, async () => holder)
     expect(reopened.installedPrincipal()).toBeUndefined()
     await vi.waitFor(() => expect(reopened.installedPrincipal()?.userId).toBe('bob'))
   })
 
-  it('reinstalls once a bundle that recorded no holder, so the holder becomes known', async () => {
+  it('reinstalls once when the last install recorded no holder, so the holder becomes known', async () => {
     const root = await mkdtemp(join(tmpdir(), 'oryh-skills-'))
-    const transport = http(bundle({ 'oryh-acme/SKILL.md': 'hours' }))
-    await new SkillBundleService(transport.client, root).sync(connectionId)
+    const server = oryh({ 'oryh-timesheet-submit': { 'SKILL.md': 'hours' } })
+    await new SkillBundleService(server.client, root).sync(connectionId)
     const holder = { origin: 'https://oryh.example', tenantId: 't', userId: 'alice', employeeId: null, tenantName: 'Acme', email: 'alice@example.invalid' }
-    const upgraded = new SkillBundleService(transport.client, root, async () => holder)
+    const upgraded = new SkillBundleService(server.client, root, async () => holder)
     expect((await upgraded.sync(connectionId)).installed).toBe(true)
     expect((await upgraded.sync(connectionId)).installed).toBe(false)
   })
