@@ -5,6 +5,8 @@
 
 > **2026-09-12 修订。** Chat 栏被确认为一个通用 ORYH agent，按 ORYH 对所有通用 agent 的既有方案装载 skill bundle：原样落盘到 `<agentsHome>/skills`，保留 ORYH 渲染进去的 `ORYH_API_KEY`。下述 §5 的"仅 Host 内存解析、剥离认证字段、原始 ZIP 与 Markdown 不得落盘"，以及后果中的"通用 Bash/curl Skill 不能直接复用，必须有窄业务工具"，均由 [ADR-0009](0009-chat-pane-is-a-generic-oryh-agent.md) 取代。本 ADR 的其余条款——access/refresh token 与模型 key 不进入模型请求、Session、日志与遥测；多企业凭据由 Session scope 决定；不以正则清洗任意文本——继续有效。
 
+> **2026-09-14 更正。** 上面说“其余条款继续有效”，但照原样装载的 skill bundle 让 ORYH 的 `api_key` 进入了模型请求与 Session：它写在 SKILL.md 正文里，`skill` 工具装载时正文原样交给模型——正是本文背景所说的扩散。access/refresh token 与模型 key 不进模型请求的条款仍然成立；ORYH skill 里的 key 是现状下的已知缺口，处理见 [ADR-0009](0009-chat-pane-is-a-generic-oryh-agent.md) 同日更正与[多租户方案](../19-multi-tenant-server-plan.md) §6.2。
+
 ## 背景
 
 ORYH 当前 personal Skill bundle 会把用户短期 access token 渲染进 Markdown，方便通用 Agent 通过 `curl` 调 API；refresh token 不在 bundle 中。DSH 的模型可见内容会写入 Session 以支持重放；因此把真实 token 写进 Skill 会同时扩大到模型 Provider、Session、缓存、日志和遥测。
