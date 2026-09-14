@@ -26,7 +26,7 @@
 | D-009 | Skill 保存判断层；认证、刷新、重试、幂等和参数编码在确定性工具层 | [能力映射](02-capability-map.md#1-分层规则) |
 | D-010 | ORYH Console 保持完整管理面，客户端通过可信深链协作 | [体验设计](03-experience-design.md#11-console-分工与深链) |
 | D-011 | DSH 工具执行批准与 ORYH 正式业务审批是独立概念和交互 | [体验设计](03-experience-design.md#73-两类批准必须分开) |
-| D-012 | 凭据不进入模型请求、Session、Renderer、日志与遥测；skill bundle 按 ORYH 原样落盘到用户自己的 skills 根（取代原「仅 Host 内存适配」），canonical 无凭据 endpoint 仍是值得推动的 P1 | [ADR-0002](adr/0002-credentials-outside-model-context.md)、[ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md) |
+| D-012 | 凭据不进入模型请求、Session、Renderer、日志与遥测；skill bundle 按 ORYH 原样落盘到用户自己的 skills 根（取代原「仅 Host 内存适配」），canonical 无凭据 endpoint 仍是值得推动的 P1。**2026-09-14 更正**：ORYH 的 `api_key` 写在 SKILL.md 正文，随 skill 装载进入模型请求与 Session，“凭据不进入模型请求、Session”对这把 key 不成立；不含凭据的技能包对服务器版升为 P0 前提；桌面版暂不在安装时遮盖 key | [ADR-0002](adr/0002-credentials-outside-model-context.md)、[ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md) |
 | D-013 | 交互客户端不承担 Hosted Flow Runner 的常驻多租户流程执行 | [能力映射](02-capability-map.md#12-流程推进-skills) |
 | D-014 | 已知操作直接执行确定性 Operation；按钮、视图和 AI Tool 共享实现 | [ADR-0004](adr/0004-deterministic-operations-before-model.md) |
 | D-015 | ORYH 账号认证只在系统浏览器；设备授权、本地解锁和 R4 step-up 是不同机制 | [ADR-0005](adr/0005-separate-account-auth-device-grant-local-unlock-and-step-up.md) |

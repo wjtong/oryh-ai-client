@@ -35,7 +35,8 @@ ORYH 对通用 agent 已有现成接入方案（见 calwbiz `docs/manual/connect
 ## 边界（本决定没有放松的部分）
 
 - **授权仍在服务端。** 每个 ORYH API 都有自己的 `require_permission`；bundle 只包含持有人角色已覆盖的 skill。客户端不判断某个 skill 能做什么。
-- **凭据仍不进模型上下文、Session、日志与遥测。** 变的是"skill 文件里有 ORYH 渲染的 key"，不是"我们把 key 喂给模型"。`OryhHttpClient` 持有的凭据仍然只在 Host 进程内。
+- ~~**凭据仍不进模型上下文、Session、日志与遥测。** 变的是"skill 文件里有 ORYH 渲染的 key"，不是"我们把 key 喂给模型"。`OryhHttpClient` 持有的凭据仍然只在 Host 进程内。~~ **2026-09-14 更正：这一条不成立。** ORYH 把 `api_key` 写在 SKILL.md 的正文里（本机实测 35 个技能中 34 个），脚本里也有；Harness 的 `skill` 工具装载技能时把正文原样交给模型，于是 key 随装载进入模型请求，并随工具结果写进 Session。这正是 [ADR-0002](0002-credentials-outside-model-context.md) 背景里预见的风险。
+  处理：请 ORYH 提供不含凭据的技能包（正文与脚本都不含 key，脚本从本机凭据来源读取），这对[多租户服务器版](../19-multi-tenant-server-plan.md)是 P0 前提（S0-4）。桌面版**暂不遮住**（2026-09-14 决定）：在 ORYH 提供不含凭据的技能包之前，接受 key 随 skill 装载进入本机会话记录与模型请求，技能包仍按 ORYH 原样安装。
 - ~~**三栏的业务写入仍需用户在页面确认。**~~（已被 [ADR-0010](0010-agent-is-the-primary-client.md) 取代：agent 是主客户端，写入按 skill 在对话里确认后执行，中间栏是辅助视图。） `oryh_*` 工具依旧只读或只生成建议，正式保存/提交/审批由用户在中间栏完成（[docs/22](../22-timesheet-submit-review.md) 的提交前规范复核也不改变这一点）。
 
 ## 取代与修订
@@ -60,7 +61,7 @@ ADR-0002 中与本 ADR 无关的条款（access/refresh token 不进模型请求
 
 负面与待办：
 
-- `ORYH_API_KEY` 以明文存在于用户自己的 `~/.agents/skills` 下。这是 ORYH 对所有通用 agent 的既有姿态，用户明确接受；ADR-0002 §9 提到的"服务端提供无凭据 canonical skill 内容"仍是值得推动的 P1；
+- `ORYH_API_KEY` 以明文存在于用户自己的 `~/.agents/skills` 下。这是 ORYH 对所有通用 agent 的既有姿态，用户明确接受；ADR-0002 §9 提到的"服务端提供无凭据 canonical skill 内容"原列为 P1，2026-09-14 查实 key 会随 skill 装载进入模型请求与 Session（见上方「边界」的更正），对服务器版升为 P0 前提；
 - 打开 `bash` 后模型可执行任意命令，边界回到 Harness 自身的工具批准与访问模式；
 - 共享主机上的 per-uid skills 根成为硬性前提（见上）。
 
