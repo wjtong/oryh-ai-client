@@ -1,6 +1,6 @@
 # ADR-0009：Chat 栏是一个通用 ORYH agent，按 ORYH 自己的方案装载 Skills
 
-状态：接受；「边界」中「三栏的业务写入仍需用户在页面确认」一条已被 [ADR-0010](0010-agent-is-the-primary-client.md) 取代（2026-09-14）
+状态：接受；「边界」中「三栏的业务写入仍需用户在页面确认」一条已被 [ADR-0010](0010-agent-is-the-primary-client.md) 取代；决定 1、2、4（下载并原样安装带 key 的技能包、用 `bash` 跑技能脚本、提升目录层级）已被 [ADR-0012](0012-connect-to-oryh-over-mcp.md) 取代（均为 2026-09-14）
 日期：2026-09-12
 
 ## 背景
@@ -36,7 +36,7 @@ ORYH 对通用 agent 已有现成接入方案（见 calwbiz `docs/manual/connect
 
 - **授权仍在服务端。** 每个 ORYH API 都有自己的 `require_permission`；bundle 只包含持有人角色已覆盖的 skill。客户端不判断某个 skill 能做什么。
 - ~~**凭据仍不进模型上下文、Session、日志与遥测。** 变的是"skill 文件里有 ORYH 渲染的 key"，不是"我们把 key 喂给模型"。`OryhHttpClient` 持有的凭据仍然只在 Host 进程内。~~ **2026-09-14 更正：这一条不成立。** ORYH 把 `api_key` 写在 SKILL.md 的正文里（本机实测 35 个技能中 34 个），脚本里也有；Harness 的 `skill` 工具装载技能时把正文原样交给模型，于是 key 随装载进入模型请求，并随工具结果写进 Session。这正是 [ADR-0002](0002-credentials-outside-model-context.md) 背景里预见的风险。
-  处理：请 ORYH 提供不含凭据的技能包（正文与脚本都不含 key，脚本从本机凭据来源读取），这对[多租户服务器版](../19-multi-tenant-server-plan.md)是 P0 前提（S0-4）。桌面版**暂不遮住**（2026-09-14 决定）：在 ORYH 提供不含凭据的技能包之前，接受 key 随 skill 装载进入本机会话记录与模型请求，技能包仍按 ORYH 原样安装。
+  处理：请 ORYH 提供不含凭据的技能包（正文与脚本都不含 key，脚本从本机凭据来源读取），这对[多租户服务器版](../19-multi-tenant-server-plan.md)是 P0 前提（S0-4）。桌面版**暂不遮住**（2026-09-14 决定）：在 ORYH 提供不含凭据的技能包之前，接受 key 随 skill 装载进入本机会话记录与模型请求，技能包仍按 ORYH 原样安装。**同日后续：** ORYH 已通过 MCP 提供不含凭据的技能，客户端改为经 MCP 获取技能、经 Host 注册的 ORYH 工具调用 API（[ADR-0012](0012-connect-to-oryh-over-mcp.md)），这一缺口随之消除，遮盖的问题不再存在。
 - ~~**三栏的业务写入仍需用户在页面确认。**~~（已被 [ADR-0010](0010-agent-is-the-primary-client.md) 取代：agent 是主客户端，写入按 skill 在对话里确认后执行，中间栏是辅助视图。） `oryh_*` 工具依旧只读或只生成建议，正式保存/提交/审批由用户在中间栏完成（[docs/22](../22-timesheet-submit-review.md) 的提交前规范复核也不改变这一点）。
 
 ## 取代与修订

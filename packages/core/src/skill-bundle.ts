@@ -1,20 +1,26 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
-import { unzipSync } from 'fflate'
 import { OryhClientError } from '@oryh/ai-client-foundation'
 import type { ConnectionId } from './brand.js'
 import type { OryhHttpClient } from './http.js'
+import { OryhMcpClient } from './mcp.js'
 
 /**
- * ORYH skill bundles, installed the way ORYH documents for any agent.
+ * ORYH skills, installed from ORYH's MCP endpoint.
  *
  * The capability an ORYH agent has is not compiled in: a tenant admin redefines business logic and
- * everyone's bundle changes. So this client downloads the same personal bundle a generic agent
- * gets, into the same place, and re-syncs when the server says it differs. Nothing here decides
- * what a skill may do — the API's own `require_permission` is the gate, and the bundle only ever
- * contains skills the holder's role already covers.
+ * everyone's skills change. So this client installs the skills a person is entitled to, into the
+ * root the agent runtime scans, and re-syncs when the server says they differ. Nothing here decides
+ * what a skill may do — the API's own `require_permission` is the gate, and the server only serves
+ * skills the holder's role already covers.
  *
- * See `docs/23-oryh-skills.md`, and ORYH's `docs/manual/connect-agent.md`.
+ * The skills come over MCP, not as the downloadable bundle (ADR-0011). The bundle renders the
+ * person's API key into SKILL.md, and loading a skill hands its body to the model, so the key went
+ * out with the request and into the Session. Over MCP the same skills are rendered for that
+ * delivery: no key, no scripts, and every API call is a tool the Host runs with the connection's own
+ * credential. Each prompt is a skill's SKILL.md; each resource is one of its reference files.
+ *
+ * See `docs/23-oryh-skills.md`.
  */
 
 /** One skill as the server currently entitles it: what a local manifest is compared against. */
@@ -25,11 +31,11 @@ export interface SkillManifestEntry {
 }
 
 /**
- * Whose bundle is on disk.
+ * Whose skills are on disk.
  *
- * ORYH renders the holder's credential and employee id into the bundle, so a skill writes as that
- * person — whichever connection the chat happens to be bound to. The skills root is one directory, so
- * this is what lets the client notice that it no longer belongs to the enterprise identity in use.
+ * ORYH renders the holder's employee id and name into a skill's text, so a skill speaks for that
+ * person. The skills root is one directory, so this is what lets the client notice that it no longer
+ * belongs to the enterprise identity in use.
  */
 export interface SkillPrincipal {
   readonly origin: string
@@ -58,73 +64,52 @@ export interface SkillSyncResult {
   readonly root: string
   readonly skills: readonly string[]
   readonly message: string
-  /** Whose bundle is installed after this sync, when the service can tell. */
+  /** Whose skills are installed after this sync, when the service can tell. */
   readonly principal?: SkillPrincipal
 }
 
-interface InstallRecord { manifest?: readonly SkillManifestEntry[]; installed?: readonly string[]; principal?: SkillPrincipal }
+/**
+ * How skills reached the disk. Only `mcp` counts as current: anything else was a bundle, whose files
+ * carry the key, and has to be replaced even when the manifest has not changed.
+ */
+type Delivery = 'mcp'
 
-/** Directory names a bundle is allowed to create, so a ZIP cannot write outside the skills root. */
+interface InstallRecord { delivery?: Delivery; manifest?: readonly SkillManifestEntry[]; installed?: readonly string[]; principal?: SkillPrincipal }
+
+/** Paths a skill is allowed to create, so a server-supplied name cannot write outside the skills root. */
 const SAFE_ENTRY = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/
+
+/** Where ORYH's MCP resources name their skill and file: `oryh://skills/<skill>/<path>`. */
+const SKILL_RESOURCE = /^oryh:\/\/skills\/([^/]+)\/(.+)$/
 
 /**
  * Reject anything that would escape the install root.
  *
- * A bundle is server-supplied data being written to disk, so entry names get checked rather than
- * trusted: no absolute paths, no `..`, no backslashes, and the resolved path must still sit under
- * the root. This is cheap and the failure mode it prevents is not.
- * @param root - absolute directory the bundle may write into.
- * @param entry - path as spelled inside the archive.
+ * Skill names and file paths are server-supplied data being written to disk, so they get checked
+ * rather than trusted: no absolute paths, no `..`, no backslashes, and the resolved path must still
+ * sit under the root. This is cheap and the failure mode it prevents is not.
+ * @param root - absolute directory skills may be written into.
+ * @param entry - path relative to the root, as the server named it.
  * @returns the absolute destination path.
  */
 export function resolveEntry(root: string, entry: string): string {
   if (!SAFE_ENTRY.test(entry) || entry.split('/').includes('..')) {
-    throw new OryhClientError(`Refused a skill bundle entry with an unsafe name: ${entry}`, 'invalid-response')
+    throw new OryhClientError(`Refused a skill entry with an unsafe name: ${entry}`, 'invalid-response')
   }
   const destination = resolve(root, entry)
   if (destination !== root && !destination.startsWith(root + sep)) {
-    throw new OryhClientError(`Refused a skill bundle entry outside the skills directory: ${entry}`, 'invalid-response')
+    throw new OryhClientError(`Refused a skill entry outside the skills directory: ${entry}`, 'invalid-response')
   }
   return destination
-}
-
-/** The top-level directory an entry belongs to; a bundle replaces these wholesale. */
-function topLevel(entry: string): string {
-  return entry.split('/')[0] ?? ''
-}
-
-/**
- * Map an archive path onto the layout the agent runtime scans.
- *
- * ORYH ships one company directory holding the skills (`<company>/<skill>/SKILL.md`), which suits
- * runtimes that walk the tree. Harness's provider scans exactly one level — it looks for
- * `<root>/<skill>/SKILL.md` — so a company directory dropped in whole is read as a single skill
- * with no SKILL.md and nothing is discovered. Lifting each skill to the root is what makes the two
- * agree, and it is safe because ORYH already names every skill after its employer, which is the
- * property that lets one agent serve two companies.
- * @param entry - path as spelled inside the archive.
- * @param skillDirs - top-level archive directories that are themselves skills.
- * @returns the install path, or undefined for company-level files that are not part of a skill.
- */
-export function installPath(entry: string, skillDirs: ReadonlySet<string>): string | undefined {
-  const segments = entry.split('/')
-  if (segments.length < 2) return undefined
-  if (skillDirs.has(segments[0]!)) return entry
-  // Inside a company container: the skill directory is the second segment. Loose files directly
-  // under the container (README.md, withheld.json) describe the bundle, not a skill, so they are
-  // not installed — keeping them would add a directory the scanner reads as a broken skill.
-  return segments.length < 3 ? undefined : segments.slice(1).join('/')
 }
 
 /**
  * Whether this client refuses to install a skill.
  *
- * ORYH ships a `*-skill-sync` skill so a generic agent can install and refresh its own bundle. Here
- * the client is the installer, so that skill is a second one — and it extracts into ORYH's nested
- * layout, which this scanner cannot read (see `installPath`). Withholding it keeps a single owner of
- * what is on disk, and keeps the agent from spending a turn following it to a `manifest.json` this
- * layout deliberately does not keep. `oryh_skill_sync` is the door instead.
- * @param skill - installed directory name, which ORYH keeps equal to the skill name.
+ * ORYH has a `*-skill-sync` skill so a generic agent can install and refresh its own skills. Here the
+ * client is the installer, so that skill would be a second one. ORYH already leaves it out over MCP;
+ * this keeps it out should a deployment still serve it. `oryh_skill_sync` is the door instead.
+ * @param skill - the skill's name.
  * @returns whether the skill is withheld from this install.
  */
 export function withheld(skill: string): boolean {
@@ -132,18 +117,21 @@ export function withheld(skill: string): boolean {
 }
 
 export class SkillBundleService {
-  /** Whose bundle the last install recorded: undefined until read, null when none is recorded. */
+  /** Whose skills the last install recorded: undefined until read, null when none is recorded. */
   #installed: SkillPrincipal | null | undefined
+  readonly #mcp: OryhMcpClient
 
   /**
    * @param http - authenticated ORYH transport; the credential never leaves it.
    * @param root - absolute skills directory, scanned by the agent runtime.
    * @param principalOf - the verified identity behind a connection; without it no holder is recorded.
    */
-  constructor(private readonly http: OryhHttpClient, private readonly root: string, private readonly principalOf?: (connectionId: ConnectionId) => Promise<SkillPrincipal>) {}
+  constructor(private readonly http: OryhHttpClient, private readonly root: string, private readonly principalOf?: (connectionId: ConnectionId) => Promise<SkillPrincipal>) {
+    this.#mcp = new OryhMcpClient(http)
+  }
 
   /**
-   * Whose bundle is installed, as last recorded, without waiting.
+   * Whose skills are installed, as last recorded, without waiting.
    *
    * Callers that must answer synchronously — the agent's context — get `undefined` once, while the
    * record is read in the background, rather than a guess.
@@ -168,7 +156,7 @@ export class SkillBundleService {
     })
   }
 
-  /** What the last install recorded: the entitlement it was for, and the directories it wrote. */
+  /** What the last install recorded: how it was delivered, for whom, and the directories it wrote. */
   private async record(): Promise<InstallRecord> {
     try {
       const parsed: unknown = JSON.parse(await readFile(join(this.root, '.oryh-manifest.json'), 'utf8'))
@@ -178,68 +166,78 @@ export class SkillBundleService {
     }
   }
 
-  /** Directories the previous install owns, so a rename does not strand the old ones. */
+  /** Directories the previous install owns, so a skill the server withdraws does not linger. */
   private async owned(): Promise<readonly string[]> {
     const installed = (await this.record()).installed
     return Array.isArray(installed) ? installed.filter(name => typeof name === 'string') : []
   }
 
   /**
-   * Install the personal bundle when the server's entitlement differs from what is on disk.
+   * Install the skills this principal is entitled to when they differ from what is on disk.
    *
-   * Comparison is by name, version and hash, which is what the server's manifest is for: it also
-   * reports skills gained or lost through a role change, so a shrinking bundle syncs too. It is also
-   * by holder: two people in one tenant can hold identical manifests, and switching between them must
-   * still replace the bundle, because each carries its own person's credential.
-   * @param connectionId - verified connection whose principal the bundle belongs to.
-   * @param force - install even when the manifests match, for an explicit user-driven refresh.
+   * The server's manifest says whether anything changed — skills gained or lost through a role
+   * change included, so a shrinking set syncs too. So does the holder: two people in one tenant can
+   * hold identical manifests, and each person's skills speak for that person. And so does delivery:
+   * skills installed from a bundle carry the key in their files and are replaced even when nothing
+   * else changed.
+   * @param connectionId - verified connection whose principal the skills belong to.
+   * @param force - install even when nothing differs, for an explicit user-driven refresh.
    * @returns whether anything was written, and the skills now present.
    */
   async sync(connectionId: ConnectionId, force = false): Promise<SkillSyncResult> {
     const [wanted, principal] = await Promise.all([this.manifest(connectionId), this.principalOf?.(connectionId)])
     const record = await this.record()
-    const same = record.manifest !== undefined && JSON.stringify(record.manifest) === JSON.stringify(wanted)
+    const same = record.delivery === 'mcp' && record.manifest !== undefined && JSON.stringify(record.manifest) === JSON.stringify(wanted)
       && (principal === undefined || samePrincipal(record.principal, principal))
     if (same && !force) {
       this.#installed = record.principal ?? null
       return { installed: false, root: this.root, skills: wanted.map(s => s.name), message: '技能已是最新。', ...(record.principal ? { principal: record.principal } : {}) }
     }
-    const archive = await this.http.download(connectionId, { path: '/my/skill-bundle' })
-    const files = unzipSync(archive)
-    const archived = Object.keys(files).filter(name => !name.endsWith('/'))
-    if (archived.length === 0) throw new OryhClientError('ORYH 返回的技能包是空的。', 'invalid-response')
-    // Check the archive's own names before deciding what to install, so an unsafe entry refuses the
-    // whole bundle instead of being quietly dropped by the layout mapping below.
-    for (const name of archived) resolveEntry(this.root, name)
-    // A top-level directory holding its own SKILL.md is already a skill (the shared connect skill);
-    // anything else is the company container whose children are the skills.
-    const skillDirs = new Set(archived.flatMap(name => name.split('/').length === 2 && name.endsWith('/SKILL.md') ? [topLevel(name)] : []))
-    const planned = archived.flatMap(name => {
-      const target = installPath(name, skillDirs)
-      return target === undefined || withheld(topLevel(target)) ? [] : [[name, target] as const]
-    })
-    if (planned.length === 0) throw new OryhClientError('ORYH 返回的技能包里没有可安装的技能。', 'invalid-response')
-    // Validate every destination before writing any of them: a partially applied bundle is worse
-    // than a refused one, because the agent would then hold a mix of two versions.
-    for (const [, target] of planned) resolveEntry(this.root, target)
 
-    // Replace each installed skill directory wholesale rather than merging, so a skill withdrawn by
-    // a role change actually disappears. Only directories this bundle owns are touched — the root
-    // is shared with whatever else the user has installed for their other agents.
-    const owned = [...new Set(planned.map(([, target]) => topLevel(target)))]
+    // Read everything before writing anything: a partially applied install is worse than a refused
+    // one, because the agent would then hold a mix of two versions.
+    const prompts = (await this.#mcp.prompts(connectionId)).filter(prompt => !withheld(prompt.name))
+    if (prompts.length === 0) throw new OryhClientError('ORYH 没有通过 MCP 提供任何技能。', 'invalid-response')
+    for (const prompt of prompts) {
+      if (prompt.name.includes('/')) throw new OryhClientError(`Refused a skill entry with an unsafe name: ${prompt.name}`, 'invalid-response')
+      resolveEntry(this.root, prompt.name)
+    }
+    const names = new Set(prompts.map(prompt => prompt.name))
+    const bodies = await this.#mcp.promptTexts(connectionId, [...names])
+    const planned: [target: string, text: string][] = []
+    for (const name of names) {
+      const body = bodies.get(name)
+      if (body === undefined) throw new OryhClientError(`ORYH 没有返回技能 ${name} 的内容。`, 'invalid-response')
+      planned.push([`${name}/SKILL.md`, body])
+    }
+    const files = (await this.#mcp.resources(connectionId)).flatMap(uri => {
+      const match = SKILL_RESOURCE.exec(uri)
+      return match !== null && names.has(match[1]!) && match[2] !== 'SKILL.md' ? [[uri, `${match[1]}/${match[2]}`] as const] : []
+    })
+    const texts = await this.#mcp.resourceTexts(connectionId, files.map(([uri]) => uri))
+    for (const [uri, target] of files) {
+      const text = texts.get(uri)
+      if (text !== undefined) planned.push([target, text])
+    }
+    for (const [target] of planned) resolveEntry(this.root, target)
+
+    // Replace each skill directory wholesale rather than merging, so a file the server stopped
+    // serving — or a bundle's key-bearing script — actually disappears. Only directories this client
+    // owns are touched: the root is shared with whatever else the user has installed for other agents.
+    const owned = [...names]
     for (const previous of await this.owned()) {
-      if (!owned.includes(previous)) await rm(join(this.root, previous), { recursive: true, force: true })
+      if (!names.has(previous)) await rm(join(this.root, previous), { recursive: true, force: true })
     }
     for (const directory of owned) await rm(join(this.root, directory), { recursive: true, force: true })
-    for (const [name, target] of planned) {
+    for (const [target, text] of planned) {
       const destination = resolveEntry(this.root, target)
       await mkdir(dirname(destination), { recursive: true })
-      await writeFile(destination, files[name]!)
+      await writeFile(destination, text)
     }
     await mkdir(this.root, { recursive: true })
-    const written: InstallRecord = { manifest: wanted, installed: owned, ...(principal ? { principal } : {}) }
+    const written: InstallRecord = { delivery: 'mcp', manifest: wanted, installed: owned, ...(principal ? { principal } : {}) }
     await writeFile(join(this.root, '.oryh-manifest.json'), JSON.stringify(written, null, 2))
     this.#installed = principal ?? null
-    return { installed: true, root: this.root, skills: owned, message: `已安装 ${owned.length} 个 ORYH 技能。`, ...(principal ? { principal } : {}) }
+    return { installed: true, root: this.root, skills: owned, message: `已从 ORYH MCP 安装 ${owned.length} 个技能。`, ...(principal ? { principal } : {}) }
   }
 }

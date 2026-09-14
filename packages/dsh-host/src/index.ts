@@ -42,7 +42,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.provide('oryhProjects',runtime.projects)
   ctx.provide('oryhAbort', runtime.abort)
   ctx.plugin(OryhRemote)
-  const chat = new BusinessChat(ctx, runtime.controller, runtime.todoDetails, join(config.dataDirectory ?? defaultOryhDataDirectory(), 'chat-bindings'), runtime.timesheets,runtime.projects, runtime.skills)
+  const chat = new BusinessChat(ctx, runtime.controller, runtime.todoDetails, join(config.dataDirectory ?? defaultOryhDataDirectory(), 'chat-bindings'), runtime.timesheets,runtime.projects, runtime.skills, runtime.mcp)
   // The page's disabled button is a hint; this is the gate. Wired here because the verdict lives in
   // the chat layer and the confirm lives in the timesheet service, and neither may import the other.
   // Every domain asks the same two questions before a submit: does the tenant govern this object

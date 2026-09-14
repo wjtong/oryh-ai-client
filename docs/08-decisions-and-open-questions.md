@@ -26,7 +26,7 @@
 | D-009 | Skill 保存判断层；认证、刷新、重试、幂等和参数编码在确定性工具层 | [能力映射](02-capability-map.md#1-分层规则) |
 | D-010 | ORYH Console 保持完整管理面，客户端通过可信深链协作 | [体验设计](03-experience-design.md#11-console-分工与深链) |
 | D-011 | DSH 工具执行批准与 ORYH 正式业务审批是独立概念和交互 | [体验设计](03-experience-design.md#73-两类批准必须分开) |
-| D-012 | 凭据不进入模型请求、Session、Renderer、日志与遥测；skill bundle 按 ORYH 原样落盘到用户自己的 skills 根（取代原「仅 Host 内存适配」），canonical 无凭据 endpoint 仍是值得推动的 P1。**2026-09-14 更正**：ORYH 的 `api_key` 写在 SKILL.md 正文，随 skill 装载进入模型请求与 Session，“凭据不进入模型请求、Session”对这把 key 不成立；不含凭据的技能包对服务器版升为 P0 前提；桌面版暂不在安装时遮盖 key | [ADR-0002](adr/0002-credentials-outside-model-context.md)、[ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md) |
+| D-012 | 凭据不进入模型请求、Session、Renderer、日志与遥测；skill bundle 按 ORYH 原样落盘到用户自己的 skills 根（取代原「仅 Host 内存适配」），canonical 无凭据 endpoint 仍是值得推动的 P1。**2026-09-14 更正**：ORYH 的 `api_key` 写在 SKILL.md 正文，随 skill 装载进入模型请求与 Session，“凭据不进入模型请求、Session”对这把 key 不成立；不含凭据的技能包对服务器版升为 P0 前提；桌面版暂不在安装时遮盖 key。同日改为经 MCP 获取不含凭据的技能（D-035），这一缺口已消除 | [ADR-0002](adr/0002-credentials-outside-model-context.md)、[ADR-0009](adr/0009-chat-pane-is-a-generic-oryh-agent.md) |
 | D-013 | 交互客户端不承担 Hosted Flow Runner 的常驻多租户流程执行 | [能力映射](02-capability-map.md#12-流程推进-skills) |
 | D-014 | 已知操作直接执行确定性 Operation；按钮、视图和 AI Tool 共享实现 | [ADR-0004](adr/0004-deterministic-operations-before-model.md) |
 | D-015 | ORYH 账号认证只在系统浏览器；设备授权、本地解锁和 R4 step-up 是不同机制 | [ADR-0005](adr/0005-separate-account-auth-device-grant-local-unlock-and-step-up.md) |
@@ -49,6 +49,7 @@
 | D-032 | 用户可通过 Chat 自建菜单项：已有列表 + 服务端筛选 + 用户命名，不授予任何权限；筛选键对照部署 OpenAPI 校验（服务端静默忽略未声明参数），读不到 schema 时拒绝筛选；保存在会话所在的 Harness workspace（`ctx.storageDomain` 存储域，按 workspace + 企业身份区分，不写入 workspace 目录），租户范围定义待 ORYH 提供服务端资源 | [用户自定义菜单项](24-user-menu-views.md) |
 | D-033 | 业务页面的共享表达（打开一行、返回、刷新、新建、状态、条数与分页、空态、读取中、出错、时间格式）只在 `list-kit.tsx` 定义一次，页面组合使用，测试扫描源码阻止手写；页面名称以 `page-labels.ts` 为唯一来源，页面注册表标题与之保持一致；状态词只翻译 ORYH 默认状态机的状态名，租户自定义状态原样显示 | [业务页面表达约定](25-ui-conventions.md) |
 | D-034 | agent 是主客户端、中间栏是辅助视图：保存、提交、审批、创建按 ORYH skill 在对话里确认后执行，客户端不另加页面确认；`oryh_timesheet_propose` 不再承载提交与审批；跑过 `bash` 的回合结束时移动 `serverChange`，页面据此重读并保持打开的单据，有未保存修改时只提示不覆盖；技能包记录持有人，与会话企业身份不一致时先同步、不写入 | [ADR-0010](adr/0010-agent-is-the-primary-client.md)、[方案](26-agent-primary-client.md) |
+| D-035 | 通过 ORYH 的 MCP 接入：技能经 `prompts`/`resources` 获取（MCP 交付版本不含 key、不含脚本），替代下载技能包；agent 调用 ORYH 的工具由 Host 从 `tools/list` 注册、按会话的企业连接发出，凭据只在 `OryhHttpClient`；不使用 Harness 的 `dsh-mcp-client`（静态请求头、只桥接 tools）；非只读工具的成功调用参与 `serverChange` 刷新 | [ADR-0012](adr/0012-connect-to-oryh-over-mcp.md)、[Skills 装载](23-oryh-skills.md) |
 
 ## 3. 建议等待批准
 

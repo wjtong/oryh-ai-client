@@ -8,16 +8,16 @@ export interface FetchResponse {
   readonly ok: boolean
   readonly status: number
   json(): Promise<unknown>
-  /** Bytes, for the one response that is not JSON: the skill bundle ZIP. */
-  arrayBuffer?(): Promise<ArrayBuffer>
 }
 
 /** A minimal fetch seam, injected by the Host rather than read globally. */
 export type Fetcher = (input: string, init?: RequestInit) => Promise<FetchResponse>
 
-/** A request constrained to ORYH's versioned API paths. */
+/** A request constrained to ORYH's versioned API paths, or to its MCP endpoint at the deployment root. */
 export interface OryhRequest {
   readonly path: `/${string}`
+  /** Address `path` from the deployment root instead of `/api/v1` — where ORYH mounts `/mcp`. */
+  readonly root?: boolean
   readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   readonly body?: unknown
   /** Disable replay for business writes whose outcome must be reconciled explicitly. */
@@ -98,45 +98,6 @@ export class OryhHttpClient {
   ) {
     this.#clock = options.clock ?? (() => new Date())
     this.#refreshAheadMs = refreshAheadMs(options.refreshAheadMs)
-  }
-
-  /**
-   * Fetch one response as bytes instead of JSON, with the same credential handling as `request`.
-   *
-   * The skill bundle is a ZIP, and `request` commits to `.json()` before anything can look at the
-   * body. Everything else — refresh-ahead, one retry on an expired key, the disconnect checks — is
-   * deliberately identical, because a download authenticates exactly like any other call.
-   * @param connectionId - the verified connection whose credential signs the request.
-   * @param request - the path to read; a body is not expected for a download.
-   * @returns the whole response body.
-   */
-  async download(connectionId: ConnectionId, request: OryhRequest): Promise<Uint8Array> {
-    this.assertOpen(connectionId)
-    const connection = this.connections.require(connectionId)
-    let credential = await this.requireCredential(connectionId)
-    if (shouldRefresh(credential, this.#clock(), this.#refreshAheadMs)) {
-      credential = await this.refreshCredential(connectionId, connection.origin, credential)
-    }
-    this.assertOpen(connectionId)
-    const first = await this.send(connectionId, connection.origin, request, credential.accessKey)
-    if (first.ok) return this.bytes(connectionId, first)
-    // An expired key reads the same here as anywhere else, but the body has to be consumed as text
-    // to say so, which is why this cannot simply reuse `request`.
-    const firstBody = await first.json().catch(() => ({}))
-    if (!expiredKey(first, firstBody) || request.retryExpired === false) throw requestError(first, firstBody, request.path)
-    const refreshed = await this.refreshCredential(connectionId, connection.origin, credential)
-    this.assertOpen(connectionId)
-    const second = await this.send(connectionId, connection.origin, request, refreshed.accessKey)
-    if (second.ok) return this.bytes(connectionId, second)
-    throw requestError(second, await second.json().catch(() => ({})), request.path)
-  }
-
-  /** Read a successful response as bytes, failing loudly when the seam cannot supply them. */
-  private async bytes(connectionId: ConnectionId, response: FetchResponse): Promise<Uint8Array> {
-    if (response.arrayBuffer === undefined) throw new OryhClientError('This ORYH transport cannot read binary responses.', 'invalid-response')
-    const bytes = new Uint8Array(await response.arrayBuffer())
-    this.assertOpen(connectionId)
-    return bytes
   }
 
   /** Call a versioned ORYH API endpoint inside one existing connection scope. */
@@ -253,7 +214,7 @@ export class OryhHttpClient {
   }
 
   private async send(connectionId: ConnectionId, origin: string, request: OryhRequest, accessKey: string): Promise<FetchResponse> {
-    return this.fetcher(apiPath(origin, request.path), {
+    return this.fetcher(request.root ? `${origin}${request.path}` : apiPath(origin, request.path), {
       signal: this.requestSignal(connectionId),
       method: request.method ?? 'GET',
       redirect: 'error',
