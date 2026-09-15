@@ -69,11 +69,33 @@ const fail=(text:string)=>new OryhClientError(text,'request-failed')
 export class TimesheetChat {
   private states=new Map<string,TimesheetChatState>()
   private proposals=new Map<string,TimesheetChatProposal>()
+  /** The unsaved form as the agent last read or filled it, serialized as the page synced it. */
+  private seen=new Map<string,string>()
   constructor(private ctx:Context,private api:OryhTimesheetRemote|undefined,private binding:(id:string,verify?:boolean,write?:boolean)=>Promise<PageBinding>,private queue:CommandQueue,private reviews:SubmitReview){}
   current(id:string){return this.states.get(id)}
   /** The staged suggestion the command stream publishes for this session. */
   pending(id:string){return this.proposals.get(id)}
-  clear(id:string){this.states.delete(id);this.proposals.delete(id);this.reviews.clear(id);this.queue.changed(id)}
+  clear(id:string){this.states.delete(id);this.proposals.delete(id);this.seen.delete(id);this.reviews.clear(id);this.queue.changed(id)}
+  /**
+   * The unsaved form the agent may discard to open another timesheet, serialized as the page holds it.
+   *
+   * Only a form the agent has itself seen in full — read, or filled and confirmed applied — and that
+   * the person has not changed since, with no line being edited: once the agent has written that
+   * content to ORYH in Chat, the draft is a stale copy, while anything the person typed afterwards is
+   * theirs and still protected.
+   * @param id - session whose page holds the form.
+   * @returns the form as synced, or undefined when the page holds no form.
+   * @throws when the page changed after the agent last saw its form.
+   */
+  discardableForm(id:string):string|undefined{
+    const state=this.states.get(id)
+    if(!state?.fields)return undefined
+    const form=JSON.stringify(state.fields)
+    let editing=false
+    if(state.localEdits)try{editing=(JSON.parse(state.localEdits) as {editing?:unknown}).editing!==undefined}catch{editing=true}
+    if(this.seen.get(id)!==form||editing)throw fail('中间栏的未保存表单在你上次读取或填写之后被用户改动过，或有明细正在编辑，不能替换。请告诉用户在页面保存或放弃后，再打开工时。')
+    return form
+  }
   /**
    * Ask the agent to check this timesheet against the enterprise norms before submitting.
    *
@@ -109,6 +131,7 @@ export class TimesheetChat {
     if(target&&!records.some(r=>('entity_id'in r?r.entity_id:r.id)===target))throw fail('该工时不在当前员工的工时或审批队列中。')
     const detail=target?await api.timesheetDetail(s.connectionId,target,todo?.id):undefined
     this.check(id,s)
+    if(s.fields)this.seen.set(id,JSON.stringify(s.fields))
     // Duplicate names cannot be resolved from a name alone, and the id/name pairing cannot catch a
     // wrong pick between two projects that share one. Naming them forces the ambiguity to the user.
     const counts=new Map<string,number>()
@@ -177,6 +200,7 @@ export class TimesheetChat {
           // A synced page need not carry a form at all, so there may be nothing to summarize.
           const form=state.fields
           const matched=form!==undefined&&JSON.stringify(pageFields.safeParse(form).data)===JSON.stringify(pageFields.safeParse(args.action.fields).data)
+          if(matched)this.seen.set(id,JSON.stringify(form))
           // The summary comes from the page's own snapshot either way, so a mismatch reports what
           // the form actually holds instead of what was requested.
           return {message:matched?'中间栏工时表单已更新，尚未保存到服务端。以下 applied 是页面实际内容，请按它向用户复述，不要复述本次参数。':'表单发生其他修改，请重新读取，不能声称填写成功。以下 applied 是页面实际内容。',
@@ -185,6 +209,6 @@ export class TimesheetChat {
       })
       return JSON.stringify(applied)
     }catch(error){if(this.proposals.get(id)?.id===result.proposalId)this.proposals.delete(id);throw error}}return JSON.stringify(result)}}))
-    this.ctx.effect(()=>()=>{this.states.clear();this.proposals.clear()},'oryh timesheet suggestions')
+    this.ctx.effect(()=>()=>{this.states.clear();this.proposals.clear();this.seen.clear()},'oryh timesheet suggestions')
   }
 }

@@ -66,7 +66,10 @@ export function TimesheetPanel({connection,manager,active,navigationId,navigatio
   useEffect(()=>{
     if(!navigationId||!active||!loaded||busy||handledNavigation.current===navigationId)return
     handledNavigation.current=navigationId
-    if(navigation?.headerId){if(dirty){setError('当前有未保存修改，请保存或放弃后重新要求打开工时。');return}void run(async()=>{await open(navigation.headerId!,navigation.todoId);if(alive.current)setOpenedNavigationId(navigationId)});return}
+    if(navigation?.headerId){
+      // The agent may replace a draft it already wrote to ORYH, but only while the form is exactly as it saw it.
+      const replaceable=editor&&!editing&&!review&&navigation.discardForm===JSON.stringify(fields)
+      if(dirty&&!replaceable){setError('当前有未保存修改，请保存或放弃后重新要求打开工时。');return}void run(async()=>{await open(navigation.headerId!,navigation.todoId);if(alive.current)setOpenedNavigationId(navigationId)});return}
     if(manager||!hasPermission(connection.identity,'timesheet.submit_own'))return
     if(editor&&!detail){setOpenedNavigationId(navigationId);return}
     if(dirty)return

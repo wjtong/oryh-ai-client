@@ -106,6 +106,20 @@ describe('broker writes', () => {
     expect(toolFailed.receipts.get('op-tool-5xx')).toMatchObject({ status: 'unknown' })
   })
 
+  it('treats an agent\'s validation run as a read, whether the flag is in the path or the tool\'s query', async () => {
+    const f = setup(() => mcpResult({ content: [], structuredContent: { data: { id: 'not-kept' }, meta: { validate_only: true, written: false } } }))
+    const body = { period_start: '2026-09-14', period_end: '2026-09-18' }
+    await f.broker.send(chatWrite({ method: 'POST', path: '/timesheet-headers', query: { validate_only: true }, body }, 'op-check-1'), signal())
+    await f.broker.send(chatWrite({ method: 'POST', path: '/api/v1/timesheet-headers?validate_only=true', body }, 'op-check-2'), signal())
+    expect(f.calls).toHaveLength(2)
+    for (const call of f.calls) expect(String(call.init.body)).not.toContain('idempotency_key')
+    expect(f.receipts.list(owner)).toEqual([])
+    // Anything but a plain true, or a flag the path and query disagree on, is the write it looks like.
+    await f.broker.send(chatWrite({ method: 'POST', path: '/timesheet-headers', query: { validate_only: false }, body }, 'op-write-1'), signal())
+    await f.broker.send(chatWrite({ method: 'POST', path: '/timesheet-headers?validate_only=true', query: { validate_only: 'false' }, body }, 'op-write-2'), signal())
+    expect(f.receipts.list(owner).map(r => [r.operationId, r.operation])).toEqual(expect.arrayContaining([['op-write-1', 'timesheet.create'], ['op-write-2', 'timesheet.create']]))
+  })
+
   it('stays read-only without a receipt store, and still admits validation runs', async () => {
     const readOnly = new OwnerBroker({ issuer, grants: () => [{ signal: new AbortController().signal, accessToken: async () => 'token' }], fetch: (async () => Response.json({ meta: { validate_only: true } })) as never })
     const f = setup()

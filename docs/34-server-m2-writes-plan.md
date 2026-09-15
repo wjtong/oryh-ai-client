@@ -200,3 +200,19 @@ operation: {
   - `POST /purchase-orders` 被拒绝为"暂未开放"，ORYH 未收到；
   - ORYH 无应答时回执为 unknown，模型收到"写入结果不明……不要重复写入"；
   - 发给模型的请求中不再有"目前只读"。
+
+### 批次 D 实测修正（2026-09-15）
+
+用户在 Docker 服务器版登录测试环境后，在对话里新建并提交工时。ORYH 上只写入了一张工时（先建后提交，结果正确），但暴露了两个问题：
+
+- **校验被记成写入**。agent 两次先校验再创建，把 `validate_only` 放在 `oryh_request` 的 `query` 对象里而不是 path 上。broker 只看 path，把这两次校验当成 `timesheet.create`：
+  - 记了“成功”回执，resourceId 是 ORYH 校验时返回的临时 id（实际 `written:false`）；
+  - 发送了幂等键。
+
+  **修正**：path 查询串与工具 `query` 里的 `validate_only` 必须全部是 `true` 且至少出现一次，才按读处理；其他取值或两处不一致，按写入处理。已写入的两条错误回执留在库里，不影响使用。
+- **中间栏停在“新建未保存”**。表单是 agent 用 `oryh_timesheet_propose` 填的，内容随后由 agent 在对话里写入 ORYH。agent 调 `oryh_open_timesheet` 打开新单时，页面因表单 dirty 拒绝替换，最终超时。
+
+  **修正**：`oryh_open_timesheet` 新增 `discardDraft`。
+  - Host 记录 agent 最后一次读取（`oryh_timesheet_read`）或填写并确认生效（`oryh_timesheet_propose`）时的表单快照。只有页面当前表单与快照完全相同，且没有明细正在编辑，才在导航命令里带上 `discardForm`；否则拒绝，并说明表单已被用户改动。
+  - 页面收到命令时再比对一次：自己的表单仍等于 `discardForm`，且没有明细编辑或确认对话框，才放弃草稿并打开指定工时。
+  - 提示词要求：按页面表单在对话里写入成功后，用 `discardDraft=true` 打开服务端单据。用户在页面上的修改仍受保护。桌面版同样适用。

@@ -65,6 +65,32 @@ describe('open existing timesheet navigation',()=>{
    expect(await pending).toContain('指定工时已在中间栏打开')
   }finally{await f.close()}
  })
+ it('replaces an unsaved form only when the agent saw it as it is, so a draft written in Chat gives way to the saved timesheet',async()=>{
+  const api={timesheetOptions:async()=>({workTypes:[],projects:[],requirements:[],editableStates:[],submitStates:[]}),timesheetList:async()=>[],timesheetQueue:async()=>[],
+   timesheetDetail:async()=>({header:{id:'header'},canEdit:false,entries:[]})} as unknown as import('@oryh/ai-client-timesheets').OryhTimesheetRemote
+  const f=await setup(api)
+  const form={period_start:'2026-09-14',period_end:'2026-09-18',source_report_text:'',entries:[{work_date:'2026-09-14',hours:8,work_type:'regular',project_id:'',task:'调试',notes:''}]}
+  try{
+   await f.chat.select({sessionId:'s',connectionId,homeOnly:true});await f.chat.select({sessionId:'s',connectionId,timesheetPage:'page'})
+   const sync=(revision:number,fields:typeof form,localEdits='{}')=>f.chat.timesheet.sync({sessionId:'s',connectionId,pageKey:'page',revision,manager:false,fields,localEdits})
+   await sync(1,form)
+   // Never read: the agent cannot know what it would throw away.
+   await expect(f.chat.openTimesheet('s',new AbortController().signal,'header','',true)).rejects.toThrow(/被用户改动/)
+   await f.chat.timesheet.read('s')
+   const opening=f.chat.openTimesheet('s',new AbortController().signal,'header','',true)
+   await vi.waitFor(()=>expect(f.chat.snapshot('s').navigation).toBeDefined())
+   const n=f.chat.snapshot('s').navigation!
+   expect(n.discardForm).toBe(JSON.stringify(form))
+   await f.chat.timesheet.sync({sessionId:'s',connectionId,pageKey:'page',navigationId:n.id,revision:2,manager:false,headerId:'header'})
+   expect(await opening).toContain('原先的未保存表单已放弃')
+   // The person changed the form, or has a line open, after the agent read it: theirs to keep.
+   await sync(3,form);await f.chat.timesheet.read('s')
+   await sync(4,{...form,source_report_text:'我改的'})
+   await expect(f.chat.openTimesheet('s',new AbortController().signal,'header','',true)).rejects.toThrow(/被用户改动/)
+   await f.chat.timesheet.read('s');await sync(5,{...form,source_report_text:'我改的'},JSON.stringify({editing:{line:form.entries[0]}}))
+   await expect(f.chat.openTimesheet('s',new AbortController().signal,'header','',true)).rejects.toThrow(/正在编辑/)
+  }finally{await f.close()}
+ })
  it('does not publish navigation for an inaccessible record',async()=>{
   const api={timesheetDetail:async()=>{throw Error('没有权限')}} as unknown as import('@oryh/ai-client-timesheets').OryhTimesheetRemote
   const f=await setup(api);try{await f.chat.select({sessionId:'s',connectionId,homeOnly:true});await expect(f.chat.openTimesheet('s',new AbortController().signal,'other')).rejects.toThrow('没有权限');expect(f.chat.snapshot('s').navigation).toBeUndefined()}finally{await f.close()}

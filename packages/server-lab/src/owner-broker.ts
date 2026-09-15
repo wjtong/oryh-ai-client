@@ -158,11 +158,7 @@ export class OwnerBroker {
     }
     admitApiRead(request.path)
     if (method === 'GET' && request.body === undefined) return undefined
-    // A validation run (the page checks a draft before it is saved) writes nothing. ORYH refuses query
-    // parameters an operation does not declare, so an endpoint without validate_only answers 422
-    // rather than treating the request as a write.
-    const query = new URLSearchParams(request.path.split('?')[1] ?? '')
-    if (['POST', 'PATCH'].includes(method) && query.getAll('validate_only').join() === 'true') return undefined
+    if (['POST', 'PATCH'].includes(method) && validationOnly(request.path)) return undefined
     if (!['POST', 'PATCH', 'DELETE'].includes(method)) throw refused(OUTSIDE)
     return { channel: 'page', method, path: request.path, ...request.body === undefined ? {} : { body: request.body } }
   }
@@ -185,6 +181,9 @@ export class OwnerBroker {
       admitApiRead(api)
       const hasBody = args.body !== undefined && args.body !== null
       if (method === 'GET' && !hasBody) return undefined
+      // The agent checks a draft the same way the page does, but may pass the flag in the tool's own
+      // `query` object instead of the path; that is still a validation run, not a create.
+      if (['POST', 'PATCH'].includes(method) && validationOnly(path, args.query)) return undefined
       if (!['POST', 'PATCH', 'DELETE'].includes(method)) throw refused(this.options.receipts ? NOT_OPENED : READ_ONLY)
       return { channel: 'chat', method, path: api, ...hasBody ? { body: args.body } : {} }
     }
@@ -339,6 +338,22 @@ function safePath(path: string): void {
   if (!path.startsWith('/') || path.startsWith('//') || /[\\#\s]/.test(path) || /%(2e|2f|5c)/i.test(bare) || bare.split('/').some(segment => segment === '..' || segment === '.')) {
     throw refused(OUTSIDE)
   }
+}
+
+/**
+ * Whether a POST or PATCH only validates: every `validate_only` it carries is `true`, and it carries at
+ * least one. A validation run (a draft checked before it is saved) writes nothing. ORYH refuses query
+ * parameters an operation does not declare, so an endpoint without validate_only answers 422 rather
+ * than treating the request as a write. Any other value, or a conflicting pair, counts as a write.
+ * @param path - the path as sent, with its query string if any.
+ * @param query - the query object of ORYH's generic tool, if the call came through it.
+ */
+function validationOnly(path: string, query?: unknown): boolean {
+  const values = new URLSearchParams(path.split('?')[1] ?? '').getAll('validate_only')
+  if (isObject(query) && query.validate_only !== undefined) {
+    values.push(...(Array.isArray(query.validate_only) ? query.validate_only : [query.validate_only]).map(String))
+  }
+  return values.length > 0 && values.every(value => value === 'true')
 }
 
 function admitApiRead(path: string): void {
