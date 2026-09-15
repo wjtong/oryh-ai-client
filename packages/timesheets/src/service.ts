@@ -69,10 +69,11 @@ export class TimesheetService implements OryhTimesheetRemote {
   async timesheetList(id: string) { requirePage((await this.verify(id)).identity,'timesheets'); const employee=this.connection(id).identity.user.employeeId; return (await this.list(id, `/timesheet-headers?employee_id=${encodeURIComponent(employee ?? '')}`)).filter(r=>r.employee_id===employee).map(header) }
   private async todos(id: string) { const employee=this.connection(id).identity.user.employeeId; return (await this.list(id, `/todos?employee_id=${encodeURIComponent(employee ?? '')}&status=open&entity_type=timesheet_header`)).filter(r=>r.employee_id===employee && r.entity_type==='timesheet_header' && r.status==='open' && r.todo_type==='approval') }
   async timesheetQueue(id: string) { requirePage((await this.verify(id)).identity,'timesheet-approvals'); return (await this.todos(id)).map(r=>({id:str(r.id),entity_id:str(r.entity_id),title:str(r.title),description:str(r.description)})) }
+  // `/type-options` returns the whole family and declares no page or size; ORYH answers 422 to either.
   async timesheetOptions(id: string) {
     await this.verify(id)
     const scope=this.scope(id)
-    const [types,projects,definitions,permissions]=await Promise.all([this.list(id,'/type-options?family=work_type&status=active'),this.list(id,'/projects'),this.list(id,'/workflow-definitions?entity_kind=builtin&object_type=timesheet_header'),this.permissions(id)])
+    const [types,projects,definitions,permissions]=await Promise.all([this.get(id,'/type-options?family=work_type&status=active').then(b=>rows(b.data)),this.list(id,'/projects'),this.list(id,'/workflow-definitions?entity_kind=builtin&object_type=timesheet_header'),this.permissions(id)])
     this.guard(id,scope)
     return { ...permissions, workTypes:types.map(r=>({name:str(r.name),title:str(r.title)||str(r.name)})), projects:projects.map(r=>({id:str(r.id),name:str(r.project_name)||str(r.name)||str(r.title)||str(r.code)||str(r.id)})), requirements:definitions.map(r=>str(r.definition_text)).filter(Boolean) }
   }

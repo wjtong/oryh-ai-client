@@ -7,16 +7,36 @@
 源码目录必须并列放置：`deepseek-harness/` 与 `oryh-ai-client/`。在 `oryh-ai-client/` 执行：
 
 ```sh
+cp .env.example .env   # 填写模型配置，见「模型」
 docker compose build --build-arg DSH_CLIENT_COMMIT_HASH="$(git -C ../deepseek-harness rev-parse HEAD)"
 docker compose up -d
 docker compose logs client
 ```
 
-首次访问须使用日志中 DSH 打印的认证链接，将其主机与端口改为 `127.0.0.1:4180`，保留路径和认证参数。成功后可以直接访问 `http://127.0.0.1:4180/`。换浏览器或清理 Cookie 后，需要重新使用认证链接。不要公开分享日志中的认证参数。
+## 登录
 
-客户端仅发布到本机 `127.0.0.1:4180`。Harness 在容器内保持 `127.0.0.1:4174` 的回环监听，通过 TCP 转发器接收容器端口 4173 的流量；原生认证、Host/Origin 检查和 WebSocket 协议保持不变。`compose.yaml` 的 `ORYH_SERVER_ORIGIN` 默认设置为测试环境 `https://calwbiz-new.banff-tech.com`（HTTP 入口会重定向至 HTTPS）。企业连接页面会预填此地址，用户仍可修改为 `https://oryh.ai`、`https://oryh.cn` 或自建站点。
+浏览器打开 `http://127.0.0.1:4180/`，会跳转到 ORYH 的登录页。用 ORYH 账号密码登录并点「授权」后回到工作台，企业连接已自动建立，不需要再做设备授权。浏览器 Cookie 有效期内再次访问直接进入。
 
-打开「企业连接」完成 ORYH 授权。Chat 使用 Harness 原生模型配置；在「模型与设置」填写自己的模型、Base URL 和 API Key，并选择容器内 `/home/node/workspace` 为工作区。主机上的模型设置、企业凭证和文件不会自动复制进容器。
+- **第一个登录的 ORYH 账号就是这个容器的使用者。** 这是单用户客户端，之后换其他账号登录会被拒绝，避免看到前一个人的会话和数据。要换人，删除数据卷重新开始（见下文）。
+- 同一账号再次登录，只更新这条企业连接的凭据，不会重复添加连接。
+- 服务端地址由 `compose.yaml` 的 `ORYH_SERVER_ORIGIN` 决定，默认是测试环境 `https://calwbiz-new.banff-tech.com`。
+
+实现：容器里唯一对外的监听是登录网关 [`login-gateway.mjs`](login-gateway.mjs)。它用 ORYH 的 OAuth 2.1 授权码 + PKCE 登录，回调地址是回环地址 `http://127.0.0.1:4180/oryh/callback`；登录成功后用只有它能读到的 DSH 启动令牌换取 DSH 自己的会话 Cookie，并把同一份凭据以 0600 文件交给客户端（`ORYH_CREDENTIAL_HANDOFF`，客户端读取后立即删除，凭据转存进 Linux Secret Service）。其余请求原样转给容器内 `127.0.0.1:4174` 的 Harness，Host、Origin 和 Cookie 校验照旧。启动令牌不再打印到日志。
+
+## 模型
+
+模型是部署的全局配置，所有使用者共用，浏览器里没有模型设置页，也没有会话级的模型切换。在 `oryh-ai-client/` 下复制 `.env.example` 为 `.env` 并填写：
+
+| 变量 | 含义 |
+| --- | --- |
+| `ORYH_MODEL_API_KEY` | 模型 API Key（必填；未填 `docker compose up` 直接报错） |
+| `ORYH_MODEL_BASE_URL` | 模型服务地址，默认 `https://api.deepseek.com` |
+| `ORYH_MODEL` | 模型 ID，默认 `deepseek-v4-flash` |
+| `ORYH_MODEL_REASONING_EFFORT` | `off` / `low` / `high` / `max`，默认 `high` |
+
+改完执行 `docker compose up -d` 生效。Key 以容器环境变量 `DEEPSEEK_API_KEY` 传给 Harness：它优先于任何页面保存的值且只读，并且不会传进 agent 运行的 shell。`.env` 不提交、不进镜像。容器每次启动由 [`model-config.mjs`](model-config.mjs) 写入 Profile 补丁，并清除用户设置层里旧的模型配置，保证以部署配置为准。
+
+Chat 的工作区选择容器内 `/home/node/workspace`。主机上的企业凭证和文件不会自动复制进容器。
 
 ## 数据与生命周期
 
