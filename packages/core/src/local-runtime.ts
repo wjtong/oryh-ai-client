@@ -45,6 +45,8 @@ export function createLocalOryhRuntime(dataDirectory = defaultOryhDataDirectory(
     // ORYH's own convention, and the root Harness scans by default: skills are named per
     // employer, so one agent can serve two companies out of the same directory.
     skills: desktopSkillService(host.createSkillBundle(join(process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'), 'skills'))),
+    // The same MCP endpoint the skills come from; the agent's ORYH tools call through it.
+    mcp: host.createMcpClient(),
   }
 }
 

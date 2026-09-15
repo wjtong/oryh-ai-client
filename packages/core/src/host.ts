@@ -14,6 +14,7 @@ import { DeviceFlowConnector, type DeviceConnectionAttempt } from './device-flow
 import type { Fetcher } from './http.js'
 import { OryhHttpClient } from './http.js'
 import { SkillBundleService } from './skill-bundle.js'
+import { OryhMcpClient } from './mcp.js'
 import { WorkflowDefinitions } from './workflow.js'
 import { ListParameters } from './list-parameters.js'
 import { OperationExecutor, type OperationResult } from './operations.js'
@@ -87,7 +88,9 @@ export class OryhClientHost {
   createTimesheetRemote(store: TimesheetStore) { return new TimesheetService(store, this.#http, id => this.#connections.requireVerified(id as ConnectionId), id => this.verifyConnection(id as ConnectionId)) }
   /** Which object types this tenant governs with a workflow definition; shared by every domain. */
   createWorkflowDefinitions() { return new WorkflowDefinitions(this.#http) }
-  /** ORYH skill bundle installer; the credential stays inside the shared HTTP client. */
+  /** ORYH's MCP endpoint, for the tools the agent calls; the credential stays inside the shared HTTP client. */
+  createMcpClient() { return new OryhMcpClient(this.#http) }
+  /** ORYH skill installer, reading skills from MCP; the credential stays inside the shared HTTP client. */
   createSkillBundle(root: string) {
     if (this.serverBinding) throw new OryhClientError('Server skills are delivered through MCP.', 'request-failed')
     // The holder is read from the connection as already verified. Starting a verification here would

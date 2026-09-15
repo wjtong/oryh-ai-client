@@ -28,7 +28,7 @@ ORYH 自己的 skill 也已经规定了 agent 如何写入：写入前在对话�
 - **成功以服务端为准。** 只有服务端返回成功才能说成功，以返回或回读的内容陈述结果。
 - **提交前按企业流程定义核对。** agent 发现不符合要求时不提交，说明哪一条不符合、需要怎么改——与页面上「挡住（严格）」的决定一致。判断仍然来自 agent 读到的规范，代码里没有阈值。
 - **授权仍在服务端。** 每个 ORYH API 自己的 `require_permission` 是闸门；技能包只包含持有人角色已覆盖的 skill。
-- **凭据不经客户端喂给模型**：客户端自己持有的 access/refresh token 与模型 key 不进模型请求与 Session。但 ORYH 写在 SKILL.md 正文里的 `api_key` 会随 skill 装载进入模型请求与 Session——这是现状下的已知缺口，见 [ADR-0009](0009-chat-pane-is-a-generic-oryh-agent.md) 2026-09-14 更正与[多租户方案](../19-multi-tenant-server-plan.md) §6.2；待 ORYH 提供不含凭据的技能包。
+- **凭据不经客户端喂给模型**：客户端自己持有的 access/refresh token 与模型 key 不进模型请求与 Session。ORYH 写在技能包 SKILL.md 正文里的 `api_key` 曾随 skill 装载进入模型请求与 Session（见 [ADR-0009](0009-chat-pane-is-a-generic-oryh-agent.md) 2026-09-14 更正）；同日改为经 MCP 获取不含凭据的技能、经 Host 注册的 ORYH 工具调用 API（[ADR-0012](0012-connect-to-oryh-over-mcp.md)），这一缺口已消除。
 - **`bash` 的边界回到 Harness。** 命令是否逐条批准由 Harness 的权限预设决定，用户可选；客户端不再用“页面确认”替代它。
 
 ## 取代与修订

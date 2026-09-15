@@ -495,7 +495,7 @@ describe('menu entries a person adds through chat',()=>{
 describe('the agent as the primary client',()=>{
  const principal={origin:'https://oryh.example',tenantId:'tenant',userId:'user',employeeId:'employee',tenantName:'晶诚',email:'hua@example.invalid'}
  /** The chat with its tools and listeners installed, on a context that records both. */
- async function installed(connections=1,holder:typeof principal|null=null){
+ async function installed(connections=1,holder:typeof principal|null=null,mcpTools:{name:string;readOnly:boolean;isError?:boolean}[]=[]){
   const directory=await mkdtemp(join(tmpdir(),'oryh-chat-'))
   const agent={id:'s',status:'idle',session:{header:{isSeeded:false,parentSession:undefined as string|undefined}}}
   const identity={id:connectionId,origin:'https://oryh.example',identity:{permissions:[],tenant:{id:'tenant',name:'晶诚'},user:{id:'user',email:'hua@example.invalid',employeeId:'employee'}}}
@@ -503,18 +503,23 @@ describe('the agent as the primary client',()=>{
   const listeners=new Map<string,((...args:never[])=>unknown)[]>()
   const ctx={
    agents:{get:(id:string)=>id==='s'?agent:undefined,list:()=>[]},
-   tools:{register:(tool:{name:string})=>{tools.set(tool.name,tool as never)}},
+   tools:{register:(tool:{name:string})=>{tools.set(tool.name,tool as never);return()=>{tools.delete(tool.name)}}},
    systemPrompt:{section:()=>{}},
-   effect:()=>{},
+   // Effects run, so the per-agent tool policy is really applied when an agent is created.
+   effect:(fn:()=>unknown)=>{fn()},
    on:(name:string,fn:(...args:never[])=>unknown)=>{listeners.set(name,[...(listeners.get(name)??[]),fn])},
   } as unknown as Context
   const controller={verifyConnection:async()=>identity,listConnections:async()=>[identity,{...identity,id:'c2'}].slice(0,connections)} as unknown as OryhClientController
   const sync=vi.fn(async()=>({installed:true,root:'/skills',skills:[],message:'已安装。'}))
   const skills=desktopSkillService({sync,installedPrincipal:()=>holder})
-  const chat=new BusinessChat(ctx,controller,{read:async()=>({})} as unknown as TodoDetailService,directory,undefined,undefined,skills)
+  const callTool=vi.fn(async(_c:string,name:string)=>{const tool=mcpTools.find(t=>t.name===name)!;return {text:tool.isError?'{"detail":"refused"}':'{"data":[]}',isError:Boolean(tool.isError)}})
+  const mcp={tools:async()=>mcpTools.map(t=>({name:t.name,description:t.name,inputSchema:{type:'object',properties:{}},readOnly:t.readOnly})),callTool} as unknown as import('@oryh/ai-client-core').OryhMcpClient
+  const chat=new BusinessChat(ctx,controller,{read:async()=>({})} as unknown as TodoDetailService,directory,undefined,undefined,skills,mcp)
   chat.install()
   const exec={agent:{id:'s'},signal:new AbortController().signal}
-  return {chat,sync,exec,
+  return {chat,sync,exec,callTool,
+   /** An agent as the runtime creates it, with the tool policy it is given recorded. */
+   created:()=>{const policies:{allow:string[];lifted:boolean}[]=[];const agentCtx={tools:{restrict:(filter:{allow:string[]})=>{const policy={allow:filter.allow,lifted:false};policies.push(policy);return()=>{policy.lifted=true}},presentAs:()=>()=>{}},systemPrompt:{context:()=>()=>{}}};for(const fn of listeners.get('agent/created')??[])(fn as unknown as (p:unknown)=>void)({agent:{id:'s',ctx:agentCtx}});return policies},
    tool:(name:string)=>tools.get(name)!,
    /** A tool call finishing, through the same waterfall the tool runtime drives. */
    ran:async(name:string)=>{for(const fn of listeners.get('tools/post-execute')??[])await (fn as unknown as (e:unknown,r:unknown,n:()=>Promise<unknown>)=>Promise<unknown>)({name,agent:{id:'s'}},{},async()=>({kind:'accept'}))},
@@ -568,4 +573,34 @@ describe('the agent as the primary client',()=>{
    expect(decision.reason).not.toMatch(/页面/)
   }finally{await f.close()}
  })
+ it('offers ORYH\'s MCP tools as listed by the server, over the session enterprise, without shadowing its own',async()=>{
+  const f=await installed(1,null,[{name:'oryh_request',readOnly:false},{name:'oryh_get',readOnly:true},{name:'oryh_current_page',readOnly:true},{name:'bad/name',readOnly:true}])
+  try{
+   const policies=f.created()
+   expect(policies.at(-1)?.allow).not.toContain('oryh_request')
+   await f.chat.mcpTools.refresh(connectionId)
+   // Listed from the server, not named in code; a Host tool name and a malformed one are not taken.
+   expect([...f.chat.mcpTools.names].sort()).toEqual(['oryh_get','oryh_request'])
+   // The agent's allow-list grows: the wider policy goes on before the narrower one comes off.
+   expect(policies.at(-1)?.allow).toEqual(expect.arrayContaining(['oryh_request','oryh_get','skill']))
+   expect(policies.slice(0,-1).every(policy=>policy.lifted)).toBe(true)
+   expect((await f.denied('oryh_request')).kind).toBe('allow')
+   // A read-only call runs over the session's enterprise and leaves the pane alone.
+   expect(await f.tool('oryh_get').execute({},f.exec)).toBe('{"data":[]}')
+   expect(f.callTool).toHaveBeenCalledWith(connectionId,'oryh_get',{})
+   f.status('idle');expect(f.chat.snapshot('s').serverChange).toBeUndefined()
+   // A call that may write marks the turn, and the pane re-reads when it ends.
+   await f.tool('oryh_request').execute({method:'POST',path:'/timesheet-headers/h/submit'},f.exec)
+   f.status('idle');expect(f.chat.snapshot('s').serverChange).toBeDefined()
+  }finally{await f.close()}
+ })
+ it('lets the model see an ORYH refusal as a failure, and does not mark it as a write',async()=>{
+  const f=await installed(1,null,[{name:'oryh_request',readOnly:false,isError:true}])
+  try{
+   await f.chat.mcpTools.refresh(connectionId)
+   await expect(f.tool('oryh_request').execute({method:'POST',path:'/x'},f.exec)).rejects.toThrow(/refused/)
+   f.status('idle');expect(f.chat.snapshot('s').serverChange).toBeUndefined()
+  }finally{await f.close()}
+ })
 })
+

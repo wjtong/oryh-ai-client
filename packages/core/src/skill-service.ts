@@ -21,7 +21,7 @@ export interface OryhSkillService {
 export function desktopSkillService(bundle: Pick<SkillBundleService, 'sync' | 'installedPrincipal'>): OryhSkillService {
   return {
     delivery: 'bundle',
-    syncDescription: '重新从 ORYH 下载并安装本会话企业的技能包。用户要求更新或同步技能时调用；技能包与本会话企业身份不一致时，写入前也先调用。不改任何业务数据；不要自己下载或解压技能包。',
+    syncDescription: '通过 MCP 重新从 ORYH 获取并安装本会话企业的技能。用户要求更新或同步技能时调用；oryh-skill-identity 说技能与本会话企业身份不一致时，写入前也先调用。不改任何业务数据；不要自己下载技能。',
     sync: (id, force) => bundle.sync(id, force),
     identityContext(expected) {
       const holder = bundle.installedPrincipal()
