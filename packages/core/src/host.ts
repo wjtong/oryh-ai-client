@@ -10,6 +10,7 @@ import { ConnectionRegistry, type ConnectionSummary } from './connections.js'
 import { decodeIdentity, type OryhExpenseClaim, type OryhProject, type OryhTodo } from './contracts.js'
 import { OryhClientError } from './errors.js'
 import type { CredentialVault } from './credentials.js'
+import type { CredentialHandoff, HandedOffCredential } from './credential-handoff.js'
 import { DeviceFlowConnector, type DeviceConnectionAttempt } from './device-flow.js'
 import type { Fetcher } from './http.js'
 import { OryhHttpClient } from './http.js'
@@ -31,6 +32,8 @@ export interface OryhClientHostOptions {
   readonly connectionStore?: ConnectionStore
   /** Trusted server-only binding. Use createServerReadHost rather than browser configuration. */
   readonly serverReadBinding?: ServerReadBinding
+  /** Credentials a trusted sign-in in the same deployment leaves for this Host to adopt. */
+  readonly credentialHandoff?: CredentialHandoff
 }
 
 /**
@@ -48,12 +51,15 @@ export class OryhClientHost {
   private readonly serverBinding: ServerReadBinding | undefined
   private detachServer: () => void = () => {}
   readonly #verifications = new Map<ConnectionId, Promise<ConnectionSummary>>()
+  readonly #handoff: CredentialHandoff | undefined
+  #adopting: Promise<void> = Promise.resolve()
 
   constructor(options: OryhClientHostOptions) {
     if (options.serverReadBinding && options.connectionStore) throw new Error('Server binding cannot restore desktop connections')
     this.serverBinding = options.serverReadBinding
     this.#credentials = options.credentialVault
     this.#connectionStore = options.connectionStore
+    this.#handoff = options.serverReadBinding ? undefined : options.credentialHandoff
     this.#http = new OryhHttpClient(this.#connections, this.#credentials, options.fetcher, options.serverReadBinding ? { delegated: options.serverReadBinding } : {})
     this.#devices = new DeviceFlowConnector(
       this.#connections,
@@ -113,7 +119,52 @@ export class OryhClientHost {
   /** List non-secret connection summaries for a local UI or Remote response. */
   async connections(): Promise<readonly ConnectionSummary[]> {
     await this.#ready
+    await this.adoptHandoff()
     return this.#connections.list()
+  }
+
+  /**
+   * Turn a handed-off credential into a verified connection.
+   *
+   * Listing connections is what a workbench does first when it opens, which is right after the
+   * gateway's sign-in redirected there. Signing in again as the same person in the same enterprise
+   * replaces that connection's credential instead of adding a duplicate.
+   */
+  private adoptHandoff(): Promise<void> {
+    if (this.#handoff === undefined) return Promise.resolve()
+    const handoff = this.#handoff
+    const run = this.#adopting.then(async () => {
+      const taken = await handoff.take()
+      if (taken !== undefined) await this.adopt(taken)
+    })
+    this.#adopting = run.catch(() => {})
+    return run
+  }
+
+  private async adopt({ origin, credential }: HandedOffCredential): Promise<void> {
+    const temporary = this.#connections.add({ origin, identity: handoffIdentity })
+    await this.#credentials.write(temporary.id, credential)
+    let identity
+    try {
+      identity = decodeIdentity(await this.#http.request(temporary.id, { path: '/auth/me' }))
+    } catch (error) {
+      await this.#credentials.remove(temporary.id)
+      this.#connections.remove(temporary.id)
+      throw error
+    }
+    const existing = this.#connections.list().find(connection => connection.id !== temporary.id
+      && connection.origin === temporary.origin
+      && connection.identity.tenant.id === identity.tenant.id
+      && connection.identity.user.id === identity.user.id)
+    if (existing === undefined) {
+      this.#connections.markVerified(temporary.id, identity)
+    } else {
+      await this.#credentials.write(existing.id, credential)
+      await this.#credentials.remove(temporary.id)
+      this.#connections.remove(temporary.id)
+      this.#connections.markVerified(existing.id, identity)
+    }
+    await this.persistConnections()
   }
 
   /**
@@ -230,3 +281,9 @@ export class OryhClientHost {
     await this.#connectionStore.save(this.#connections.list())
   }
 }
+
+const handoffIdentity = {
+  user: { id: 'handoff-pending', email: 'handoff-pending@invalid', name: null, role: 'handoff-pending', employeeId: null },
+  tenant: { id: 'handoff-pending', slug: 'handoff-pending', name: null, environmentId: null },
+  permissions: [],
+} as const

@@ -8,6 +8,7 @@ import { EncryptedExpenseStore } from '@oryh/ai-client-expenses'
 import { JsonConnectionStore } from './connection-store.js'
 import { JsonSavedOperationStore } from './saved-operations.js'
 import { KeychainCredentialVault } from './credentials.js'
+import { fileCredentialHandoff } from './credential-handoff.js'
 import { OryhClientController } from './controller.js'
 import { OryhClientHost } from './host.js'
 import { OryhClientRemoteAdapter } from './remote.js'
@@ -20,6 +21,8 @@ export function createLocalOryhRuntime(dataDirectory = defaultOryhDataDirectory(
   const host = new OryhClientHost({
     credentialVault: new KeychainCredentialVault(),
     connectionStore: new JsonConnectionStore({ path: join(dataDirectory, 'connections.json') }),
+    // Set only by a deployment whose login gateway signs the person in before the client opens.
+    ...(process.env.ORYH_CREDENTIAL_HANDOFF ? { credentialHandoff: fileCredentialHandoff(process.env.ORYH_CREDENTIAL_HANDOFF) } : {}),
     fetcher: (input, init) => {
       lifetime.signal.throwIfAborted()
       const signal = init?.signal ? AbortSignal.any([init.signal, lifetime.signal]) : lifetime.signal

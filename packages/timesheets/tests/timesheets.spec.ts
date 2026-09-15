@@ -83,3 +83,13 @@ describe('aggregate update',()=>{
     expect(current.requests.some(r=>r.method==='POST')).toBe(false)
   })
 })
+
+describe('timesheet options', () => {
+  it('reads work types without paging, which that endpoint refuses', async () => {
+    const paths: string[] = []
+    const http: TimesheetHttp = { request: async (_id, r) => { paths.push(r.path); return { data: r.path.startsWith('/type-options') ? [{ name: 'regular', title: '正常' }] : [], meta: { pages: 1 } } } }
+    const options = await service(http).timesheetOptions('c')
+    expect(options.workTypes).toEqual([{ name: 'regular', title: '正常' }])
+    expect(paths.find(p => p.startsWith('/type-options'))).toBe('/type-options?family=work_type&status=active')
+  })
+})

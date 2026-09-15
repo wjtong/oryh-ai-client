@@ -26,7 +26,11 @@ writeFileSync(marker, 'ready', { mode: 0o600 })
 console.log('Linux credential store ready (persistence checked).')
 JS
 node scripts/install-profile.mjs
-# DSH remains loopback-only. Docker publishes this TCP forwarder on host loopback only;
-# it preserves Host/Origin/Cookie and does not implement or bypass authentication.
-socat TCP-LISTEN:4173,bind=0.0.0.0,reuseaddr,fork TCP:127.0.0.1:4174 &
-exec pnpm exec dsh --profile oryh-web --host 127.0.0.1 --port 4174 --no-open --trusted-host 127.0.0.1:4180 localhost:4180
+node deploy/local/model-config.mjs
+# DSH remains loopback-only. The login gateway is the only published listener: it signs the person
+# in with ORYH (OAuth authorization code + PKCE), obtains DSH's own session cookie for them, and
+# hands the same sign-in to the client as its enterprise connection. DSH still checks Host, Origin
+# and its cookie on every request.
+export ORYH_CREDENTIAL_HANDOFF="$HOME/.config/oryh-container/connection-handoff.json"
+export ORYH_CONTAINER_OWNER="$HOME/.config/oryh-container/owner.json"
+exec node deploy/local/login-gateway.mjs -- pnpm exec dsh --profile oryh-web --host 127.0.0.1 --port 4174 --no-open --trusted-host 127.0.0.1:4180 localhost:4180

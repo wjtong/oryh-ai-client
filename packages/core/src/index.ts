@@ -25,3 +25,4 @@ export { ListParameters, parameters as listParameters, type ListParameter } from
 export * from './server-read.js'
 
 export * from './skill-service.js'
+export * from './credential-handoff.js'
