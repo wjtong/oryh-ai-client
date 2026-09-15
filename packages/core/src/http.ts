@@ -2,6 +2,7 @@ import type { ConnectionId } from './brand.js'
 import type { CredentialPair, CredentialVault } from './credentials.js'
 import { OryhClientError } from './errors.js'
 import type { ConnectionRegistry } from './connections.js'
+import type { OryhOperation } from './server-operation.js'
 
 /** A minimal fetch response seam, small enough to replace in tests or DSH Host adapters. */
 export interface FetchResponse {
@@ -22,6 +23,8 @@ export interface OryhRequest {
   readonly body?: unknown
   /** Disable replay for business writes whose outcome must be reconciled explicitly. */
   readonly retryExpired?: boolean
+  /** On the server: how this write was confirmed, for the control process to admit and record it. */
+  readonly operation?: OryhOperation
 }
 
 /** Host-local timings that govern when an interactive credential is refreshed. */

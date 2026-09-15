@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { OryhClientError, type ConnectionId } from '@oryh/ai-client-foundation'
@@ -107,7 +108,10 @@ export class OryhMcpTools {
         if (!exec.agent) throw new OryhClientError('需要会话。', 'request-failed')
         exec.signal.throwIfAborted()
         const sessionId = String(exec.agent.id)
-        const result = await mcp.callTool(await this.connectionOf(sessionId), tool.name, isRecord(args) ? args : {})
+        // Each call names itself as a chat write. The server's control process admits and records a write
+        // once under this id and ignores it on a read; the desktop transport ignores it altogether.
+        const operation = { kind: 'chat' as const, operationId: randomUUID(), sessionId, callId: String(exec.callId) }
+        const result = await mcp.callTool(await this.connectionOf(sessionId), tool.name, isRecord(args) ? args : {}, { operation })
         // The server's answer is the outcome: an error is thrown so the model sees a failure, not a success.
         if (result.isError) throw new OryhClientError(result.text, 'request-failed')
         if (!tool.readOnly) this.onWrite(sessionId)

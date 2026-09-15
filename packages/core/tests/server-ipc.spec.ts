@@ -56,3 +56,20 @@ describe('the owner Host IPC link', () => {
     await vi.waitFor(() => expect(seen!.aborted).toBe(true))
   })
 })
+
+describe('write operations across the link', () => {
+  it('carries a well-formed operation to the broker and refuses a malformed one', async () => {
+    const { host, control } = link()
+    const lifetime = new AbortController()
+    const broker = { send: vi.fn(async () => ({ status: 201, body: { data: { id: 'h1' } } })) }
+    serveOwnerRequests(control, broker, lifetime.signal)
+    const binding = ipcServerBinding(host, { origin: 'https://oryh.example.test', identity, signal: lifetime.signal })
+    const operation = { kind: 'chat' as const, operationId: 'op-1', sessionId: 's-1', callId: 'call-1' }
+    await binding.send({ path: '/timesheet-headers', method: 'POST', body: { a: 1 }, operation }, new AbortController().signal)
+    expect(broker.send).toHaveBeenCalledWith({ path: '/timesheet-headers', method: 'POST', body: { a: 1 }, operation }, expect.any(AbortSignal))
+    for (const bad of [{ kind: 'chat', operationId: 'op 2', sessionId: 's', callId: 'c' }, { kind: 'page', operationId: 'op-3', digest: 'nope', confirmedAt: 1 }, { kind: 'agent', operationId: 'op-4' }]) {
+      await expect(binding.send({ path: '/timesheet-headers', method: 'POST', operation: bad as never }, new AbortController().signal)).rejects.toThrow('不在服务器版开放的范围内')
+    }
+    expect(broker.send).toHaveBeenCalledTimes(1)
+  })
+})

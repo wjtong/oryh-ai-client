@@ -20,6 +20,7 @@ import { ServerOAuth, type LoginGrant } from './oauth.js'
 import { OwnerBroker } from './owner-broker.js'
 import type { OwnerHostTarget } from './owner-host.js'
 import { RuntimePool, type RunningRuntime } from './runtime-pool.js'
+import type { ReceiptStore } from './write-receipts.js'
 
 export interface ControlServerOptions {
   /** Where people sign in, e.g. `https://oryh-client.example.com` or `http://localhost:4300`. */
@@ -43,6 +44,8 @@ export interface ControlServerOptions {
    * `http://localhost:4300`; a longer one needs the ORYH fix.
    */
   readonly compactAuthorization?: boolean
+  /** Write receipts (docs/34). Without a store every owner's broker is read-only. */
+  readonly receipts?: ReceiptStore
   readonly fetch?: typeof fetch
   readonly log?: (line: string) => void
 }
@@ -105,6 +108,8 @@ export async function startControlServer(options: ControlServerOptions, port = 0
     if (!broker) {
       broker = new OwnerBroker({
         issuer: oauth.serverOrigin,
+        owner,
+        ...options.receipts ? { receipts: options.receipts } : {},
         grants: () => (grants.get(owner) ?? []).map(entry => ({ signal: entry.oauth.signal(entry.grant), accessToken: () => entry.oauth.accessToken(entry.grant) })),
         ...options.fetch ? { fetch: options.fetch } : {},
         log: line => log(`owner ${owner.slice(0, 8)}: ${line}`),

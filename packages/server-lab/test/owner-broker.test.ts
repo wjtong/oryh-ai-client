@@ -35,9 +35,11 @@ describe('the owner broker', () => {
 
   it('refuses writes before anything reaches ORYH, with a reason people can read', async () => {
     const f = setup()
-    for (const request of [{ path: '/timesheet-headers', method: 'POST' }, { path: '/projects/p1', method: 'PATCH', body: {} }, { path: '/projects/p1', method: 'DELETE' }, { path: '/projects', body: {} }] as const) {
+    for (const request of [{ path: '/timesheet-headers', method: 'POST' }, { path: '/projects/p1', method: 'PATCH', body: {} }, { path: '/projects/p1', method: 'DELETE' }] as const) {
       await expect(f.broker.send(request as never, signal())).rejects.toThrow('服务器版目前只读')
     }
+    // A GET carrying a body is not a request any page or tool makes.
+    await expect(f.broker.send({ path: '/projects', body: {} }, signal())).rejects.toThrow('不在服务器版开放的范围内')
     expect(f.calls).toHaveLength(0)
     // A validation run writes nothing and is let through; a second, contradicting flag is not.
     await expect(f.broker.send({ path: '/timesheet-headers?validate_only=true', method: 'POST', body: {} }, signal())).resolves.toMatchObject({ status: 200 })

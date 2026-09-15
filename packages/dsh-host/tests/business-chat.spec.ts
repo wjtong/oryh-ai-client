@@ -517,7 +517,7 @@ describe('the agent as the primary client',()=>{
   const mcp={tools:async()=>mcpTools.map(t=>({name:t.name,description:t.name,inputSchema:{type:'object',properties:{}},readOnly:t.readOnly})),callTool} as unknown as import('@oryh/ai-client-core').OryhMcpClient
   const chat=new BusinessChat(ctx,controller,{read:async()=>({})} as unknown as TodoDetailService,directory,undefined,undefined,skills,mcp,capabilities)
   chat.install()
-  const exec={agent:{id:'s'},signal:new AbortController().signal}
+  const exec={agent:{id:'s'},callId:'call-1',signal:new AbortController().signal}
   return {chat,sync,exec,callTool,prompt:()=>prompt,
    /** An agent as the runtime creates it, with the tool policy it is given recorded. */
    created:()=>{const policies:{allow:string[];lifted:boolean}[]=[];const agentCtx={tools:{restrict:(filter:{allow:string[]})=>{const policy={allow:filter.allow,lifted:false};policies.push(policy);return()=>{policy.lifted=true}},presentAs:()=>()=>{}},systemPrompt:{context:()=>()=>{}}};for(const fn of listeners.get('agent/created')??[])(fn as unknown as (p:unknown)=>void)({agent:{id:'s',ctx:agentCtx}});return policies},
@@ -602,7 +602,7 @@ describe('the agent as the primary client',()=>{
    expect((await f.denied('oryh_request')).kind).toBe('allow')
    // A read-only call runs over the session's enterprise and leaves the pane alone.
    expect(await f.tool('oryh_get').execute({},f.exec)).toBe('{"data":[]}')
-   expect(f.callTool).toHaveBeenCalledWith(connectionId,'oryh_get',{})
+   expect(f.callTool).toHaveBeenCalledWith(connectionId,'oryh_get',{},{operation:{kind:'chat',operationId:expect.any(String),sessionId:'s',callId:'call-1'}})
    f.status('idle');expect(f.chat.snapshot('s').serverChange).toBeUndefined()
    // A call that may write marks the turn, and the pane re-reads when it ends.
    await f.tool('oryh_request').execute({method:'POST',path:'/timesheet-headers/h/submit'},f.exec)

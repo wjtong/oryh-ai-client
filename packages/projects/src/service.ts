@@ -1,6 +1,6 @@
-import { OryhClientError, connectionId, type ConnectionId } from '@oryh/ai-client-foundation'
+import { OryhClientError, connectionId, pageOperation, type ConnectionId, type OryhOperation } from '@oryh/ai-client-foundation'
 import { hasPermission } from '@oryh/ai-client-pages'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { ProjectFields, ProjectIntent, OryhProjectRemote } from './contracts.js'
 
 /** The transport this service needs. Project creation writes, so the request shape is the full one. */
@@ -10,6 +10,8 @@ export interface ProjectHttp {
   readonly method?:'GET'|'POST'|'PATCH'|'DELETE'
   readonly body?:unknown
   readonly retryExpired?:boolean
+  /** On the server, how this write was confirmed; the desktop transport ignores it. */
+  readonly operation?:OryhOperation
  }):Promise<unknown>
 }
 
@@ -72,7 +74,8 @@ export class ProjectService implements OryhProjectRemote {
   r=await this.next(id,r,{state:'creating',token:'',message:'正在创建项目。'})
   try{
    this.guard(id,r.scope)
-   const f=r.fields,body=object(await this.http.request(connectionId(id),{path:'/projects',method:'POST',retryExpired:false,body:{project_name:f.project_name,project_code:f.project_code,client:f.client||null,start_date:f.start_date||null,end_date:f.end_date||null,status:'active',metadata:{oryh_client_intent_id:r.id}}}))
+   const f=r.fields,write={path:'/projects' as const,method:'POST' as const,body:{project_name:f.project_name,project_code:f.project_code,client:f.client||null,start_date:f.start_date||null,end_date:f.end_date||null,status:'active',metadata:{oryh_client_intent_id:r.id}}}
+   const body=object(await this.http.request(connectionId(id),{...write,retryExpired:false,operation:pageOperation(`${r.id}:create`,write,text=>createHash('sha256').update(text).digest('hex'))}))
    this.guard(id,r.scope);const data=object(body.data)
    if(typeof data.id!=='string'||!this.matches(data,r))throw fail('项目创建回执不匹配，请核对结果。')
    return this.view(await this.next(id,r,{state:'created',projectId:data.id,message:'项目已创建。'}))

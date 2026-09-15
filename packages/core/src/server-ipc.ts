@@ -9,6 +9,7 @@ import type { OryhIdentity } from './contracts.js'
 import { OryhClientError } from './errors.js'
 import type { DelegatedResponse, OryhRequest } from './http.js'
 import type { ServerBinding } from './server-read.js'
+import type { OryhOperation } from './server-operation.js'
 
 /** The part of a Node IPC channel this link uses: a child process, or `process` inside the child. */
 export interface IpcChannel {
@@ -59,7 +60,7 @@ export function ipcServerBinding(channel: IpcChannel, config: { origin: string; 
           resolve: answer => { combined.removeEventListener('abort', cancel); resolve(answer) },
           reject: error => { combined.removeEventListener('abort', cancel); reject(error) },
         })
-        channel.send({ type: 'oryh-request', id, request: { path: request.path, ...request.root ? { root: true } : {}, ...request.method ? { method: request.method } : {}, ...request.body === undefined ? {} : { body: request.body } } } satisfies Outgoing)
+        channel.send({ type: 'oryh-request', id, request: { path: request.path, ...request.root ? { root: true } : {}, ...request.method ? { method: request.method } : {}, ...request.body === undefined ? {} : { body: request.body }, ...request.operation ? { operation: request.operation } : {} } } satisfies Outgoing)
       })
     },
     dispose() { channel.off('message', listener); config.signal.removeEventListener('abort', closed); closed() },
@@ -101,7 +102,7 @@ export function serveOwnerRequests(channel: IpcChannel, broker: { send(request: 
 
 function validRequest(value: unknown): OryhRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid')
-  const { path, root, method, body } = value as Record<string, unknown>
+  const { path, root, method, body, operation } = value as Record<string, unknown>
   if (typeof path !== 'string' || !path.startsWith('/') || path.length > 4096) throw new Error('invalid')
   if (root !== undefined && typeof root !== 'boolean') throw new Error('invalid')
   if (method !== undefined && (typeof method !== 'string' || !METHODS.has(method))) throw new Error('invalid')
@@ -110,6 +111,7 @@ function validRequest(value: unknown): OryhRequest {
   if (root) request.root = true
   if (method) request.method = method as NonNullable<OryhRequest['method']>
   if (body !== undefined) request.body = body
+  if (operation !== undefined) request.operation = validOperation(operation)
   return request
 }
 
@@ -158,4 +160,22 @@ export function answerOwnerHostConfig(channel: IpcChannel, config: OwnerHostConf
   }
   channel.on('message', listener)
   return () => channel.off('message', listener)
+}
+
+const OPERATION_ID = /^[A-Za-z0-9._:-]{1,128}$/
+
+/** An operation description as the Host sent it, checked field by field; anything else is refused. */
+function validOperation(value: unknown): OryhOperation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid')
+  const o = value as Record<string, unknown>
+  if (typeof o.operationId !== 'string' || !OPERATION_ID.test(o.operationId)) throw new Error('invalid')
+  if (o.kind === 'page') {
+    if (typeof o.digest !== 'string' || !/^[a-f0-9]{64}$/.test(o.digest) || !Number.isSafeInteger(o.confirmedAt)) throw new Error('invalid')
+    return { kind: 'page', operationId: o.operationId, digest: o.digest, confirmedAt: o.confirmedAt as number }
+  }
+  if (o.kind === 'chat') {
+    for (const field of [o.sessionId, o.callId]) if (typeof field !== 'string' || !field || field.length > 200) throw new Error('invalid')
+    return { kind: 'chat', operationId: o.operationId, sessionId: o.sessionId as string, callId: o.callId as string }
+  }
+  throw new Error('invalid')
 }

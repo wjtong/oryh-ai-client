@@ -39,6 +39,8 @@ export interface OwnerHostOptions {
   readonly broker: Pick<OwnerBroker, 'send'>
   /** Log Gateway admission decisions to the Host's stderr. */
   readonly traceAdmission?: boolean
+  /** Whether this deployment admits writes (docs/34); the Host's chat stops describing itself as read-only. */
+  readonly writes?: boolean
   /** Where the Host's own output goes; defaults to discarding it. */
   readonly log?: (line: string) => void
   readonly startupTimeoutMs?: number
@@ -113,7 +115,7 @@ export async function startOwnerHost(owner: string, generation: number, signal: 
     origin: options.origin,
     identity: options.identity,
     storeSecret: Buffer.from(hkdfSync('sha256', options.storeMasterKey, Buffer.from(owner, 'hex'), 'oryh-owner-store', 32)).toString('base64'),
-    capabilities: { shell: false, writes: false },
+    capabilities: { shell: false, writes: options.writes === true },
   })
   const stopServing = serveOwnerRequests(channel, options.broker, lifetime.signal)
 

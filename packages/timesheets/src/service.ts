@@ -1,4 +1,4 @@
-import { OryhClientError, connectionId, type ConnectionId } from '@oryh/ai-client-foundation'
+import { OryhClientError, connectionId, pageOperation, type ConnectionId, type OryhOperation } from '@oryh/ai-client-foundation'
 import { hasPermission, requirePermission, requirePage } from '@oryh/ai-client-pages'
 import { createHash, randomUUID } from 'node:crypto'
 import { timesheetError as fail, validateTimesheet, TIMESHEET_OBJECT_TYPE, type OryhTimesheetRemote, type TimesheetAction, type TimesheetDetail, type TimesheetHeader, type TimesheetIntent, type TimesheetLine } from './contracts.js'
@@ -15,6 +15,8 @@ export interface TimesheetHttp {
     readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
     readonly body?: unknown
     readonly retryExpired?: boolean
+    /** On the server, how this write was confirmed; the desktop transport ignores it. */
+    readonly operation?: OryhOperation
   }): Promise<unknown>
 }
 
@@ -200,7 +202,8 @@ export class TimesheetService implements OryhTimesheetRemote {
     if (r.expiresAt<Date.now()) throw fail('确认已过期，请重新核对。')
     r=await this.next(id,r,{state:'executing',token:'',message:'正在执行，请勿重复操作。'})
     try {
-      const response=await this.http.request(connectionId(id),{path:r.path,method:r.method,body:r.payload,retryExpired:false})
+      // The intent id names this one write: a server admits it once, and records what came of it.
+      const response=await this.http.request(connectionId(id),{path:r.path,method:r.method,body:r.payload,retryExpired:false,operation:pageOperation(r.id,{method:r.method,path:r.path,body:r.payload},sha256)})
       const data=r.method==='DELETE'?{}:object(object(response).data)
       if (r.method!=='DELETE' && !str(data.id)) throw fail('服务端未返回操作编号。')
       if (r.action.kind==='approve' && object(data.metadata ?? {}).oryh_client_intent_id!==r.id) throw fail('服务端已有其他审批事实，请核对。')
@@ -235,3 +238,5 @@ export class TimesheetService implements OryhTimesheetRemote {
     return this.view(await this.next(id,r,found?{state:'done',resultId:found,message:'已核对到服务端记录。'}:{state:'unknown',message:'尚未找到足以确认的记录。请在 ORYH 核对或联系管理员；不要重复执行。'}))
   }
 }
+
+const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
