@@ -44,7 +44,7 @@ export class ServerOAuth {
   private url(value: string): URL {
     const url = new URL(value)
     if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' &&
-      !(this.options.allowLoopbackForTest && url.protocol === 'http:' && url.hostname === '127.0.0.1'))) throw new Error('Invalid trusted OAuth URL')
+      !(this.options.allowLoopbackForTest && url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname)))) throw new Error('Invalid trusted OAuth URL')
     return url
   }
   /** binding is a random pre-login cookie owned by the trusted HTTP entry, never model input. */

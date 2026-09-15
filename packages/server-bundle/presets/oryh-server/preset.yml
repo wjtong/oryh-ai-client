@@ -1,0 +1,3 @@
+name: ORYH 业务助手
+description: 服务器版的 ORYH 业务 Agent：按 ORYH 技能查询与处理业务，不运行命令、不读写文件、不访问网页。
+order: 1

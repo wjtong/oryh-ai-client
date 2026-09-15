@@ -31,7 +31,23 @@ export interface OryhHttpClientOptions {
   /** Refresh an access key this many milliseconds before its server-provided expiry. */
   readonly refreshAheadMs?: number
   /** Trusted server adapter; owns authentication outside this business Host. Never a model argument. */
-  readonly delegated?: { readonly signal: AbortSignal; request(request: OryhRequest, signal: AbortSignal): Promise<unknown> }
+  readonly delegated?: DelegatedTransport
+}
+
+/** What ORYH answered to one brokered request: its status and parsed JSON body. */
+export interface DelegatedResponse {
+  readonly status: number
+  readonly body: unknown
+}
+
+/**
+ * A transport that authenticates somewhere else — the server's control process, which holds the
+ * person's grant. It answers ORYH's own status so domain errors (409, 422) read as they do locally;
+ * it throws an `OryhClientError` when it refuses a request itself, with a message meant for people.
+ */
+export interface DelegatedTransport {
+  readonly signal: AbortSignal
+  send(request: OryhRequest, signal: AbortSignal): Promise<DelegatedResponse>
 }
 
 interface ErrorBody {
@@ -106,12 +122,9 @@ export class OryhHttpClient {
   async request(connectionId: ConnectionId, request: OryhRequest): Promise<unknown> {
     this.assertOpen(connectionId)
     if (this.options.delegated) {
-      const signal = AbortSignal.any([this.options.delegated.signal, this.requestSignal(connectionId)])
-      try {
-        const result = await this.options.delegated.request(request, signal)
-        signal.throwIfAborted(); this.assertOpen(connectionId)
-        return result
-      } catch { throw new OryhClientError('Server business request failed or authorization ended.', 'request-failed') }
+      const answer = await this.delegate(connectionId, request)
+      if (answer.status >= 200 && answer.status < 300) return answer.body
+      throw requestError({ ok: false, status: answer.status, json: async () => answer.body }, answer.body, request.path)
     }
     const connection = this.connections.require(connectionId)
     let credential = await this.requireCredential(connectionId)
@@ -132,6 +145,26 @@ export class OryhHttpClient {
     this.assertOpen(connectionId)
     if (second.ok) return secondBody
     throw requestError(second, secondBody, request.path)
+  }
+
+  /**
+   * Send one request through the delegated transport, bounded by this connection's lifetime.
+   * A refusal the transport explains is passed on; any other failure is reported without its detail,
+   * which could carry transport internals.
+   */
+  private async delegate(connectionId: ConnectionId, request: OryhRequest): Promise<DelegatedResponse> {
+    const delegated = this.options.delegated!
+    const signal = AbortSignal.any([delegated.signal, this.requestSignal(connectionId)])
+    let answer: DelegatedResponse
+    try {
+      answer = await delegated.send(request, signal)
+    } catch (error) {
+      if (error instanceof OryhClientError && !signal.aborted) throw error
+      throw new OryhClientError('Server business request failed or authorization ended.', 'request-failed')
+    }
+    signal.throwIfAborted()
+    this.assertOpen(connectionId)
+    return answer
   }
 
   /** Wait for an existing refresh to stop before deleting its credential entry. */
@@ -211,7 +244,11 @@ export class OryhHttpClient {
    * @returns the parsed OpenAPI document.
    */
   async schema(connectionId: ConnectionId): Promise<unknown> {
-    if (this.options.delegated) throw new OryhClientError('Server schema discovery is not enabled in this read-only pilot.', 'request-failed')
+    if (this.options.delegated) {
+      const answer = await this.delegate(connectionId, { path: '/openapi.json', root: true })
+      if (answer.status !== 200) throw new OryhClientError(`ORYH did not serve its API schema (HTTP ${answer.status}).`, 'invalid-response')
+      return answer.body
+    }
     this.assertOpen(connectionId)
     const connection = this.connections.require(connectionId)
     const response = await this.fetcher(`${connection.origin}/openapi.json`, {

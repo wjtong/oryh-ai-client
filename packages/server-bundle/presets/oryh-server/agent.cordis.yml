@@ -1,0 +1,47 @@
+# The `oryh-server` agent preset: the only preset an owner Host on the ORYH server runs (docs/33).
+#
+# Derived from the shipped `standard` preset by keeping what a business agent needs and removing
+# everything that executes code or touches files or the network on the server: no shell, filesystem,
+# background jobs, web, subagents, workflows or plan mode. ORYH's own tools (MCP, pages) are
+# registered by @oryh/dsh-host on the host plane and reach the agent through its tool allowlist.
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    prefix: >-
+      You are the ORYH business assistant, powered by the {{model}} model.
+
+# Skills are ORYH's business logic, installed by the business runtime into this owner's skills root.
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true

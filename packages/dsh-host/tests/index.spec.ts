@@ -86,9 +86,11 @@ describe('ORYH external Host plugin', () => {
     expect(method('expenseConfirm').parameters[0]!.codec!.schema.safeParse({ connectionId: 'c', id: 'd', revision: 1 }).success).toBe(false)
   })
 
-  it('rejects relative persistence paths and unvalidated production composition', () => {
+  it('rejects relative persistence paths and unvalidated production composition', async () => {
     const ctx = new Context()
-    expect(() => plugin.apply(ctx, { developmentOnly: true, dataDirectory: './data' })).toThrow(/absolute path/)
-    expect(() => plugin.apply(ctx, { developmentOnly: false })).toThrow(/developmentOnly/)
+    await expect(plugin.apply(ctx, { developmentOnly: true, dataDirectory: './data' })).rejects.toThrow(/absolute path/)
+    await expect(plugin.apply(ctx, { developmentOnly: false })).rejects.toThrow(/developmentOnly/)
+    // Server mode takes its identity only from the control process that started it.
+    await expect(plugin.apply(ctx, { developmentOnly: false, mode: 'server' })).rejects.toThrow(/control process/)
   })
 })

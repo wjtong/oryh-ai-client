@@ -1,7 +1,21 @@
 import type { OryhIdentity } from './contracts.js'
-import type { OryhRequest } from './http.js'
+import type { DelegatedResponse, OryhRequest } from './http.js'
 import { OryhClientHost } from './host.js'
 import { OryhClientError } from './errors.js'
+
+/**
+ * A business Host's link to the trusted server process that holds its person's ORYH grant.
+ * Bound by trusted server code, never serializable plugin config or a browser Remote argument.
+ */
+export interface ServerBinding {
+  readonly origin: string
+  readonly identity: OryhIdentity
+  readonly signal: AbortSignal
+  /** Send one ORYH request under that grant; the server process decides what it lets through. */
+  send(request: OryhRequest, signal: AbortSignal): Promise<DelegatedResponse>
+  /** Whether this Host may install skills read over MCP into its own skills directory. */
+  readonly installSkills?: boolean
+}
 
 /** Bound by trusted server code, not serializable plugin config or a browser Remote argument. */
 export interface ServerReadBinding {
@@ -26,10 +40,10 @@ export async function createServerReadHost(binding: ServerReadBinding): Promise<
   if (origin.protocol !== 'https:' || origin.origin !== binding.origin || !binding.identity.user.id.trim() || !binding.identity.tenant.id.trim()) throw denied()
   binding.signal.throwIfAborted()
   const identity = structuredClone(binding.identity)
-  const delegated: ServerReadBinding = { origin: origin.origin, identity, signal: binding.signal,
-    request: async (request, signal) => { assertServerRead(request); signal.throwIfAborted(); return binding.request(request, signal) } }
+  const delegated: ServerBinding = { origin: origin.origin, identity, signal: binding.signal,
+    send: async (request, signal) => { assertServerRead(request); signal.throwIfAborted(); return { status: 200, body: await binding.request(request, signal) } } }
   const host = new OryhClientHost({
-    serverReadBinding: delegated,
+    serverBinding: delegated,
     credentialVault: { read: async () => { throw denied() }, write: async () => { throw denied() }, remove: async () => {} },
     fetcher: async () => { throw denied() },
   })

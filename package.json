@@ -17,7 +17,8 @@
     "server:p0:cold-build": "node scripts/server-p0-cold-build.mjs",
     "server:p0": "pnpm --filter @oryh/server-lab build && pnpm --filter @oryh/server-lab test && pnpm --filter @oryh/server-lab probe:docker",
     "server:p0:shell": "pnpm --filter @oryh/server-lab build && pnpm --filter @oryh/server-lab probe:shell",
-    "server:preflight": "node scripts/server-deployment-preflight.mjs"
+    "server:preflight": "node scripts/server-deployment-preflight.mjs",
+    "server:dev": "pnpm --filter @oryh/server-lab build && node --env-file-if-exists=.env packages/server-lab/lib/control-main.js"
   },
   "devDependencies": {
     "@deepseek-ai/dsh": "link:../deepseek-harness/apps/cli",

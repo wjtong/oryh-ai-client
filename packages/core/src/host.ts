@@ -1,4 +1,4 @@
-import type { ServerReadBinding } from './server-read.js'
+import type { ServerBinding } from './server-read.js'
 import {RecordService} from '@oryh/ai-client-records'
 import {ProjectService,type ProjectStore} from '@oryh/ai-client-projects'
 import { TodoDetailService } from '@oryh/ai-client-todos'
@@ -30,8 +30,8 @@ export interface OryhClientHostOptions {
   readonly clock?: () => Date
   /** Non-secret connection metadata store; production persists it outside the credential vault. */
   readonly connectionStore?: ConnectionStore
-  /** Trusted server-only binding. Use createServerReadHost rather than browser configuration. */
-  readonly serverReadBinding?: ServerReadBinding
+  /** Trusted server-only binding. Use createServerReadHost or createServerOryhRuntime, never browser configuration. */
+  readonly serverBinding?: ServerBinding
   /** Credentials a trusted sign-in in the same deployment leaves for this Host to adopt. */
   readonly credentialHandoff?: CredentialHandoff
 }
@@ -48,19 +48,19 @@ export class OryhClientHost {
   readonly #credentials: CredentialVault
   readonly #connectionStore: ConnectionStore | undefined
   readonly #ready: Promise<void>
-  private readonly serverBinding: ServerReadBinding | undefined
+  private readonly serverBinding: ServerBinding | undefined
   private detachServer: () => void = () => {}
   readonly #verifications = new Map<ConnectionId, Promise<ConnectionSummary>>()
   readonly #handoff: CredentialHandoff | undefined
   #adopting: Promise<void> = Promise.resolve()
 
   constructor(options: OryhClientHostOptions) {
-    if (options.serverReadBinding && options.connectionStore) throw new Error('Server binding cannot restore desktop connections')
-    this.serverBinding = options.serverReadBinding
+    if (options.serverBinding && options.connectionStore) throw new Error('Server binding cannot restore desktop connections')
+    this.serverBinding = options.serverBinding
     this.#credentials = options.credentialVault
     this.#connectionStore = options.connectionStore
-    this.#handoff = options.serverReadBinding ? undefined : options.credentialHandoff
-    this.#http = new OryhHttpClient(this.#connections, this.#credentials, options.fetcher, options.serverReadBinding ? { delegated: options.serverReadBinding } : {})
+    this.#handoff = options.serverBinding ? undefined : options.credentialHandoff
+    this.#http = new OryhHttpClient(this.#connections, this.#credentials, options.fetcher, options.serverBinding ? { delegated: options.serverBinding } : {})
     this.#devices = new DeviceFlowConnector(
       this.#connections,
       this.#credentials,
@@ -98,7 +98,7 @@ export class OryhClientHost {
   createMcpClient() { return new OryhMcpClient(this.#http) }
   /** ORYH skill installer, reading skills from MCP; the credential stays inside the shared HTTP client. */
   createSkillBundle(root: string) {
-    if (this.serverBinding) throw new OryhClientError('Server skills are delivered through MCP.', 'request-failed')
+    if (this.serverBinding && this.serverBinding.installSkills !== true) throw new OryhClientError('Server skills are delivered through MCP.', 'request-failed')
     // The holder is read from the connection as already verified. Starting a verification here would
     // clear the connection's in-flight business reads, and a skill sync runs whenever the workbench opens.
     return new SkillBundleService(this.#http, root, async id => {

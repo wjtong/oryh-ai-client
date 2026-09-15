@@ -495,8 +495,9 @@ describe('menu entries a person adds through chat',()=>{
 describe('the agent as the primary client',()=>{
  const principal={origin:'https://oryh.example',tenantId:'tenant',userId:'user',employeeId:'employee',tenantName:'晶诚',email:'hua@example.invalid'}
  /** The chat with its tools and listeners installed, on a context that records both. */
- async function installed(connections=1,holder:typeof principal|null=null,mcpTools:{name:string;readOnly:boolean;isError?:boolean}[]=[]){
+ async function installed(connections=1,holder:typeof principal|null=null,mcpTools:{name:string;readOnly:boolean;isError?:boolean}[]=[],capabilities?:{shell:boolean;writes:boolean}){
   const directory=await mkdtemp(join(tmpdir(),'oryh-chat-'))
+  let prompt=''
   const agent={id:'s',status:'idle',session:{header:{isSeeded:false,parentSession:undefined as string|undefined}}}
   const identity={id:connectionId,origin:'https://oryh.example',identity:{permissions:[],tenant:{id:'tenant',name:'晶诚'},user:{id:'user',email:'hua@example.invalid',employeeId:'employee'}}}
   const tools=new Map<string,{execute:(args:unknown,exec:unknown)=>Promise<string>}>()
@@ -504,7 +505,7 @@ describe('the agent as the primary client',()=>{
   const ctx={
    agents:{get:(id:string)=>id==='s'?agent:undefined,list:()=>[]},
    tools:{register:(tool:{name:string})=>{tools.set(tool.name,tool as never);return()=>{tools.delete(tool.name)}}},
-   systemPrompt:{section:()=>{}},
+   systemPrompt:{section:(s:{text:string})=>{prompt=s.text}},
    // Effects run, so the per-agent tool policy is really applied when an agent is created.
    effect:(fn:()=>unknown)=>{fn()},
    on:(name:string,fn:(...args:never[])=>unknown)=>{listeners.set(name,[...(listeners.get(name)??[]),fn])},
@@ -514,10 +515,10 @@ describe('the agent as the primary client',()=>{
   const skills=desktopSkillService({sync,installedPrincipal:()=>holder})
   const callTool=vi.fn(async(_c:string,name:string)=>{const tool=mcpTools.find(t=>t.name===name)!;return {text:tool.isError?'{"detail":"refused"}':'{"data":[]}',isError:Boolean(tool.isError)}})
   const mcp={tools:async()=>mcpTools.map(t=>({name:t.name,description:t.name,inputSchema:{type:'object',properties:{}},readOnly:t.readOnly})),callTool} as unknown as import('@oryh/ai-client-core').OryhMcpClient
-  const chat=new BusinessChat(ctx,controller,{read:async()=>({})} as unknown as TodoDetailService,directory,undefined,undefined,skills,mcp)
+  const chat=new BusinessChat(ctx,controller,{read:async()=>({})} as unknown as TodoDetailService,directory,undefined,undefined,skills,mcp,capabilities)
   chat.install()
   const exec={agent:{id:'s'},signal:new AbortController().signal}
-  return {chat,sync,exec,callTool,
+  return {chat,sync,exec,callTool,prompt:()=>prompt,
    /** An agent as the runtime creates it, with the tool policy it is given recorded. */
    created:()=>{const policies:{allow:string[];lifted:boolean}[]=[];const agentCtx={tools:{restrict:(filter:{allow:string[]})=>{const policy={allow:filter.allow,lifted:false};policies.push(policy);return()=>{policy.lifted=true}},presentAs:()=>()=>{}},systemPrompt:{context:()=>()=>{}}};for(const fn of listeners.get('agent/created')??[])(fn as unknown as (p:unknown)=>void)({agent:{id:'s',ctx:agentCtx}});return policies},
    tool:(name:string)=>tools.get(name)!,
@@ -528,6 +529,20 @@ describe('the agent as the primary client',()=>{
    bindHome:()=>chat.select({sessionId:'s',connectionId,homeOnly:true}),
    close:()=>rm(directory,{recursive:true,force:true})}
  }
+ it('on a read-only server without a shell, never offers bash and tells the agent it cannot write',async()=>{
+  const f=await installed(1,null,[],{shell:false,writes:false});try{
+   const [policy]=f.created()
+   expect(policy!.allow).not.toContain('bash')
+   expect(policy!.allow).toContain('skill')
+   expect((await f.denied('bash')).kind).toBe('deny')
+   expect(f.prompt()).toMatch(/目前只读/)
+   expect(f.prompt()).not.toMatch(/bash 只用于/)
+  }finally{await f.close()}
+  const desktop=await installed();try{
+   expect(desktop.created()[0]!.allow).toContain('bash')
+   expect(desktop.prompt()).not.toMatch(/目前只读/)
+  }finally{await desktop.close()}
+ })
  it('answers that no page is open instead of failing, so the agent carries on through skills',async()=>{
   const f=await installed();try{
    const page=JSON.parse(await f.tool('oryh_current_page').execute({},f.exec))

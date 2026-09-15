@@ -1,0 +1,16 @@
+# Production front for the ORYH server (docs/33). Replace client.example.com with your domain.
+# Owners are served from subdomains, so the certificate must cover *.client.example.com: that needs a
+# DNS challenge (a Caddy build with your DNS provider's module) — HTTP challenges cannot issue wildcards.
+# Set in .env: ORYH_CLIENT_PUBLIC_ORIGIN=https://client.example.com  ORYH_CLIENT_OWNER_DOMAIN=client.example.com
+client.example.com, *.client.example.com {
+	tls {
+		dns <provider> <credentials>
+	}
+	reverse_proxy server:4300 {
+		# The login routes refuse requests carrying forwarding headers, and nothing downstream reads them.
+		header_up -X-Forwarded-For
+		header_up -X-Forwarded-Proto
+		header_up -X-Forwarded-Host
+		header_up -Forwarded
+	}
+}
