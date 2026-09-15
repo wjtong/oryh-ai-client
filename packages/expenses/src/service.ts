@@ -1,4 +1,4 @@
-import { OryhClientError, connectionId, type ConnectionId } from '@oryh/ai-client-foundation'
+import { OryhClientError, connectionId, pageOperation, type ConnectionId, type OryhOperation } from '@oryh/ai-client-foundation'
 import { requirePermission } from '@oryh/ai-client-pages'
 import { createHash, randomUUID } from 'node:crypto'
 import { EXPENSE_OBJECT_TYPE, expenseError, object, parseExpenseFields, type ExpenseDraft, type ExpenseFields, type OryhExpenseRemote } from './contracts.js'
@@ -11,6 +11,8 @@ export interface ExpenseHttp {
     readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
     readonly body?: unknown
     readonly retryExpired?: boolean
+    /** On the server, how this write was confirmed; the desktop transport ignores it. */
+    readonly operation?: OryhOperation
   }): Promise<unknown>
 }
 
@@ -180,8 +182,10 @@ export class ExpenseService implements OryhExpenseRemote {
     record = await this.next(id, record, { state: action === 'create' ? 'creating' : 'submitting', confirmation: undefined })
     try {
       this.guard(id, record.scope)
-      const body = object(await this.http.request(connectionId(id), { path: action === 'create' ? '/expense-claims' : `/expense-claims/${encodeURIComponent(record.claimId!)}/submit`,
-        method: 'POST', body: action === 'create' ? this.payload(record, id) : {}, retryExpired: false }))
+      const write = { path: action === 'create' ? '/expense-claims' as const : `/expense-claims/${encodeURIComponent(record.claimId!)}/submit` as const,
+        method: 'POST' as const, body: action === 'create' ? this.payload(record, id) : {} }
+      // One draft creates and then submits; the action and revision make each write its own operation.
+      const body = object(await this.http.request(connectionId(id), { ...write, retryExpired: false, operation: pageOperation(`${record.id}:${action}:${record.revision}`, write, hashText) }))
       const claim = object(body.data)
       if (typeof claim.id !== 'string' || typeof claim.status !== 'string' || claim.employee_id !== this.connection(id).identity.user.employeeId
         || (action === 'submit' && (claim.id !== record.claimId || typeof claim.submitted_at !== 'string'))) throw expenseError('服务端回执不完整，请核对结果。')
@@ -234,8 +238,9 @@ export class ExpenseService implements OryhExpenseRemote {
     const bytes = Buffer.from(input.contentBase64, 'base64')
     if (bytes.length === 0 || bytes.length > 500 * 1024) throw expenseError('附件超过 500 KB 限制。')
     const sha256 = createHash('sha256').update(bytes).digest('hex')
-    const body = object(await this.http.request(connectionId(id), { path: '/attachments', method: 'POST',
-      body: { filename: input.filename, content_type: input.contentType, content_base64: input.contentBase64 }, retryExpired: false }))
+    const upload = { path: '/attachments' as const, method: 'POST' as const, body: { filename: input.filename, content_type: input.contentType, content_base64: input.contentBase64 } }
+    // Choosing the file is the person's confirmation of this upload.
+    const body = object(await this.http.request(connectionId(id), { ...upload, retryExpired: false, operation: pageOperation(randomUUID(), upload, hashText) }))
     this.guard(id, scope)
     const attachment = object(body.data)
     if (typeof attachment.id !== 'string' || attachment.sha256 !== sha256) throw expenseError('附件上传回执无法核对。')
@@ -261,3 +266,5 @@ function matchesFields(detail: Record<string, unknown>, fields: ExpenseFields): 
   const expected = fields.items.map(row => JSON.stringify([row.expenseDate, row.category, row.amount, row.merchant, row.invoiceNumber, row.notes, row.attachment?.id ?? null])).sort()
   return actual.every((row, index) => row === expected[index])
 }
+
+const hashText = (text: string) => createHash('sha256').update(text).digest('hex')

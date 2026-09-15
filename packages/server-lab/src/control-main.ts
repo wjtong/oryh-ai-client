@@ -12,6 +12,7 @@
  *   ORYH_ADMISSION_TRACE=1      log each owner Host's Gateway admission decisions
  *   ORYH_OAUTH_COMPACT          1/0: authorization request within 128 characters, for ORYH before calwbiz
  *                               ecab43d; default 1 for a localhost public origin, 0 otherwise
+ *   ORYH_WRITES=0                read-only, as in M1; writes are otherwise admitted with receipts in <data root>/control
  *   ORYH_CONTROL_HOST / ORYH_CONTROL_PORT   listen address and port; default loopback in development, the public origin's port
  *
  * Development: `node --env-file=.env packages/server-lab/lib/control-main.js`, then open the public origin.
@@ -22,6 +23,14 @@ import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startControlServer } from './control-server.js'
 import { startOwnerHost } from './owner-host.js'
+import { SqliteReceiptStore } from './write-receipts.js'
+
+// Receipts use Node's built-in SQLite, which still announces itself as experimental on first load.
+const emitWarning = process.emitWarning.bind(process) as (...args: unknown[]) => void
+process.emitWarning = ((warning: unknown, ...rest: unknown[]) => {
+  if (String(warning).includes('SQLite is an experimental feature')) return
+  emitWarning(warning, ...rest)
+}) as typeof process.emitWarning
 
 const env = process.env
 const publicOrigin = new URL(env.ORYH_CLIENT_PUBLIC_ORIGIN ?? 'http://localhost:4300').origin
@@ -60,6 +69,7 @@ async function storeMasterKey(): Promise<Buffer> {
 }
 
 const key = await storeMasterKey()
+const receipts = env.ORYH_WRITES === '0' ? undefined : new SqliteReceiptStore(join(dataRoot, 'control', 'receipts.sqlite'), await import('node:sqlite'))
 const owners = join(dataRoot, 'owners')
 const port = Number(publicUrl.port || (publicUrl.protocol === 'https:' ? 443 : 80))
 const control = await startControlServer({
@@ -67,6 +77,7 @@ const control = await startControlServer({
   ownerDomain,
   servers,
   loopbackDevelopment,
+  ...receipts ? { receipts } : {},
   compactAuthorization: (env.ORYH_OAUTH_COMPACT ?? (loopbackDevelopment ? '1' : '0')) === '1',
   ...env.ORYH_CONTROL_HOST ? { listenHost: env.ORYH_CONTROL_HOST } : {},
   capacity: Number(env.ORYH_HOST_CAPACITY ?? 2),
@@ -81,10 +92,11 @@ const control = await startControlServer({
     identity: session.identity,
     broker: session.broker,
     traceAdmission: env.ORYH_ADMISSION_TRACE === '1',
+    writes: receipts !== undefined,
     log: line => console.log(`owner ${owner.slice(0, 8)}: ${line}`),
   }),
 }, Number(env.ORYH_CONTROL_PORT ?? port))
 console.log(`oryh-server: listening on ${control.port}; open ${publicOrigin}/`)
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-  process.once(signal, () => { void control.close().finally(() => process.exit(0)) })
+  process.once(signal, () => { void control.close().finally(() => { receipts?.close(); process.exit(0) }) })
 }

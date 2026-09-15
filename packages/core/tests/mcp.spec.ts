@@ -8,13 +8,15 @@ type Message = { jsonrpc: string; id: number; method: string; params?: Record<st
 /** An MCP endpoint answering each message with `respond`, recording every POST it receives. */
 function endpoint(respond: (message: Message) => unknown) {
   const posts: unknown[] = []
+  const requests: unknown[] = []
   const request = vi.fn(async (_id: ConnectionId, r: { path: string; root?: boolean; method?: string; body?: unknown }) => {
     expect(r).toMatchObject({ path: '/mcp', root: true, method: 'POST' })
     posts.push(r.body)
+    requests.push(r)
     const reply = (message: Message) => ({ jsonrpc: '2.0', id: message.id, ...(respond(message) as object) })
     return Array.isArray(r.body) ? (r.body as Message[]).map(reply) : reply(r.body as Message)
   })
-  return { posts, client: new OryhMcpClient({ request } as never) }
+  return { posts, requests, client: new OryhMcpClient({ request } as never) }
 }
 
 describe('ORYH MCP client', () => {
@@ -39,6 +41,15 @@ describe('ORYH MCP client', () => {
       : { result: { content: [{ type: 'text', text: '{"data":[]}' }] } })
     expect(await client.callTool(connectionId, 'oryh_request', { method: 'GET', path: '/todos' })).toEqual({ text: '{"data":[]}', isError: false })
     expect(await client.callTool(connectionId, 'oryh_request', { method: 'GET', path: '/missing' })).toEqual({ text: '{"detail":"not found"}', isError: true })
+  })
+
+  it('carries a chat write\'s operation on the request, for the server to admit and record', async () => {
+    const { client, requests } = endpoint(() => ({ result: { content: [{ type: 'text', text: '{}' }] } }))
+    const operation = { kind: 'chat' as const, operationId: 'op-1', sessionId: 's', callId: 'call-1' }
+    await client.callTool(connectionId, 'oryh_request', { method: 'POST', path: '/projects' }, { operation })
+    await client.callTool(connectionId, 'oryh_request', { method: 'GET', path: '/projects' })
+    expect(requests[0]).toMatchObject({ operation })
+    expect(requests[1]).not.toHaveProperty('operation')
   })
 
   it('batches prompt reads, and fails loudly on a JSON-RPC error rather than returning part of the set', async () => {

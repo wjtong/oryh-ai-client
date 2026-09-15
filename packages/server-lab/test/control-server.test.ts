@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import WebSocket, { WebSocketServer } from 'ws'
 import { startControlServer } from '../src/control-server.js'
 import type { OwnerBroker } from '../src/owner-broker.js'
+import { MemoryReceiptStore } from '../src/write-receipts.js'
 
 const cleanup: Array<() => Promise<unknown> | unknown> = []
 afterEach(async () => { for (const dispose of cleanup.splice(0).reverse()) await dispose() })
@@ -43,6 +44,11 @@ function hosts() {
   const started: { owner: string; server: Server; stopped: boolean; broker: OwnerBroker }[] = []
   const startHost = vi.fn(async (owner: string, _generation: number, _signal: AbortSignal, session: { broker: OwnerBroker }) => {
     const server = createServer(async (req, res) => {
+      if (req.url === '/broker-write') {
+        const answer = await session.broker.send({ path: '/mcp', root: true, method: 'POST', body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'oryh_request', arguments: { method: 'POST', path: '/projects', body: { project_name: 'P' } } } },
+          operation: { kind: 'chat', operationId: 'op-control-1', sessionId: 's', callId: 'c' } }, new AbortController().signal).catch((error: Error) => ({ status: 0, body: error.message }))
+        res.end(JSON.stringify(answer)); return
+      }
       if (req.url === '/broker') {
         const answer = await session.broker.send({ path: '/projects' }, new AbortController().signal)
         res.end(JSON.stringify(answer.body)); return
@@ -65,13 +71,13 @@ function hosts() {
   return { started, startHost }
 }
 
-async function setup(options: { idleMs?: number; compact?: boolean } = {}) {
+async function setup(options: { idleMs?: number; compact?: boolean; receipts?: MemoryReceiptStore } = {}) {
   const port = await freePort()
   const publicOrigin = `http://localhost:${port}`
   const api = oryh(), host = hosts()
   const control = await startControlServer({
     publicOrigin, ownerDomain: `localhost:${port}`, servers: [{ id: 'oryh', label: 'ORYH', issuer }],
-    startHost: host.startHost, loopbackDevelopment: true, fetch: api.fetch, idleMs: options.idleMs ?? 0, compactAuthorization: options.compact ?? false,
+    startHost: host.startHost, loopbackDevelopment: true, fetch: api.fetch, idleMs: options.idleMs ?? 0, compactAuthorization: options.compact ?? false, ...options.receipts ? { receipts: options.receipts } : {},
   }, port)
   cleanup.push(() => control.close())
 
@@ -139,6 +145,18 @@ describe('the control server', () => {
     const at4300 = fingerprint.replaceAll(`localhost:${f.port}`, 'localhost:4300')
     expect(at4300.length).toBeLessThanOrEqual(128)
     expect((await f.call(`${label}.localhost`, '/')).status).toBe(303)
+  })
+
+  it('records each owner\'s writes under that owner when receipts are configured, and stays read-only without', async () => {
+    const receipts = new MemoryReceiptStore()
+    const f = await setup({ receipts })
+    const a = await f.signIn('alice')
+    await f.call(`${a.label}.localhost`, '/broker-write', { cookie: a.owner })
+    const [receipt] = receipts.list(f.host.started[0]!.owner)
+    expect(receipt).toMatchObject({ operationId: 'op-control-1', operation: 'project.create', kind: 'chat' })
+    const readOnly = await setup()
+    const b = await readOnly.signIn('bob')
+    expect(JSON.parse((await readOnly.call(`${b.label}.localhost`, '/broker-write', { cookie: b.owner })).body).body).toContain('只读')
   })
 
   it('spends tickets once and keeps owners apart', async () => {

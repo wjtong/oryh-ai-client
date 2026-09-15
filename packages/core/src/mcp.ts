@@ -1,6 +1,7 @@
 import { OryhClientError } from '@oryh/ai-client-foundation'
 import type { ConnectionId } from './brand.js'
 import type { OryhHttpClient } from './http.js'
+import type { OryhOperation } from './server-operation.js'
 
 /**
  * ORYH's MCP endpoint, spoken by the Host on the agent's behalf.
@@ -88,10 +89,11 @@ export class OryhMcpClient {
    * @param connectionId - the enterprise connection whose credential the call carries.
    * @param name - the tool's name as the server lists it.
    * @param args - the tool's arguments.
+   * @param options - `operation`: on the server, the chat write this call is, for the control process to admit and record.
    * @returns the answered text; `isError` when the server reports the call failed.
    */
-  async callTool(connectionId: ConnectionId, name: string, args: Json): Promise<OryhMcpToolResult> {
-    const [result] = await this.exchange(connectionId, [{ method: 'tools/call', params: { name, arguments: args } }])
+  async callTool(connectionId: ConnectionId, name: string, args: Json, options: { readonly operation?: OryhOperation } = {}): Promise<OryhMcpToolResult> {
+    const [result] = await this.exchange(connectionId, [{ method: 'tools/call', params: { name, arguments: args } }], options.operation)
     const reply = isObject(result) ? result : {}
     const text = textOf(reply.content) || (reply.structuredContent === undefined ? '（没有返回内容）' : JSON.stringify(reply.structuredContent))
     return { text, isError: reply.isError === true }
@@ -175,12 +177,12 @@ export class OryhMcpClient {
    * @param requests - requests to send.
    * @returns each request's `result`.
    */
-  private async exchange(connectionId: ConnectionId, requests: readonly RpcRequest[]): Promise<unknown[]> {
+  private async exchange(connectionId: ConnectionId, requests: readonly RpcRequest[], operation?: OryhOperation): Promise<unknown[]> {
     const results: unknown[] = []
     for (let start = 0; start < requests.length; start += BATCH_SIZE) {
       const chunk = requests.slice(start, start + BATCH_SIZE)
       const messages = chunk.map(request => ({ jsonrpc: '2.0', id: ++this.#nextId, method: request.method, ...(request.params === undefined ? {} : { params: request.params }) }))
-      const body = await this.http.request(connectionId, { path: '/mcp', root: true, method: 'POST', body: messages.length === 1 ? messages[0] : messages })
+      const body = await this.http.request(connectionId, { path: '/mcp', root: true, method: 'POST', body: messages.length === 1 ? messages[0] : messages, ...operation ? { operation } : {} })
       const replies = new Map((Array.isArray(body) ? body : [body]).filter(isObject).map(reply => [reply.id, reply]))
       messages.forEach((message, index) => {
         const reply = replies.get(message.id)
