@@ -23,7 +23,7 @@ ORYH 客户端通过 DeepSeek Harness 的外部 Host 插件、Client 插件和 `
 pnpm -C ../deepseek-harness install
 
 # 2. 应用外部 Remote 补丁（版本基线见 patches/deepseek-harness-external-remote.json）
-git -C ../deepseek-harness apply patches/deepseek-harness-external-remote.patch
+git -C ../deepseek-harness apply "$PWD/patches/deepseek-harness-external-remote.patch"
 
 # 3. 构建 Harness —— 必须在打补丁之后，产物才带上修复
 pnpm -C ../deepseek-harness build
@@ -125,3 +125,13 @@ ORYH：`/Users/wtong/git/calwbiz`。Harness：`/Users/wtong/git/deepseek-harness
 模型与聊天配置见 [配置模型并开始聊天](docs/15-model-configuration.md)。左下角「模型与设置」复用原生 Models 页面，支持 Base URL、API key、协议和模型目录。
 
 工时录入、修改、提交与经理审批的操作和边界见 [工时工作流](docs/16-timesheet-workflow.md)。
+
+## 多租户服务器版实施（P0）
+
+服务器版按 [实施方案](docs/19-multi-tenant-server-plan.md) 和 [S0 验收](docs/21-s0-acceptance.md) 推进，进度见 [P0 实施记录](docs/27-server-p0-implementation.md)。当前新增的是私有验证工具，**不是可部署的服务器版**；现有 Profile 的单用户限制仍保留。
+
+`pnpm server:p0` 运行边界自动测试及显式 Docker 四身份探针；`pnpm server:p0:inventory` 记录实际生成接口；`pnpm server:p0:cold-build` 在临时目录验证已提交基线的干净克隆构建。使用方法与未验证范围见 [server-lab](packages/server-lab/README.md)。
+
+## 本地 Docker Compose
+
+完整单用户业务界面可通过仓库根目录的 `compose.yaml` 启动，默认连接测试环境。构建、首次认证入口和持久化说明见 [本地 Compose 指南](deploy/local/README.md)。这不代表多用户服务器版已完成。

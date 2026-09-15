@@ -21,3 +21,6 @@ export * from './local-runtime.js'
 // them directly, so nothing can reach a domain through the core.
 export { WorkflowDefinitions } from './workflow.js'
 export { ListParameters, parameters as listParameters, type ListParameter } from './list-parameters.js'
+export * from './server-read.js'
+
+export * from './skill-service.js'

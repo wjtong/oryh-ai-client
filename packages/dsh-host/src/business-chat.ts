@@ -12,7 +12,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { OryhClientError, type ConnectionId } from '@oryh/ai-client-foundation'
-import { samePrincipal, type OryhClientController, type SkillBundleService } from '@oryh/ai-client-core'
+import { type OryhClientController, type OryhSkillService } from '@oryh/ai-client-core'
 import type { TodoDetailService, TodoDocument } from '@oryh/ai-client-todos'
 import { TimesheetChat } from './timesheet-chat.js'
 import type { OryhTimesheetRemote } from '@oryh/ai-client-timesheets'
@@ -87,7 +87,7 @@ export class BusinessChat {
   private serverChanges=new Map<string,{id:string;at:number}>()
   /** Sessions whose current turn has run the shell since their last marker. */
   private shellTurns=new Set<string>()
-  constructor(private ctx:Context,private controller:OryhClientController,private details:TodoDetailService,private directory:string, private api?:OryhTimesheetRemote,private projects?:OryhProjectRemote,private skills?:SkillBundleService){
+  constructor(private ctx:Context,private controller:OryhClientController,private details:TodoDetailService,private directory:string, private api?:OryhTimesheetRemote,private projects?:OryhProjectRemote,private skills?:OryhSkillService){
     this.reviews=new SubmitReview(ctx,this.queue)
     this.userViewRegistry=new UserViewRegistry(ctx)
     this.project=new ProjectChat(ctx,projects,id=>{const home=this.homes.get(id);if(!home||this.pages.get(id)?.page!=='list-projects')throw new OryhClientError('当前不是项目页面。','request-failed');return home.connectionId},this.queue)
@@ -536,27 +536,13 @@ export class BusinessChat {
     if(connections.length===1)return connections[0]!.id
     throw new OryhClientError(connections.length?'这个会话没有关联企业，而本机有多个企业连接；请在工作台左侧选择企业后再同步技能。':'本机还没有连接任何企业，请先在工作台连接企业。','request-failed')
   }
-  /**
-   * Whose ORYH skills this agent would write with, compared with the enterprise its session is bound to.
-   *
-   * A skill carries its holder's credential and the skills root is shared, so after switching accounts
-   * the bundle can belong to someone other than this session's enterprise. The agent is told before it
-   * writes, rather than anyone finding out from the name a record was filed under.
-   * @param sessionId - session whose agent reads this.
-   * @returns one sentence for the agent's context.
-   */
+  /** Ask the active delivery service to compare its trusted principal with the session binding. */
   skillIdentity(sessionId:string):string{
     if(!this.skills)return '本次运行没有装载 ORYH 技能服务。'
-    const holder=this.skills.installedPrincipal()
-    if(holder===undefined)return '正在读取本机 ORYH 技能包属于哪个账号；按 skill 写入前请再核对一次。'
-    if(holder===null)return '本机的 ORYH 技能包没有记录属于哪个账号（尚未安装，或由旧版本安装）；按 skill 写入前先调用 oryh_skill_sync。'
-    const who=`${holder.tenantName} · ${holder.email}`
     const home=this.homes.get(sessionId)
-    if(!home)return `本机的 ORYH 技能包属于：${who}。按 skill 执行的业务都以这个身份进行。`
+    if(!home)return this.skills.identityContext()
     const [origin,tenantId,userId,employeeId]=JSON.parse(home.scope) as [string,string,string,string|null]
-    return samePrincipal(holder,{origin,tenantId,userId,employeeId,tenantName:'',email:''})
-      ?`本机的 ORYH 技能包属于：${who}，与本会话关联的企业身份一致。`
-      :`本机的 ORYH 技能包属于：${who}，与本会话关联的企业身份不一致。不要按 skill 写入；先调用 oryh_skill_sync 同步本会话企业的技能包。`
+    return this.skills.identityContext({origin,tenantId,userId,employeeId,tenantName:'',email:''})
   }
   clear(sessionId:string):void {this.timesheet.clear(sessionId);this.bindings.delete(sessionId); this.serial=this.serial.then(()=>{this.bindings.delete(sessionId)})}
   install():void {
@@ -579,12 +565,8 @@ export class BusinessChat {
     ctx.tools.register(defineTool({name:'oryh_find_timesheets',description:'从任意页面查询可打开的本人工时及本人审批队列，按姓名、期间和编号选择。候选不唯一必须询问，不跨越权限边界。',parameters:{},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(_a,e)=>{if(!e.agent)throw new Error('需要会话');e.signal.throwIfAborted();return JSON.stringify(await this.findTimesheets(String(e.agent.id)))}}))
     ctx.tools.register(defineTool({name:'oryh_open_timesheet',description:'在中间栏打开指定工时单，自动按权限和状态显示编辑或详情；编号为空时打开新建表单。先查询候选，不猜编号，不覆盖未保存修改。',parameters:{headerId:{type:'string',description:'已查询到的工时编号；新建时传空字符串'},todoId:{type:'string',description:'打开他人工时必须传查询到的本人审批待办编号；本人工时或新建传空字符串'}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(args,e)=>{if(!e.agent)throw new Error('需要会话');return this.openTimesheet(String(e.agent.id),e.signal,args.headerId,args.todoId)}}))
     ctx.tools.register(defineTool({name:toolName,description:'只读查询当前会话关联的 ORYH 待办及其采购申请、采购订单、销售报价、销售订单、工时或费用单据详情。身份和目标由 Host 绑定，不接受编号、URL 或员工参数。',parameters:{},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(_args,exec)=>{if(!exec.agent)throw new Error('需要绑定的 ORYH 会话');exec.signal.throwIfAborted();const result=await this.read(String(exec.agent.id));exec.signal.throwIfAborted();return JSON.stringify(result)}}))
-    // Skill updates go through the Host, not through ORYH's own skill-sync skill. Both would work
-    // for a generic agent, but only this one knows the layout this client installs into (docs/23
-    // §4), and one owner means one on-disk truth. `force` because the user asked: an explicit
-    // "update my skills" must re-download even when the server manifest is unchanged, since a
-    // rotated key changes the files without changing the manifest.
-    ctx.tools.register(defineTool({name:'oryh_skill_sync',description:'重新从 ORYH 下载并安装本会话企业的技能包。用户要求更新或同步技能时调用；oryh-skill-identity 说技能包与本会话企业身份不一致时，写入前也先调用。不改任何业务数据；不要自己下载或解压技能包。',parameters:{},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(_a,e)=>{if(!e.agent)throw new Error('需要会话');if(!this.skills)throw new OryhClientError('本次运行没有装载技能服务。','request-failed');const connectionId=await this.skillConnection(String(e.agent.id));e.signal.throwIfAborted();return JSON.stringify(await this.skills.sync(connectionId,true))}}))
+    // Delivery owns refresh semantics: desktop reinstalls its bundle, MCP invalidates its catalog.
+    ctx.tools.register(defineTool({name:'oryh_skill_sync',description:this.skills?.syncDescription??'刷新本会话已授权的 ORYH 技能。',parameters:{},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(_a,e)=>{if(!e.agent)throw new Error('需要会话');if(!this.skills)throw new OryhClientError('本次运行没有装载技能服务。','request-failed');const connectionId=await this.skillConnection(String(e.agent.id));e.signal.throwIfAborted();return JSON.stringify(await this.skills.sync(connectionId,true))}}))
     // Deliberately NOT `complete: true`. That flag restores this section as the *sole* prompt
     // section, which also drops the skill catalog — leaving the agent holding the `skill` tool with
     // no idea which skills exist. It was there to stop the coding preset steering business

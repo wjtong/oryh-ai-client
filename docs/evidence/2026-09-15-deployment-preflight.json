@@ -1,0 +1,7 @@
+{
+  "origin": "https://calwbiz-new.banff-tech.com",
+  "passed": true,
+  "checkedAt": "2026-09-14T23:25:44.664Z",
+  "failures": [],
+  "scope": "Public HTTPS metadata only; browser OAuth, MCP authorization, UI, writes and tenant isolation still require acceptance tests."
+}

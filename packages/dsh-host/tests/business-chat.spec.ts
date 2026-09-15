@@ -1,3 +1,4 @@
+import { desktopSkillService } from '@oryh/ai-client-core'
 import { mkdtemp,rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -509,7 +510,7 @@ describe('the agent as the primary client',()=>{
   } as unknown as Context
   const controller={verifyConnection:async()=>identity,listConnections:async()=>[identity,{...identity,id:'c2'}].slice(0,connections)} as unknown as OryhClientController
   const sync=vi.fn(async()=>({installed:true,root:'/skills',skills:[],message:'已安装。'}))
-  const skills={sync,installedPrincipal:()=>holder} as unknown as import('@oryh/ai-client-core').SkillBundleService
+  const skills=desktopSkillService({sync,installedPrincipal:()=>holder})
   const chat=new BusinessChat(ctx,controller,{read:async()=>({})} as unknown as TodoDetailService,directory,undefined,undefined,skills)
   chat.install()
   const exec={agent:{id:'s'},signal:new AbortController().signal}

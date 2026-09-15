@@ -30,10 +30,28 @@ describe('ORYH external Host plugin', () => {
       expect(restrict).toHaveBeenCalledWith({ allow: ['skill', 'bash', 'oryh_skill_sync', 'oryh_record_filter_fields', 'oryh_menu_add', 'oryh_menu_remove', 'oryh_open_view', 'oryh_current_todo_details', 'oryh_timesheet_read', 'oryh_timesheet_propose', 'oryh_review_result', 'oryh_open_timesheet','oryh_find_timesheets','oryh_visible_todos','oryh_open_todo','oryh_current_page','oryh_project_columns','oryh_record_columns','oryh_record_query','oryh_search_products','oryh_navigate','oryh_open_project','oryh_project_read','oryh_project_fill'] })
       expect(await ctx.waterfall('tools/pre-execute', {} as never, async () => ({ kind: 'allow' }))).toMatchObject({ kind: 'deny' })
       const invoke = (method: string, args: Record<string, unknown> = {}) => ctx.get('typertGateway').invoke({ namespace: 'oryh', method, args })
+      const previousOrigin = process.env.ORYH_SERVER_ORIGIN
+      try {
+        process.env.ORYH_SERVER_ORIGIN = 'https://calwbiz-new.banff-tech.com/'
+        expect(await invoke('connectionDefaults')).toEqual({ origin: 'https://calwbiz-new.banff-tech.com' })
+        process.env.ORYH_SERVER_ORIGIN = 'https://user:secret@example.com'
+        await expect(invoke('connectionDefaults')).rejects.toThrow()
+        delete process.env.ORYH_SERVER_ORIGIN
+        expect(await invoke('connectionDefaults')).toEqual({ origin: '' })
+      } finally {
+        if (previousOrigin === undefined) delete process.env.ORYH_SERVER_ORIGIN
+        else process.env.ORYH_SERVER_ORIGIN = previousOrigin
+      }
       expect(await invoke('listConnections')).toEqual([])
       await expect(invoke('todoDetail', { request: { connectionId: 'unknown', todoId: 't' } })).rejects.toMatchObject({ code: 'oryh/business' })
       await expect(invoke('chatSelect', { request: { connectionId: 'unknown', sessionId: 42 } })).rejects.toMatchObject({ code: 'gateway/input-invalid' })
       expect(await invoke('listOperations')).toHaveLength(3)
+      // The public generated Remote carries MCP results without pretending they are disk installs.
+      const skillResult = { delivery: 'mcp' as const, skills: ['oryh-test'], message: 'Refreshed' }
+      const refresh = vi.spyOn(ctx.get('oryhSkills'), 'sync').mockResolvedValue(skillResult)
+      expect(await invoke('skillSync', { request: { connectionId: 'bound', force: true } })).toEqual(skillResult)
+      expect(refresh).toHaveBeenCalledWith('bound', true)
+      refresh.mockRestore()
       await expect(invoke('timesheetList', { request: { connectionId: 'unknown' } })).rejects.toMatchObject({ code: 'oryh/business', details: { code: 'connection-not-found' } })
       await expect(invoke('timesheetPrepare', { request: { connectionId: 'unknown', action: { kind: 'approve', decision: 'delete', comment: 'invalid' } } })).rejects.toMatchObject({ code: 'gateway/input-invalid' })
       await expect(invoke('timesheetConfirm', { request: { connectionId: 'unknown', id: 'i', revision: 1 } })).rejects.toMatchObject({ code: 'gateway/input-invalid' })

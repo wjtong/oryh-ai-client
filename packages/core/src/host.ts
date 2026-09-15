@@ -1,3 +1,4 @@
+import type { ServerReadBinding } from './server-read.js'
 import {RecordService} from '@oryh/ai-client-records'
 import {ProjectService,type ProjectStore} from '@oryh/ai-client-projects'
 import { TodoDetailService } from '@oryh/ai-client-todos'
@@ -27,6 +28,8 @@ export interface OryhClientHostOptions {
   readonly clock?: () => Date
   /** Non-secret connection metadata store; production persists it outside the credential vault. */
   readonly connectionStore?: ConnectionStore
+  /** Trusted server-only binding. Use createServerReadHost rather than browser configuration. */
+  readonly serverReadBinding?: ServerReadBinding
 }
 
 /**
@@ -41,12 +44,16 @@ export class OryhClientHost {
   readonly #credentials: CredentialVault
   readonly #connectionStore: ConnectionStore | undefined
   readonly #ready: Promise<void>
+  private readonly serverBinding: ServerReadBinding | undefined
+  private detachServer: () => void = () => {}
   readonly #verifications = new Map<ConnectionId, Promise<ConnectionSummary>>()
 
   constructor(options: OryhClientHostOptions) {
+    if (options.serverReadBinding && options.connectionStore) throw new Error('Server binding cannot restore desktop connections')
+    this.serverBinding = options.serverReadBinding
     this.#credentials = options.credentialVault
     this.#connectionStore = options.connectionStore
-    this.#http = new OryhHttpClient(this.#connections, this.#credentials, options.fetcher)
+    this.#http = new OryhHttpClient(this.#connections, this.#credentials, options.fetcher, options.serverReadBinding ? { delegated: options.serverReadBinding } : {})
     this.#devices = new DeviceFlowConnector(
       this.#connections,
       this.#credentials,
@@ -55,6 +62,15 @@ export class OryhClientHost {
     )
     this.#operations = new OperationExecutor(this.#connections, this.#http, options.clock)
     this.#ready = this.restoreConnections()
+    if (this.serverBinding) {
+      const revoke = () => { for (const connection of this.#connections.list()) {
+        this.#connections.revokeVerification(connection.id); this.#operations.clearConnection(connection.id)
+        void this.#http.close(connection.id)
+      } }
+      this.serverBinding.signal.addEventListener('abort', revoke, { once: true })
+      this.detachServer = () => this.serverBinding?.signal.removeEventListener('abort', revoke)
+      if (this.serverBinding.signal.aborted) revoke()
+    }
   }
 
   /** Build a browser-safe expense workflow over the same verified connection and transport. */
@@ -73,6 +89,7 @@ export class OryhClientHost {
   createWorkflowDefinitions() { return new WorkflowDefinitions(this.#http) }
   /** ORYH skill bundle installer; the credential stays inside the shared HTTP client. */
   createSkillBundle(root: string) {
+    if (this.serverBinding) throw new OryhClientError('Server skills are delivered through MCP.', 'request-failed')
     // The holder is read from the connection as already verified. Starting a verification here would
     // clear the connection's in-flight business reads, and a skill sync runs whenever the workbench opens.
     return new SkillBundleService(this.#http, root, async id => {
@@ -86,6 +103,7 @@ export class OryhClientHost {
   /** Start browser-backed device authorization for one ORYH deployment. */
   async beginDeviceConnection(origin: string, clientName: string): Promise<DeviceConnectionAttempt> {
     await this.#ready
+    if (this.serverBinding) throw new OryhClientError('Server connections use the authenticated browser login.', 'request-failed')
     return this.#devices.begin(origin, clientName)
   }
 
@@ -178,6 +196,7 @@ export class OryhClientHost {
     await this.#http.close(connectionId)
     await this.#credentials.remove(connectionId)
     this.#connections.remove(connectionId)
+    if (this.serverBinding) this.detachServer()
     await this.persistConnections()
   }
 
@@ -188,6 +207,11 @@ export class OryhClientHost {
   }
 
   private async restoreConnections(): Promise<void> {
+    if (this.serverBinding) {
+      const connection = this.#connections.add({ origin: this.serverBinding.origin, identity: this.serverBinding.identity })
+      await this.verifyIdentity(connection.id)
+      return
+    }
     if (this.#connectionStore === undefined) return
     const stored = await this.#connectionStore.load()
     const restorable: ConnectionSummary[] = []

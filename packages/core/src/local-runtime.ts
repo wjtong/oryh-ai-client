@@ -1,3 +1,4 @@
+import { desktopSkillService } from './skill-service.js'
 import type {ProjectRecord} from '@oryh/ai-client-projects'
 import { EncryptedRevisionStore } from '@oryh/ai-client-store'
 import { EncryptedTimesheetStore } from '@oryh/ai-client-timesheets'
@@ -43,7 +44,7 @@ export function createLocalOryhRuntime(dataDirectory = defaultOryhDataDirectory(
     expenses: host.createExpenseRemote(new EncryptedExpenseStore(join(dataDirectory, 'expenses'))),
     // ORYH's own convention, and the root Harness scans by default: skills are named per
     // employer, so one agent can serve two companies out of the same directory.
-    skills: host.createSkillBundle(join(process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'), 'skills')),
+    skills: desktopSkillService(host.createSkillBundle(join(process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'), 'skills'))),
   }
 }
 

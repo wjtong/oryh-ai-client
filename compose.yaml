@@ -1,0 +1,22 @@
+name: oryh-client-local
+services:
+  client:
+    build:
+      context: ..
+      dockerfile: oryh-ai-client/deploy/local/Dockerfile
+    ports:
+      - "127.0.0.1:4180:4173"
+    environment:
+      ORYH_SERVER_ORIGIN: https://calwbiz-new.banff-tech.com
+    volumes:
+      - client-data:/home/node
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173/').then(r=>{if(r.status!==401)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 4
+    init: true
+    restart: unless-stopped
+volumes:
+  client-data:

@@ -30,6 +30,8 @@ export interface OryhHttpClientOptions {
   readonly clock?: () => Date
   /** Refresh an access key this many milliseconds before its server-provided expiry. */
   readonly refreshAheadMs?: number
+  /** Trusted server adapter; owns authentication outside this business Host. Never a model argument. */
+  readonly delegated?: { readonly signal: AbortSignal; request(request: OryhRequest, signal: AbortSignal): Promise<unknown> }
 }
 
 interface ErrorBody {
@@ -94,7 +96,7 @@ export class OryhHttpClient {
     private readonly connections: ConnectionRegistry,
     private readonly credentials: CredentialVault,
     private readonly fetcher: Fetcher,
-    options: OryhHttpClientOptions = {},
+    private readonly options: OryhHttpClientOptions = {},
   ) {
     this.#clock = options.clock ?? (() => new Date())
     this.#refreshAheadMs = refreshAheadMs(options.refreshAheadMs)
@@ -111,6 +113,7 @@ export class OryhHttpClient {
    * @returns the whole response body.
    */
   async download(connectionId: ConnectionId, request: OryhRequest): Promise<Uint8Array> {
+    if (this.options.delegated) throw new OryhClientError('Server connections do not download credential-bearing skill bundles.', 'request-failed')
     this.assertOpen(connectionId)
     const connection = this.connections.require(connectionId)
     let credential = await this.requireCredential(connectionId)
@@ -142,6 +145,14 @@ export class OryhHttpClient {
   /** Call a versioned ORYH API endpoint inside one existing connection scope. */
   async request(connectionId: ConnectionId, request: OryhRequest): Promise<unknown> {
     this.assertOpen(connectionId)
+    if (this.options.delegated) {
+      const signal = AbortSignal.any([this.options.delegated.signal, this.requestSignal(connectionId)])
+      try {
+        const result = await this.options.delegated.request(request, signal)
+        signal.throwIfAborted(); this.assertOpen(connectionId)
+        return result
+      } catch { throw new OryhClientError('Server business request failed or authorization ended.', 'request-failed') }
+    }
     const connection = this.connections.require(connectionId)
     let credential = await this.requireCredential(connectionId)
     if (shouldRefresh(credential, this.#clock(), this.#refreshAheadMs)) {
@@ -176,7 +187,7 @@ export class OryhHttpClient {
   /** Reject disconnected requests, including a late identity verification. */
   assertOpen(connectionId: ConnectionId): void {
     this.connections.require(connectionId)
-    if (this.#closed.has(connectionId)) {
+    if (this.options.delegated?.signal.aborted || this.#closed.has(connectionId)) {
       throw new OryhClientError('The ORYH connection is closed.', 'connection-not-found')
     }
   }
@@ -240,6 +251,7 @@ export class OryhHttpClient {
    * @returns the parsed OpenAPI document.
    */
   async schema(connectionId: ConnectionId): Promise<unknown> {
+    if (this.options.delegated) throw new OryhClientError('Server schema discovery is not enabled in this read-only pilot.', 'request-failed')
     this.assertOpen(connectionId)
     const connection = this.connections.require(connectionId)
     const response = await this.fetcher(`${connection.origin}/openapi.json`, {
