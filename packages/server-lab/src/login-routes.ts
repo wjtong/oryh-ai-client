@@ -25,13 +25,15 @@ export function mountLoginRoutes(ctx: Context, configured: ServerOAuth | readonl
   acquire: (grant: LoginGrant, signal: AbortSignal, oauth: ServerOAuth) => Promise<RuntimeLease>
   now?: () => number
   sessionTtlMs?: number
+  /** Accept an `http://localhost` public origin, for local development only; browsers treat it as secure. */
+  allowLoopback?: boolean
 }) {
   const servers = (configured instanceof ServerOAuth ? [{ id: 'default', label: configured.serverOrigin, oauth: configured }] : configured).map(server => Object.freeze({ ...server }))
   if (!servers.length || servers.some(server => !/^[a-z0-9][a-z0-9-]{0,63}$/.test(server.id) || !server.label.trim()) || new Set(servers.map(s => s.id)).size !== servers.length || new Set(servers.map(s => s.oauth.serverOrigin)).size !== servers.length) throw new Error('Invalid ORYH server configuration')
   const oauth = servers[0]!.oauth
   const origin = new URL(options.publicOrigin)
   const metadata = oauth.browserMetadata()
-  if (origin.protocol !== 'https:' || origin.origin !== options.publicOrigin || origin.username || origin.password ||
+  if (!(origin.protocol === 'https:' || (options.allowLoopback && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname))) || origin.origin !== options.publicOrigin || origin.username || origin.password ||
     metadata.callback !== `${origin.origin}/oryh/auth/callback` || new URL(metadata.clientId).origin !== origin.origin) throw new Error('Invalid login route configuration')
   if (servers.some(server => JSON.stringify(server.oauth.browserMetadata()) !== JSON.stringify(metadata))) throw new Error('ORYH servers must share the client callback')
   const ttl = options.sessionTtlMs ?? 8 * 3600_000

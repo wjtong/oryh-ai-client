@@ -1,0 +1,28 @@
+# ORYH AI Client multi-user server, M1 (docs/33). From oryh-ai-client/:
+#   docker compose -f deploy/server/compose.yaml --env-file .env up -d --build
+# Local: open http://localhost:4300/ in Chrome (owners are served from <label>.localhost:4300).
+# Production: set the public origin and owner domain, and put deploy/server/Caddyfile in front.
+name: oryh-server
+services:
+  server:
+    build:
+      context: ../../..
+      dockerfile: oryh-ai-client/deploy/server/Dockerfile
+    ports:
+      - "127.0.0.1:4300:4300"
+    environment:
+      ORYH_CLIENT_PUBLIC_ORIGIN: ${ORYH_CLIENT_PUBLIC_ORIGIN:-http://localhost:4300}
+      ORYH_CLIENT_OWNER_DOMAIN: ${ORYH_CLIENT_OWNER_DOMAIN:-localhost:4300}
+      ORYH_SERVER_ORIGIN: ${ORYH_SERVER_ORIGIN:?set ORYH_SERVER_ORIGIN in .env}
+      DEEPSEEK_API_KEY: ${ORYH_MODEL_API_KEY:?set ORYH_MODEL_API_KEY in .env}
+      DEEPSEEK_BASE_URL: ${ORYH_MODEL_BASE_URL:-https://api.deepseek.com}
+      # Owner Hosts running at once; each takes about 0.6 GB.
+      ORYH_HOST_CAPACITY: ${ORYH_HOST_CAPACITY:-2}
+      ORYH_HOST_IDLE_MS: ${ORYH_HOST_IDLE_MS:-300000}
+    volumes:
+      - server-data:/data
+    mem_limit: ${ORYH_SERVER_MEMORY:-3g}
+    init: true
+    restart: unless-stopped
+volumes:
+  server-data:

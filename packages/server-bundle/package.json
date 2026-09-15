@@ -1,0 +1,22 @@
+{
+  "name": "@oryh/server-bundle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Restrictions that turn the ORYH web Profile into one person's Host on the multi-user server (docs/33).",
+  "exports": {
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "presets"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@oryh/server-lab": "workspace:*"
+  }
+}

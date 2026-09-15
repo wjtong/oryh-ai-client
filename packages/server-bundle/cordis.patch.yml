@@ -1,0 +1,75 @@
+# One person's ORYH Host on the multi-user server, M1 (docs/33). Applied after dsh-base, dsh-web-app
+# and @oryh/dsh-bundle. The control process starts this Host, holds the person's ORYH grant, and is
+# the only way in; this layer removes what a server Host must not offer.
+
+# Business runtime from the control process over IPC: no keychain, no local credential, read-only.
+- id: oryh-client-host
+  config:
+    developmentOnly: false
+    mode: server
+
+# No local directory browsing: the workspace is the one the server assigned.
+- id: oryh-directory-picker-host
+  disabled: true
+- id: oryh-directory-picker-ui
+  disabled: true
+
+# Sessions run only the server preset, from this bundle; shipped and user presets are not offered.
+# The control process passes the preset root, so the path is always this bundle's own copy.
+- id: agent-presets
+  config:
+    default: oryh-server
+    roots:
+      - path: !!js process.env.ORYH_SERVER_PRESET_ROOT
+        trust: system
+    includeShippedRoot: false
+    includeUserRoot: false
+
+# Every browser Remote call passes the owner admission (owner-admission.ts): no credentials, model
+# endpoints, dynamic code or plugin management, and only the assigned workspace. It wraps the shipped
+# Gateway, which keeps its browser half.
+- insert:
+    - id: oryh-owner-admission
+      name: '@oryh/server-lab/owner-admission'
+      config:
+        preset: oryh-server
+        trace: !!js process.env.ORYH_ADMISSION_TRACE === '1'
+
+# Host-plane execution and web rows. The agent's own tools come from the preset above; these keep
+# the host from offering them some other way (M1 has no execution sandbox).
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: workflow-worker-thread
+  disabled: true
+- id: code-runtime
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: web-fetch-http
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+
+# The model is the deployment's; nobody configures it per person.
+- id: ui-settings-models
+  disabled: true
+- id: ui-model-selection
+  disabled: true
+
+# No dynamic Cordis code (its panel and host runner), plugin management or live reload on a server.
+- id: ui-cordis
+  disabled: true
+- id: cordis-host-runner
+  disabled: true
+- id: plugin-inventory
+  disabled: true
+- id: ui-settings-plugin-inventory
+  disabled: true
+- id: hmr
+  disabled: true

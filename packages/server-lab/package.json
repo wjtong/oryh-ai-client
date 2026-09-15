@@ -50,7 +50,8 @@
     "@deepseek-ai/dsh-session-query": "link:../../../deepseek-harness/packages/session-query/session-query",
     "@deepseek-ai/dsh-attachment-local": "link:../../../deepseek-harness/packages/attachment/attachment-local",
     "@deepseek-ai/dsh-client-file-upload": "link:../../../deepseek-harness/packages/client/file-upload",
-    "@deepseek-ai/dsh-commands": "link:../../../deepseek-harness/packages/interaction/commands"
+    "@deepseek-ai/dsh-commands": "link:../../../deepseek-harness/packages/interaction/commands",
+    "@deepseek-ai/schemastery": "link:../../../deepseek-harness/vendor/schemastery"
   },
   "exports": {
     "./profile-plugin": {
@@ -69,6 +70,10 @@
     "./native-binding": {
       "types": "./lib/native-binding.d.ts",
       "default": "./lib/native-binding.js"
+    },
+    "./owner-admission": {
+      "types": "./lib/owner-admission.d.ts",
+      "default": "./lib/owner-admission.js"
     }
   },
   "dsh": {
