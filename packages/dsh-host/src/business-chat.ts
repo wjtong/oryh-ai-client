@@ -60,6 +60,7 @@ const rules=[
   '你在对话里写入后，中间栏会自动刷新并显示服务端的新状态，不需要让用户手动刷新。',
   '中间栏上有未保存修改的单据，用户要求在对话里提交或修改它时，先说明页面上有未保存的修改，询问是先在页面保存、放弃这些修改，还是以服务端现有内容为准；不要静默覆盖。',
   '用户想看某个列表或单据时，用 oryh_navigate、oryh_open_timesheet、oryh_open_todo、oryh_open_view 在中间栏打开，不只用文字描述；在对话里完成写入后，也可以这样在中间栏打开结果。',
+  '中间栏未保存的工时表单是你读取或填写的，用户又让你在对话里按它新建、保存或提交时，写入成功后调用 oryh_open_timesheet 传服务端返回的 headerId 和 discardDraft=true，把中间栏换成服务端的单据；表单被用户改过时工具会拒绝，照实告诉用户。',
   '显示列：先用 oryh_current_page 查看 columns 和 availableColumns；销售订单、库存余额、库存流水和收发货列表用 oryh_record_columns，项目列表用 oryh_project_columns，传完整列顺序并保留其他列；项目名称 name 必须保留，createdAt 是创建时间，updatedAt 是更新时间。只改显示，不需要确认；不支持的字段不得伪造。',
   '查询栏：用户要求在列表查询栏增加或填写查询字段时调用 oryh_record_query，不要误用显示列工具；查询字段只能是该列表在 ORYH 接口里声明的查询参数，不在其中就如实说明 ORYH 目前不支持按该字段查询，不要编造页面上的替代办法。库存流水的产品查询按编码精确匹配，不能凭历史记录猜编码；仅增加字段时不填写值。',
   '页面上的列表只陈述当前页的数据与服务端总量，不把当前页当全部记录；需要全部记录时按 skill 查询服务端。',
@@ -458,7 +459,12 @@ export class BusinessChat {
       expired:'项目表单未能打开，请核对页面状态后重试。',timeoutMs:15000,signal,
     })}finally{this.queue.withdraw(sessionId,command.id)}
   }
-  async openTimesheet(sessionId:string,signal:AbortSignal, headerId='', todoId=''):Promise<string>{
+  /**
+   * Open a timesheet in the business pane, or its blank create form.
+   * @param discardDraft - replace the page's unsaved form, when the agent has already written its
+   *   content in Chat; only a form the agent last saw unchanged is replaced (TimesheetChat.discardableForm).
+   */
+  async openTimesheet(sessionId:string,signal:AbortSignal, headerId='', todoId='', discardDraft=false):Promise<string>{
     const home=this.homes.get(sessionId)
     if(!home)throw new OryhClientError('请先连接企业并打开会话。','request-failed')
     const c=await this.controller.verifyConnection(home.connectionId)
@@ -470,7 +476,9 @@ export class BusinessChat {
       await this.api.timesheetDetail(home.connectionId,headerId,todoId||undefined)
     }
     if(this.homes.get(sessionId)!==home)throw new OryhClientError('企业页面已改变。','request-failed')
-    const command:ChatNavigation={id:randomUUID(),expiresAt:Date.now()+15000,...(headerId?{headerId,todoId,manager:Boolean(todoId)}:{})}
+    // The page compares its form with this snapshot again when the command lands, so an edit made in between still wins.
+    const discardForm=discardDraft&&headerId?this.timesheet.discardableForm(sessionId):undefined
+    const command:ChatNavigation={id:randomUUID(),expiresAt:Date.now()+15000,...(headerId?{headerId,todoId,manager:Boolean(todoId)}:{}),...(discardForm?{discardForm}:{})}
     this.queue.issue(sessionId,command)
     try{
       return await this.queue.wait<string>(sessionId,'navigation',{
@@ -478,10 +486,10 @@ export class BusinessChat {
         until:()=>{
           const state=this.timesheet.current(sessionId)
           if(state?.navigationId!==command.id)return undefined
-          if(headerId)return state.headerId===headerId&&Boolean(state.manager)===Boolean(todoId)?'指定工时已在中间栏打开。编辑权限由服务端身份、权限和状态共同决定，请读取当前单据后继续；未修改或保存数据。':undefined
+          if(headerId)return state.headerId===headerId&&Boolean(state.manager)===Boolean(todoId)?`指定工时已在中间栏打开${discardForm?'，原先的未保存表单已放弃':''}。编辑权限由服务端身份、权限和状态共同决定，请读取当前单据后继续；未修改或保存数据。`:undefined
           return state.fields?'工时填写表单已打开，保留已有未保存内容。请调用 oryh_timesheet_read 获取版本和字段后填写；未保存到服务端。':undefined
         },
-        expired:'表单未能打开，请检查连接或未保存的明细编辑，完成后重试。',timeoutMs:15000,signal,
+        expired:headerId&&!discardForm&&this.timesheet.current(sessionId)?.fields?'工时未能打开，可能是中间栏的工时表单有未保存内容。如果这些内容已经由你在对话里写入服务端，读取表单确认后传 discardDraft=true 重试；否则请用户在页面保存或放弃后再打开。':'表单未能打开，请检查连接或未保存的明细编辑，完成后重试。',timeoutMs:15000,signal,
       })
     }finally{this.queue.withdraw(sessionId,command.id)}
   }
@@ -585,7 +593,7 @@ export class BusinessChat {
     ctx.tools.register(defineTool({name:'oryh_visible_todos',description:'读取中间栏待办列表当前页的可见顺序、标题和版本。用户说第一条、第二条或某标题时先调用此工具；无需手动选中。',parameters:{},output:todoOutput,execute:async(_a,e)=>{if(!e.agent)throw new Error('需要会话');return JSON.stringify(await this.visibleTodos(String(e.agent.id)))}}))
     ctx.tools.register(defineTool({name:'oryh_open_todo',description:'按刚读取的可见列表序号在中间栏打开待办详情，并返回关联业务单据的最新详情。序号从 1 开始；列表变化则拒绝。只打开和读取；审批按审批 skill 在对话里完成。',parameters:{position:{type:'integer',required:true,description:'当前可见页序号，从 1 开始'},revision:{type:'string',required:true,description:'oryh_visible_todos 返回的列表版本'}},output:todoOutput,execute:async(args,e)=>{if(!e.agent)throw new Error('需要会话');return JSON.stringify(await this.openTodo(String(e.agent.id),args.position,args.revision,e.signal))}}))
     ctx.tools.register(defineTool({name:'oryh_find_timesheets',description:'从任意页面查询可打开的本人工时及本人审批队列，按姓名、期间和编号选择。候选不唯一必须询问，不跨越权限边界。',parameters:{},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(_a,e)=>{if(!e.agent)throw new Error('需要会话');e.signal.throwIfAborted();return JSON.stringify(await this.findTimesheets(String(e.agent.id)))}}))
-    ctx.tools.register(defineTool({name:'oryh_open_timesheet',description:'在中间栏打开指定工时单，自动按权限和状态显示编辑或详情；编号为空时打开新建表单。先查询候选，不猜编号，不覆盖未保存修改。',parameters:{headerId:{type:'string',description:'已查询到的工时编号；新建时传空字符串'},todoId:{type:'string',description:'打开他人工时必须传查询到的本人审批待办编号；本人工时或新建传空字符串'}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(args,e)=>{if(!e.agent)throw new Error('需要会话');return this.openTimesheet(String(e.agent.id),e.signal,args.headerId,args.todoId)}}))
+    ctx.tools.register(defineTool({name:'oryh_open_timesheet',description:'在中间栏打开指定工时单，自动按权限和状态显示编辑或详情；编号为空时打开新建表单。先查询候选，不猜编号，不覆盖用户的未保存修改。',parameters:{headerId:{type:'string',description:'已查询到的工时编号；新建时传空字符串'},todoId:{type:'string',description:'打开他人工时必须传查询到的本人审批待办编号；本人工时或新建传空字符串'},discardDraft:{type:'boolean',description:'中间栏未保存表单的内容已经由你在对话里写入服务端时传 true，放弃这份草稿再打开 headerId。只有表单自你上次读取或填写后未被用户改动才会放弃，否则仍拒绝。其他情况传 false'}},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(args,e)=>{if(!e.agent)throw new Error('需要会话');return this.openTimesheet(String(e.agent.id),e.signal,args.headerId,args.todoId,args.discardDraft===true)}}))
     ctx.tools.register(defineTool({name:toolName,description:'只读查询当前会话关联的 ORYH 待办及其采购申请、采购订单、销售报价、销售订单、工时或费用单据详情。身份和目标由 Host 绑定，不接受编号、URL 或员工参数。',parameters:{},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(_args,exec)=>{if(!exec.agent)throw new Error('需要绑定的 ORYH 会话');exec.signal.throwIfAborted();const result=await this.read(String(exec.agent.id));exec.signal.throwIfAborted();return JSON.stringify(result)}}))
     // Delivery owns refresh semantics: desktop reinstalls its bundle, MCP invalidates its catalog.
     ctx.tools.register(defineTool({name:'oryh_skill_sync',description:this.skills?.syncDescription??'刷新本会话已授权的 ORYH 技能。',parameters:{},output:{schema:{type:'string'},render:(_a,value)=>[{type:'text',text:value}]},execute:async(_a,e)=>{if(!e.agent)throw new Error('需要会话');if(!this.skills)throw new OryhClientError('本次运行没有装载技能服务。','request-failed');const connectionId=await this.sessionConnection(String(e.agent.id));e.signal.throwIfAborted();return JSON.stringify(await this.skills.sync(connectionId,true))}}))

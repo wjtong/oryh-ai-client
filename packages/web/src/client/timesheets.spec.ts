@@ -15,7 +15,8 @@ vi.mock('@fluentui/react-components',()=>({
   Dialog:({open,children}:any)=>open?h('div',{role:'dialog'},children):null,
   ...Object.fromEntries(['DialogActions','DialogBody','DialogContent','DialogSurface','DialogTitle'].map(name=>[name,({children}:any)=>h('div',null,children)])),
 }))
-vi.mock('./timesheet-chat.js' ,()=>({TimesheetChat:()=>null}))
+// Keeps the props the panel last gave Chat, which include the unsaved form exactly as it is synced.
+vi.mock('./timesheet-chat.js' ,()=>({TimesheetChat:(props:any)=>{(globalThis as any).timesheetChatProps=props;return null}}))
 
 describe('timesheet save feedback',()=>{
   it('shows pending and failure beside save, preserves input, and opens review after retry',async()=>{
@@ -141,5 +142,23 @@ describe('following writes made in Chat',()=>{
    expect(f.node.querySelector('.page-title .record-status')?.textContent).toBe('已提交')
    expect(f.node.textContent).not.toContain('服务端数据可能已在 Chat 中更新')
   }finally{await f.close()}
+ })
+ it('gives up a draft Chat already wrote for the saved timesheet, but only while the form is still what the agent saw',async()=>{
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true
+  const submitted={canEdit:false,header:{id:'h',employee_id:'e',period_start:'2026-09-14',period_end:'2026-09-18',status:'submitted',source_report_text:''},entries:[],approval_records:[]}
+  const api={timesheetList:async()=>[submitted.header],timesheetOptions:async()=>({workTypes:[],projects:[],requirements:[],submitStates:['draft'],editableStates:['draft']}),timesheetHistory:async()=>[],timesheetDetail:vi.fn(async()=>submitted)}
+  const node=document.createElement('div');document.body.append(node);const root=createRoot(node)
+  const render=(navigation:import('@oryh/dsh-host/types').ChatNavigation)=>act(async()=>root.render(h(RemoteContext.Provider,{value:api as never},h(LocaleContext.Provider,{value:k=>dictionaries[k]},h(TimesheetPanel,{connection:{id:'c',identity:{permissions:['timesheet.submit_own'],tenant:{name:'Test'},user:{email:'test@example.invalid'}}} as never,manager:false,active:true,navigationId:navigation.id,navigation,onDirtyChange:()=>{}})))))
+  try{
+   await render({id:'new',expiresAt:Date.now()+15000})
+   expect(node.textContent).toContain('未保存')
+   const form=JSON.stringify((globalThis as any).timesheetChatProps.fields)
+   await render({id:'stale',headerId:'h',expiresAt:Date.now()+15000,discardForm:JSON.stringify({...JSON.parse(form),source_report_text:'agent 看到的旧内容'})})
+   expect(api.timesheetDetail).not.toHaveBeenCalled()
+   expect(node.textContent).toContain('当前有未保存修改')
+   await render({id:'open',headerId:'h',expiresAt:Date.now()+15000,discardForm:form})
+   expect(api.timesheetDetail).toHaveBeenCalledWith('c','h',undefined)
+   expect(node.querySelector('.page-title .record-status')?.textContent).toBe('已提交')
+  }finally{await act(async()=>root.unmount());node.remove()}
  })
 })
