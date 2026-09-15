@@ -27,14 +27,17 @@ export function mountLoginRoutes(ctx: Context, configured: ServerOAuth | readonl
   sessionTtlMs?: number
   /** Accept an `http://localhost` public origin, for local development only; browsers treat it as secure. */
   allowLoopback?: boolean
+  /** Callback path on the public origin; shorter than the default only for a compact authorization request. */
+  callbackPath?: string
 }) {
+  const callbackPath = options.callbackPath ?? '/oryh/auth/callback'
   const servers = (configured instanceof ServerOAuth ? [{ id: 'default', label: configured.serverOrigin, oauth: configured }] : configured).map(server => Object.freeze({ ...server }))
   if (!servers.length || servers.some(server => !/^[a-z0-9][a-z0-9-]{0,63}$/.test(server.id) || !server.label.trim()) || new Set(servers.map(s => s.id)).size !== servers.length || new Set(servers.map(s => s.oauth.serverOrigin)).size !== servers.length) throw new Error('Invalid ORYH server configuration')
   const oauth = servers[0]!.oauth
   const origin = new URL(options.publicOrigin)
   const metadata = oauth.browserMetadata()
   if (!(origin.protocol === 'https:' || (options.allowLoopback && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname))) || origin.origin !== options.publicOrigin || origin.username || origin.password ||
-    metadata.callback !== `${origin.origin}/oryh/auth/callback` || new URL(metadata.clientId).origin !== origin.origin) throw new Error('Invalid login route configuration')
+    metadata.callback !== `${origin.origin}${callbackPath}` || new URL(metadata.clientId).origin !== origin.origin) throw new Error('Invalid login route configuration')
   if (servers.some(server => JSON.stringify(server.oauth.browserMetadata()) !== JSON.stringify(metadata))) throw new Error('ORYH servers must share the client callback')
   const ttl = options.sessionTtlMs ?? 8 * 3600_000
   if (!Number.isFinite(ttl) || ttl < 1000 || ttl > 12 * 3600_000) throw new Error('Invalid session lifetime')
@@ -118,7 +121,7 @@ export function mountLoginRoutes(ctx: Context, configured: ServerOAuth | readonl
         res.setHeader('set-cookie', cookie(LOGIN, flow.binding, 600))
         res.writeHead(303, { location: started.authorizationUrl }); res.end(); return
       }
-      if (url.pathname === '/oryh/auth/callback') {
+      if (url.pathname === callbackPath) {
         if (req.method !== 'GET' || url.search.length > 8192) throw failed()
         const p = url.searchParams
         for (const name of p.keys()) if (!['state', 'code', 'error', 'error_description', 'iss'].includes(name) || p.getAll(name).length !== 1) throw failed()
@@ -172,7 +175,7 @@ export function mountLoginRoutes(ctx: Context, configured: ServerOAuth | readonl
       throw failed()
     } catch { if (!res.headersSent) res.writeHead(403); res.end('Login or session unavailable') }
   }
-  const paths = ['/oryh/auth/servers', '/oryh/auth/login', '/oryh/auth/callback', '/oryh/auth/session', '/oryh/auth/logout', new URL(metadata.clientId).pathname]
+  const paths = ['/oryh/auth/servers', '/oryh/auth/login', callbackPath, '/oryh/auth/session', '/oryh/auth/logout', new URL(metadata.clientId).pathname]
   if (new Set(paths).size !== paths.length || paths.some(p => p === '/')) throw new Error('Login route collision')
   const disposers: Array<() => void> = []
   try {

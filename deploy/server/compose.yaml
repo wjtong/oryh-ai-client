@@ -13,15 +13,23 @@ services:
     environment:
       ORYH_CLIENT_PUBLIC_ORIGIN: ${ORYH_CLIENT_PUBLIC_ORIGIN:-http://localhost:4300}
       ORYH_CLIENT_OWNER_DOMAIN: ${ORYH_CLIENT_OWNER_DOMAIN:-localhost:4300}
-      ORYH_SERVER_ORIGIN: ${ORYH_SERVER_ORIGIN:?set ORYH_SERVER_ORIGIN in .env}
+      ORYH_SERVER_ORIGIN: ${ORYH_SERVER_ORIGIN:-https://calwbiz-new.banff-tech.com}
       DEEPSEEK_API_KEY: ${ORYH_MODEL_API_KEY:?set ORYH_MODEL_API_KEY in .env}
       DEEPSEEK_BASE_URL: ${ORYH_MODEL_BASE_URL:-https://api.deepseek.com}
-      # Owner Hosts running at once; each takes about 0.6 GB.
-      ORYH_HOST_CAPACITY: ${ORYH_HOST_CAPACITY:-2}
+      # People signed in at once: one owner Host each, about 0.6 GB apiece.
+      ORYH_HOST_CAPACITY: ${ORYH_HOST_CAPACITY:-10}
       ORYH_HOST_IDLE_MS: ${ORYH_HOST_IDLE_MS:-300000}
     volumes:
       - server-data:/data
-    mem_limit: ${ORYH_SERVER_MEMORY:-3g}
+    # Capacity × 0.6 GB + about 1 GB for the control process.
+    mem_limit: ${ORYH_SERVER_MEMORY:-7g}
+    healthcheck:
+      # A signed-out visit to the public origin is sent to sign-in (303).
+      test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:4300,path:'/',headers:{host:new URL(process.env.ORYH_CLIENT_PUBLIC_ORIGIN).host}},r=>process.exit(r.statusCode===303?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 4
     init: true
     restart: unless-stopped
 volumes:

@@ -29,6 +29,12 @@ export class ServerOAuth {
   constructor(private readonly options: {
     issuer: string; clientId: string; callback: string; credentials: Records
     fetch?: typeof fetch; now?: () => number; allowLoopbackForTest?: boolean
+    /**
+     * Keep the authorization request within 128 characters for ORYH releases before calwbiz ecab43d,
+     * which store the consent request's parameters joined in a varchar(128) and answer 500 past it:
+     * no optional `resource`, and a 96-bit state (still bound to the pre-login cookie).
+     */
+    compact?: boolean
   }) {
     this.issuer = this.url(options.issuer).origin
     if (options.issuer.replace(/\/$/, '') !== this.issuer) throw new Error('Issuer must be an origin')
@@ -53,13 +59,13 @@ export class ServerOAuth {
     if (binding.length < 32) throw new Error('Pre-login browser binding required')
     for (const [id, p] of this.pending) if (p.expires <= this.now() || p.signal.aborted) this.pending.delete(id)
     if (this.pending.size >= 1000) throw new Error('Too many pending logins')
-    const state = random(), verifier = random()
+    const state = this.options.compact ? randomBytes(12).toString('base64url') : random(), verifier = random()
     this.pending.set(hash(state), { binding: hash(binding), verifier, expires: this.now() + 600_000, signal })
     const url = new URL('/oauth/authorize', this.issuer)
     url.search = new URLSearchParams({
       response_type: 'code', client_id: this.clientId, redirect_uri: this.callback,
       state, code_challenge: createHash('sha256').update(verifier).digest('base64url'),
-      code_challenge_method: 'S256', resource: `${this.issuer}/mcp`,
+      code_challenge_method: 'S256', ...this.resource(),
     }).toString()
     return { authorizationUrl: url.href }
   }
@@ -77,7 +83,7 @@ export class ServerOAuth {
       const pair = this.pair(await this.request('/oauth/token', {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ grant_type: 'authorization_code', code: input.code,
-          code_verifier: pending.verifier, client_id: this.clientId, redirect_uri: this.callback, resource: `${this.issuer}/mcp` }),
+          code_verifier: pending.verifier, client_id: this.clientId, redirect_uri: this.callback, ...this.resource() }),
       }, signal))
       const identity = await this.identity(pair.access, signal)
       const owner = this.owner(identity)
@@ -110,7 +116,7 @@ export class ServerOAuth {
         if (p.expires > this.now() + 30_000) return p.access
         const rotated = this.pair(await this.request('/oauth/token', {
           method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: p.refresh, client_id: this.clientId, resource: `${this.issuer}/mcp` }),
+          body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: p.refresh, client_id: this.clientId, ...this.resource() }),
         }, state.abort.signal))
         if (this.owner(await this.identity(rotated.access, state.abort.signal)) !== state.identity) throw failure()
         await this.serial(state, async () => {
@@ -191,6 +197,10 @@ export class ServerOAuth {
     const next = state.queue.then(run, run)
     state.queue = next.catch(() => {})
     return next
+  }
+  /** The token's intended audience, sent unless the compact request leaves it out. */
+  private resource(): { resource?: string } {
+    return this.options.compact ? {} : { resource: `${this.issuer}/mcp` }
   }
   private owner(identity: OryhIdentity): string {
     if (!identity.tenant.id.trim() || !identity.user.id.trim()) throw failure()

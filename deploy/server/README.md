@@ -9,7 +9,7 @@
 两种方式都需要仓库根目录的 `.env`：
 
 ```sh
-ORYH_SERVER_ORIGIN=https://calwbiz-new.banff-tech.com
+ORYH_SERVER_ORIGIN=https://calwbiz-new.banff-tech.com   # compose 默认即此测试环境
 ORYH_MODEL_API_KEY=<模型 Key>
 ORYH_MODEL_BASE_URL=https://credit.banff-tech.com/v1
 ```
@@ -27,8 +27,8 @@ docker compose -f deploy/server/compose.yaml --env-file .env up -d
 
 ## 资源
 
-- 每个登录中的人占一个 owner Host 进程，约 0.6 GB 内存。`ORYH_HOST_CAPACITY`（默认 2）限制同时运行的数量，超过时新登录会失败；`ORYH_HOST_IDLE_MS`（默认 5 分钟）后回收无人使用的 Host。
-- compose 默认 `mem_limit: 3g`，按 `容量 × 0.6 GB + 1 GB` 调整 `ORYH_SERVER_MEMORY`。
+- 每个登录中的人占一个 owner Host 进程，约 0.6 GB 内存。`ORYH_HOST_CAPACITY`（compose 默认 10）限制同时运行的数量，超过时新登录会失败；`ORYH_HOST_IDLE_MS`（默认 5 分钟）后回收无人使用的 Host。
+- compose 默认 `mem_limit: 7g`（10 × 0.6 GB + 1 GB），调整容量时按 `容量 × 0.6 GB + 1 GB` 同步调整 `ORYH_SERVER_MEMORY`。内存只在对应人数同时在线时才会实际占用。
 
 ## 生产部署
 
