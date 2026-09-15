@@ -26,6 +26,8 @@ export interface OwnerBrokerOptions {
   /** How long a server's read-only tool list is trusted before it is listed again. */
   readonly toolListTtlMs?: number
   readonly now?: () => number
+  /** Report refusals and non-2xx answers — method, path and status only, never a token or a body. */
+  readonly log?: (line: string) => void
 }
 
 const READ_ONLY = '服务器版目前只读，不能保存、提交、审批、创建、修改或删除 ORYH 数据。'
@@ -33,6 +35,12 @@ const OUTSIDE = '这个请求不在服务器版开放的范围内。'
 const SIGNED_OUT = 'ORYH 登录已结束，请重新登录。'
 /** MCP methods that read or describe, and never change anything on the server. */
 const MCP_READS = new Set(['initialize', 'notifications/initialized', 'ping', 'tools/list', 'prompts/list', 'prompts/get', 'resources/list', 'resources/read', 'resources/templates/list'])
+/**
+ * ORYH's MCP tools that only read, by name. ORYH does not annotate its tools, so annotations alone
+ * would refuse every read; a tool it adds later is refused until it is judged and listed here, unless
+ * ORYH marks it read-only itself.
+ */
+const READ_TOOLS = new Set(['oryh_list', 'oryh_get', 'oryh_detail', 'builtin_object_types', 'object_directory', 'setup_report'])
 /** GET paths that answer with credential material or mint it. */
 const CREDENTIAL_PATHS = [/^\/auth\/(?!me$)/, /^\/my\/skill-bundle/, /api[-_]?keys?/i, /^\/oauth\//]
 
@@ -57,10 +65,18 @@ export class OwnerBroker {
    * @throws OryhClientError with a readable reason when the request is refused or the person has signed out.
    */
   async send(request: OryhRequest, signal: AbortSignal): Promise<DelegatedResponse> {
+    const label = `${request.method ?? 'GET'} ${request.root ? '' : '/api/v1'}${request.path.split('?')[0]}${describeMcp(request)}`
     const grant = this.options.grants().find(candidate => !candidate.signal.aborted)
-    if (!grant) throw new OryhClientError(SIGNED_OUT, 'authentication-failed')
-    await this.admit(grant, request, signal)
-    return this.forward(grant, request, signal)
+    if (!grant) { this.options.log?.(`broker: ${label} refused: no live grant`); throw new OryhClientError(SIGNED_OUT, 'authentication-failed') }
+    try {
+      await this.admit(grant, request, signal)
+    } catch (error) {
+      this.options.log?.(`broker: ${label} refused: ${error instanceof Error ? error.message : 'policy'}`)
+      throw error
+    }
+    const answer = await this.forward(grant, request, signal).catch(error => { this.options.log?.(`broker: ${label} failed: ${error instanceof Error ? error.message : 'transport'}`); throw error })
+    if (answer.status < 200 || answer.status >= 300) this.options.log?.(`broker: ${label} answered ${answer.status}`)
+    return answer
   }
 
   private async admit(grant: BrokerGrant, request: OryhRequest, signal: AbortSignal): Promise<void> {
@@ -74,7 +90,13 @@ export class OwnerBroker {
       for (const message of messages) await this.admitMcp(grant, message, signal)
       return
     }
-    if (method !== 'GET' || request.body !== undefined) throw refused(READ_ONLY)
+    if (method !== 'GET' || request.body !== undefined) {
+      // A validation run (the page checks a draft before it is saved) writes nothing. ORYH refuses query
+      // parameters an operation does not declare, so an endpoint without validate_only answers 422
+      // rather than treating the request as a write.
+      const query = new URLSearchParams(request.path.split('?')[1] ?? '')
+      if (!['POST', 'PATCH'].includes(method) || query.getAll('validate_only').join() !== 'true') throw refused(READ_ONLY)
+    }
     admitApiRead(request.path)
   }
 
@@ -95,6 +117,7 @@ export class OwnerBroker {
       admitApiRead(args.path.replace(/^\/api\/v1(?=\/)/, ''))
       return
     }
+    if (READ_TOOLS.has(name)) return
     if (!(await this.readOnlyTools(grant, signal)).has(name)) throw refused(READ_ONLY)
   }
 
@@ -129,9 +152,12 @@ export class OwnerBroker {
         method: request.method ?? 'GET',
         redirect: 'error',
         signal: AbortSignal.any([signal, grant.signal, AbortSignal.timeout(30_000)]),
+        // The OAuth access token is ORYH's interactive API key. Sent as X-API-Key, as the desktop client
+        // does: every ORYH endpoint accepts it, while a person's self-service endpoints (the skills
+        // manifest) accept nothing else. ORYH's MCP endpoint always answers JSON.
         headers: {
-          authorization: `Bearer ${token}`,
-          accept: request.root && request.path === '/mcp' ? 'application/json, text/event-stream' : 'application/json',
+          'x-api-key': token,
+          accept: 'application/json',
           ...request.body === undefined ? {} : { 'content-type': 'application/json' },
         },
         ...request.body === undefined ? {} : { body: JSON.stringify(request.body) },
@@ -146,6 +172,13 @@ export class OwnerBroker {
     }
     return { status: response.status, body }
   }
+}
+
+/** The MCP methods (and tool names) in a request, for a log line. */
+function describeMcp(request: OryhRequest): string {
+  if (!request.root || request.path !== '/mcp') return ''
+  const messages = (Array.isArray(request.body) ? request.body : [request.body]).filter(isObject)
+  return ` [${messages.map(m => m.method === 'tools/call' && isObject(m.params) ? `tools/call:${String(m.params.name)}` : String(m.method)).join(',')}]`
 }
 
 function refused(message: string): OryhClientError {

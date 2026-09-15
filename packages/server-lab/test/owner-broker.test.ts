@@ -27,7 +27,7 @@ describe('the owner broker', () => {
     const f = setup()
     await expect(f.broker.send({ path: '/timesheet-headers?employee_id=e&page=1&size=100' }, signal())).resolves.toEqual({ status: 200, body: { data: [] } })
     expect(f.calls[0]!.url).toBe(`${issuer}/api/v1/timesheet-headers?employee_id=e&page=1&size=100`)
-    expect((f.calls[0]!.init.headers as Record<string, string>).authorization).toBe('Bearer secret-access-token')
+    expect((f.calls[0]!.init.headers as Record<string, string>)['x-api-key']).toBe('secret-access-token')
     expect(f.calls[0]!.init.redirect).toBe('error')
     await expect(f.broker.send({ path: '/projects/p1' }, signal())).resolves.toMatchObject({ status: 409 })
     await expect(f.broker.send({ path: '/openapi.json', root: true }, signal())).resolves.toMatchObject({ status: 200 })
@@ -39,6 +39,13 @@ describe('the owner broker', () => {
       await expect(f.broker.send(request as never, signal())).rejects.toThrow('服务器版目前只读')
     }
     expect(f.calls).toHaveLength(0)
+    // A validation run writes nothing and is let through; a second, contradicting flag is not.
+    await expect(f.broker.send({ path: '/timesheet-headers?validate_only=true', method: 'POST', body: {} }, signal())).resolves.toMatchObject({ status: 200 })
+    await expect(f.broker.send({ path: '/timesheet-headers/h1?validate_only=true', method: 'PATCH', body: {} }, signal())).resolves.toMatchObject({ status: 200 })
+    for (const path of ['/timesheet-headers?validate_only=true&validate_only=false', '/timesheet-headers?validate_only=1', '/timesheet-headers/h1/submit']) {
+      await expect(f.broker.send({ path: path as `/${string}`, method: 'POST', body: {} }, signal())).rejects.toThrow('服务器版目前只读')
+    }
+    await expect(f.broker.send({ path: '/timesheet-headers/h1?validate_only=true', method: 'DELETE' }, signal())).rejects.toThrow('服务器版目前只读')
   })
 
   it('refuses credential paths, other roots, traversal and encoded separators', async () => {
@@ -56,6 +63,12 @@ describe('the owner broker', () => {
       rpc('tools/call', { name: 'oryh_list', arguments: { collection: 'projects' } }), rpc('tools/call', { name: 'oryh_request', arguments: { method: 'GET', path: '/api/v1/projects' } })]) {
       await expect(f.broker.send(request, signal())).resolves.toMatchObject({ status: 200 })
     }
+    // ORYH lists its tools without annotations: its reads are known by name, anything else is a write.
+    const unannotated = setup({ tools: [] })
+    for (const name of ['oryh_detail', 'oryh_get', 'oryh_list', 'setup_report']) {
+      await expect(unannotated.broker.send(rpc('tools/call', { name, arguments: { collection: 'timesheet-headers', id: 'h1' } }), signal())).resolves.toMatchObject({ status: 200 })
+    }
+    await expect(unannotated.broker.send(rpc('tools/call', { name: 'some_new_tool', arguments: {} }), signal())).rejects.toThrow('服务器版目前只读')
     await expect(f.broker.send(rpc('tools/call', { name: 'upload_attachment', arguments: {} }), signal())).rejects.toThrow('服务器版目前只读')
     await expect(f.broker.send(rpc('tools/call', { name: 'oryh_request', arguments: { method: 'POST', path: '/timesheet-headers/h1/submit' } }), signal())).rejects.toThrow('服务器版目前只读')
     await expect(f.broker.send(rpc('tools/call', { name: 'oryh_request', arguments: { method: 'GET', path: '/my/skill-bundle' } }), signal())).rejects.toThrow('不在服务器版开放的范围内')
@@ -69,7 +82,7 @@ describe('the owner broker', () => {
     f.grants.push(second)
     f.abort.abort()
     await f.broker.send({ path: '/auth/me' }, signal())
-    expect((f.calls[0]!.init.headers as Record<string, string>).authorization).toBe('Bearer second-token')
+    expect((f.calls[0]!.init.headers as Record<string, string>)['x-api-key']).toBe('second-token')
     f.grants.splice(0)
     await expect(f.broker.send({ path: '/auth/me' }, signal())).rejects.toThrow('ORYH 登录已结束')
   })

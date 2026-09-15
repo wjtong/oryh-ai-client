@@ -29,7 +29,8 @@ function oryh() {
       return Response.json({ token_type: 'Bearer', access_token: `access-${user}`, refresh_token: `refresh-${user}`, expires_in: 3600 })
     }
     if (url.pathname === '/oauth/revoke') { revoked.push(form.get('token')!); return new Response(null, { status: 200 }) }
-    const user = tokens.get(String((init?.headers as Record<string, string>)?.authorization ?? '').replace('Bearer ', ''))
+    const headers = (init?.headers ?? {}) as Record<string, string>
+    const user = tokens.get(headers['x-api-key'] ?? String(headers.authorization ?? '').replace('Bearer ', ''))
     if (!user) return Response.json({ detail: 'unauthorized' }, { status: 401 })
     if (url.pathname === '/api/v1/auth/me') return Response.json({ data: { id: user, email: `${user}@example.test`, role: 'member', employee_id: `e-${user}`, tenant_id: 't-1', tenant: { slug: 't1', name: 'T1' }, permissions: [] } })
     return Response.json({ data: [{ user }] })
@@ -64,13 +65,13 @@ function hosts() {
   return { started, startHost }
 }
 
-async function setup(options: { idleMs?: number } = {}) {
+async function setup(options: { idleMs?: number; compact?: boolean } = {}) {
   const port = await freePort()
   const publicOrigin = `http://localhost:${port}`
   const api = oryh(), host = hosts()
   const control = await startControlServer({
     publicOrigin, ownerDomain: `localhost:${port}`, servers: [{ id: 'oryh', label: 'ORYH', issuer }],
-    startHost: host.startHost, loopbackDevelopment: true, fetch: api.fetch, idleMs: options.idleMs ?? 0,
+    startHost: host.startHost, loopbackDevelopment: true, fetch: api.fetch, idleMs: options.idleMs ?? 0, compactAuthorization: options.compact ?? false,
   }, port)
   cleanup.push(() => control.close())
 
@@ -91,17 +92,23 @@ async function setup(options: { idleMs?: number } = {}) {
   async function signIn(user: string) {
     expect((await call('localhost', '/')).location).toBe('/oryh/auth/login')
     const begin = await call('localhost', '/oryh/auth/login')
-    const state = new URL(begin.location!).searchParams.get('state')!
+    const authorize = new URL(begin.location!)
+    const state = authorize.searchParams.get('state')!
     const loginCookie = pick(begin.cookies, '__Host-oryh-login')
-    const callback = await call('localhost', `/oryh/auth/callback?state=${state}&code=${user}`, { cookie: loginCookie })
+    const callbackPath = new URL(authorize.searchParams.get('redirect_uri')!).pathname
+    const callback = await call('localhost', `${callbackPath}?state=${state}&code=${user}`, { cookie: loginCookie })
     expect(callback.location).toBe('/')
     const session = pick(callback.cookies, '__Host-oryh-session')
-    const entry = await call('localhost', '/', { cookie: session })
+    // A browser following the callback's redirect still carries the cross-site marker of ORYH's page.
+    const bounced = await call('localhost', '/', { cookie: session, 'sec-fetch-site': 'cross-site' })
+    expect(bounced.status).toBe(200)
+    expect(bounced.body).toContain('url=/')
+    const entry = await call('localhost', '/', { cookie: session, 'sec-fetch-site': 'same-origin' })
     const enter = new URL(entry.location!)
     const label = enter.hostname.split('.')[0]!
     const entered = await call(`${label}.localhost`, `${enter.pathname}${enter.search}`)
     expect(entered.location).toBe('/')
-    return { session, label, owner: pick(entered.cookies, 'oryh-owner'), ticketPath: `${enter.pathname}${enter.search}` }
+    return { session, label, owner: pick(entered.cookies, 'oryh-owner'), ticketPath: `${enter.pathname}${enter.search}`, authorize }
   }
   return { port, call, signIn, api, host, publicOrigin }
 }
@@ -120,6 +127,18 @@ describe('the control server', () => {
     expect(page.cookies).toEqual([])
     // The Host's ORYH access goes through the broker, under this person's grant.
     expect(JSON.parse((await f.call(`${a.label}.localhost`, '/broker', { cookie: a.owner })).body)).toEqual({ data: [{ user: 'alice' }] })
+  })
+
+  it('keeps a compact authorization request within the 128 characters older ORYH releases store', async () => {
+    const f = await setup({ compact: true })
+    const { authorize, label } = await f.signIn('alice')
+    const p = authorize.searchParams
+    expect(p.has('resource')).toBe(false)
+    // ORYH before calwbiz ecab43d stores these joined with "|" in a varchar(128); a localhost:4300 origin must fit.
+    const fingerprint = [p.get('response_type'), p.get('client_id'), p.get('redirect_uri'), p.get('code_challenge'), p.get('code_challenge_method'), p.get('state'), p.get('scope') ?? '', p.get('resource') ?? ''].join('|')
+    const at4300 = fingerprint.replaceAll(`localhost:${f.port}`, 'localhost:4300')
+    expect(at4300.length).toBeLessThanOrEqual(128)
+    expect((await f.call(`${label}.localhost`, '/')).status).toBe(303)
   })
 
   it('spends tickets once and keeps owners apart', async () => {

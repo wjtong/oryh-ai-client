@@ -37,6 +37,12 @@ export interface ControlServerOptions {
   readonly loopbackDevelopment?: boolean
   /** Listen address; defaults to loopback in development and all interfaces otherwise. */
   readonly listenHost?: string
+  /**
+   * Fit the authorization request in 128 characters for ORYH releases before calwbiz ecab43d: short
+   * client id and callback paths, no `resource`, a 96-bit state. Fits a short origin such as
+   * `http://localhost:4300`; a longer one needs the ORYH fix.
+   */
+  readonly compactAuthorization?: boolean
   readonly fetch?: typeof fetch
   readonly log?: (line: string) => void
 }
@@ -75,13 +81,16 @@ export async function startControlServer(options: ControlServerOptions, port = 0
     },
     deleteRecord: async (key: CredentialKey) => { records.delete(key) },
   }
+  const clientId = options.compactAuthorization ? `${options.publicOrigin}/c` : `${options.publicOrigin}/oryh/client.json`
+  const callbackPath = options.compactAuthorization ? '/oryh/cb' : '/oryh/auth/callback'
   const servers = options.servers.map(server => ({
     id: server.id,
     label: server.label,
     oauth: new ServerOAuth({
       issuer: server.issuer,
-      clientId: `${options.publicOrigin}/oryh/client.json`,
-      callback: `${options.publicOrigin}/oryh/auth/callback`,
+      clientId,
+      callback: `${options.publicOrigin}${callbackPath}`,
+      ...options.compactAuthorization ? { compact: true } : {},
       credentials,
       ...options.fetch ? { fetch: options.fetch } : {},
       ...options.loopbackDevelopment ? { allowLoopbackForTest: true } : {},
@@ -98,6 +107,7 @@ export async function startControlServer(options: ControlServerOptions, port = 0
         issuer: oauth.serverOrigin,
         grants: () => (grants.get(owner) ?? []).map(entry => ({ signal: entry.oauth.signal(entry.grant), accessToken: () => entry.oauth.accessToken(entry.grant) })),
         ...options.fetch ? { fetch: options.fetch } : {},
+        log: line => log(`owner ${owner.slice(0, 8)}: ${line}`),
       })
       brokers.set(owner, broker)
     }
@@ -135,6 +145,7 @@ export async function startControlServer(options: ControlServerOptions, port = 0
     publicOrigin: options.publicOrigin,
     ...options.sessionTtlMs ? { sessionTtlMs: options.sessionTtlMs } : {},
     ...options.loopbackDevelopment ? { allowLoopback: true } : {},
+    callbackPath,
     acquire: async (grant, signal, oauth) => {
       remember(grant, oauth)
       return pool.acquire(grant.owner, signal)
@@ -187,6 +198,14 @@ export async function startControlServer(options: ControlServerOptions, port = 0
     const handler = routes.get(url.pathname)
     if (handler) { await handler(req, res); return }
     if (url.pathname !== '/' || req.method !== 'GET') { res.writeHead(404); res.end(); return }
+    // Arriving from ORYH's consent page, the whole redirect chain counts as cross-site, and the login
+    // routes refuse cross-site session checks. Re-enter from a page on this origin; that navigation is
+    // same-origin, so a browser that has just signed in is recognised and nothing else is relaxed.
+    if (req.headers['sec-fetch-site'] === 'cross-site') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' })
+      res.end('<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>ORYH AI Client</title><p>正在进入 ORYH AI Client…</p>')
+      return
+    }
     let authorized: ReturnType<typeof login.authorize>
     try { authorized = login.authorize(req) } catch {
       if (servers.length === 1) { res.writeHead(303, { location: '/oryh/auth/login', 'cache-control': 'no-store' }); res.end(); return }

@@ -10,6 +10,8 @@
  *   ORYH_HOST_CAPACITY          owner Hosts running at once; default 2 (each takes ~0.6 GB)
  *   ORYH_HOST_IDLE_MS           stop an owner Host this long after its last browser; default 300000
  *   ORYH_ADMISSION_TRACE=1      log each owner Host's Gateway admission decisions
+ *   ORYH_OAUTH_COMPACT          1/0: authorization request within 128 characters, for ORYH before calwbiz
+ *                               ecab43d; default 1 for a localhost public origin, 0 otherwise
  *   ORYH_CONTROL_HOST / ORYH_CONTROL_PORT   listen address and port; default loopback in development, the public origin's port
  *
  * Development: `node --env-file=.env packages/server-lab/lib/control-main.js`, then open the public origin.
@@ -65,6 +67,7 @@ const control = await startControlServer({
   ownerDomain,
   servers,
   loopbackDevelopment,
+  compactAuthorization: (env.ORYH_OAUTH_COMPACT ?? (loopbackDevelopment ? '1' : '0')) === '1',
   ...env.ORYH_CONTROL_HOST ? { listenHost: env.ORYH_CONTROL_HOST } : {},
   capacity: Number(env.ORYH_HOST_CAPACITY ?? 2),
   idleMs: Number(env.ORYH_HOST_IDLE_MS ?? 300_000),
