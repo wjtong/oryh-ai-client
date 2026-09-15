@@ -14,7 +14,7 @@ import { OryhMcpClient } from './mcp.js'
  * what a skill may do — the API's own `require_permission` is the gate, and the server only serves
  * skills the holder's role already covers.
  *
- * The skills come over MCP, not as the downloadable bundle (ADR-0011). The bundle renders the
+ * The skills come over MCP, not as the downloadable bundle (ADR-0012). The bundle renders the
  * person's API key into SKILL.md, and loading a skill hands its body to the model, so the key went
  * out with the request and into the Session. Over MCP the same skills are rendered for that
  * delivery: no key, no scripts, and every API call is a tool the Host runs with the connection's own

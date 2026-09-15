@@ -8,7 +8,7 @@ import type { OryhHttpClient } from './http.js'
  * ORYH delivers the same skills two ways. A downloaded bundle renders the person's API key into the
  * text and ships scripts that send it; over MCP the connection carries the credential, every API call
  * is a tool, and the text is rendered for that delivery with no key in it. The bundle's key went into
- * the model with every skill load, so this client takes MCP (ADR-0011).
+ * the model with every skill load, so this client takes MCP (ADR-0012).
  *
  * It speaks the protocol itself rather than through Harness's MCP bridge, for three reasons: the
  * credential is the connection's own and rotates inside `OryhHttpClient`, which a static header in a

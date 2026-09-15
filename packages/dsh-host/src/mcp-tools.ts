@@ -9,7 +9,7 @@ const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
 
 /**
- * ORYH's MCP tools, offered to the agent as its own (ADR-0011).
+ * ORYH's MCP tools, offered to the agent as its own (ADR-0012).
  *
  * The skills this client installs are rendered for MCP delivery: they carry no key, and they say every
  * API call is a tool call. These are those tools. The Host lists them from the server rather than

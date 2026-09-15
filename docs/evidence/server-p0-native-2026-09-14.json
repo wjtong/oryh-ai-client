@@ -1,0 +1,57 @@
+{
+  "date": "2026-09-14",
+  "branch": "codex/multi-tenant-server",
+  "scope": "P0 second increment, not production acceptance",
+  "verification": {
+    "fullVerify": "passed",
+    "totalTests": 285,
+    "serverLabTests": 26
+  },
+  "nativeTransport": {
+    "composition": "actual public Cordis/WebServer/Connection/FrontendStatic/TypertRegistry/Gateway",
+    "frontend": "published built HTML and JS assets",
+    "routes": "two owner-specific localhost subdomains",
+    "checks": [
+      "owner isolation",
+      "private native cookie not forwarded",
+      "Origin/CSRF rejection",
+      "authenticated fixture download",
+      "stream revocation",
+      "real Gateway mux handshake and ping/pong",
+      "websocket reconnect",
+      "websocket revocation",
+      "expired lease rejection"
+    ],
+    "limitations": [
+      "synthetic Fetch routes and login leases",
+      "no full Profile boot or browser rendering",
+      "no real model/ORYH calls",
+      "no prefix comparison or production TLS",
+      "no active-content browser execution test"
+    ]
+  },
+  "shell": {
+    "provider": "public LocalBashExecutor subclass in real Cordis and local subprocess composition",
+    "image": "sha256:9be410e06dadc1794f44aa4c0fd107a7ecb2edb5cb6bcc6a71c7888caf3cfa12",
+    "checks": [
+      "workspace write",
+      "cwd confinement",
+      "host files not mounted",
+      "no environment forwarding",
+      "exit code",
+      "stdin",
+      "timeout with child process",
+      "foreground abort",
+      "pre-aborted request never starts",
+      "owned containers removed"
+    ],
+    "limitations": [
+      "background intentionally disabled",
+      "no managed environment/policy adapter",
+      "no full Agent/preset integration",
+      "daemon loss and Host-crash orphan recovery pending"
+    ]
+  },
+  "architecture": "P0 direction: trusted Harness Host with isolated script executor (ADR-0011)",
+  "p1Ready": false
+}

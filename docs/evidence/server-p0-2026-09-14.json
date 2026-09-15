@@ -1,0 +1,488 @@
+{
+  "date": "2026-09-14",
+  "scope": "P0 partial implementation, not production acceptance",
+  "clientBaseCommit": "48748eb302851dd81314021c405ac88bef7be098",
+  "harnessCommit": "c291e7961a515f6d7af9304e7fd1d257929aef26",
+  "patchSha256": "811b25de59f09105dfe3b50c919696e53d3f9a8f48acd878c70348dfc03ad0b3",
+  "node": "v24.13.0",
+  "verification": {
+    "currentBranchVerify": "passed",
+    "totalTests": 279,
+    "newLabTests": 20,
+    "coldCommittedBaseline": [
+      {
+        "stage": "clone-client",
+        "passed": true
+      },
+      {
+        "stage": "checkout-client",
+        "passed": true
+      },
+      {
+        "stage": "clone-harness",
+        "passed": true
+      },
+      {
+        "stage": "checkout-harness",
+        "passed": true
+      },
+      {
+        "stage": "install-harness",
+        "passed": true
+      },
+      {
+        "stage": "patch-harness",
+        "passed": true
+      },
+      {
+        "stage": "build-harness",
+        "passed": true
+      },
+      {
+        "stage": "install-client",
+        "passed": true
+      },
+      {
+        "stage": "verify-client",
+        "passed": true
+      },
+      {
+        "stage": "repeat-remote-generation",
+        "passed": true
+      }
+    ],
+    "coldBuildScope": "Fresh checkouts/dependency trees; host package cache and build environment may be reused. Uncommitted implementation not included."
+  },
+  "remote": {
+    "total": 49,
+    "unary": 48,
+    "streams": 1,
+    "declarationSha256": "d6e15a529ab117c5a87b7e77c1e5667ce9f40783035258fdf63a2794b5b609e1",
+    "repeatGeneration": "identical",
+    "inventory": [
+      {
+        "namespace": "oryh",
+        "method": "beginConnection",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "cancelConnection",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "chatClear",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "chatHomeClear",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "chatPageSync",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "chatSelect",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "commands",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "stream"
+      },
+      {
+        "namespace": "oryh",
+        "method": "disconnect",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "execute",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "expenseArchive",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "expenseConfirm",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "expenseList",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "expenseOptions",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "expensePrepare",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "expenseReconcile",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "expenseReviewStart",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "expenseSave",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "expenseUpload",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "listConnections",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "listOperations",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "listSavedOperations",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "pollConnection",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "productSearch",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "projectChatClear",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "projectChatSync",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "projectConfirm",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "projectHistory",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "projectOptions",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "projectPrepare",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "projectReconcile",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "recordFilterFields",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "recordList",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "refreshSavedOperation",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "reuse",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "reviewClear",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "saveResult",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "skillSync",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "timesheetChatSync",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "timesheetConfirm",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "timesheetDetail",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "timesheetHistory",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "timesheetList",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "timesheetOptions",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "timesheetPrepare",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "timesheetQueue",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "timesheetReconcile",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "timesheetReviewStart",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "todoDetail",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      },
+      {
+        "namespace": "oryh",
+        "method": "verifyConnection",
+        "invocation": {
+          "kind": "direct"
+        },
+        "returnShape": "unary"
+      }
+    ]
+  },
+  "docker": {
+    "image": "sha256:9be410e06dadc1794f44aa4c0fd107a7ecb2edb5cb6bcc6a71c7888caf3cfa12",
+    "owners": [
+      "A1",
+      "A2",
+      "B1",
+      "B3"
+    ],
+    "result": "passed",
+    "syntheticUpstream": true,
+    "checks": [
+      "owner socket binding",
+      "no ambient credentials",
+      "no network",
+      "non-root and zero effective capabilities",
+      "read-only code",
+      "unapproved and altered writes denied",
+      "old generation denied",
+      "revocation denied"
+    ],
+    "resourcesRemoved": true
+  },
+  "gates": {
+    "S0-0": "partial: cold build and repeat declaration pass; Profile/browser pending",
+    "S0-1": "not verified",
+    "S0-2": "partial: synthetic execution containers only",
+    "S0-3": "blocked: OAuth credential-free skill-bundle contract absent in current ORYH source",
+    "S0-4": "partial: synthetic credential boundary only",
+    "S0-5": "partial: in-memory test grants/receipts and snapshot publisher; real approval/recovery/sync pending"
+  },
+  "p1Ready": false
+}

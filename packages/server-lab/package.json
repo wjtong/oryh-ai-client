@@ -1,0 +1,79 @@
+{
+  "name": "@oryh/server-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "P0-only multi-tenant boundary experiments; not a production server or application shell.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "test": "pnpm run build && vitest run",
+    "probe:docker": "node docker/probe.mjs",
+    "probe:shell": "node docker/shell-probe.mjs"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-api-gateway": "link:../../../deepseek-harness/packages/api/gateway",
+    "@deepseek-ai/dsh-app-boot": "link:../../../deepseek-harness/packages/boot/app-boot",
+    "@deepseek-ai/dsh-bash-local": "link:../../../deepseek-harness/packages/shell/bash-local",
+    "@deepseek-ai/dsh-client-connection": "link:../../../deepseek-harness/packages/client/connection",
+    "@deepseek-ai/dsh-credentials": "link:../../../deepseek-harness/packages/credentials/credentials",
+    "@deepseek-ai/dsh-host-frontend-static": "link:../../../deepseek-harness/packages/host/frontend-static",
+    "@deepseek-ai/dsh-host-webserver": "link:../../../deepseek-harness/packages/host/webserver",
+    "@deepseek-ai/dsh-llm": "link:../../../deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-session": "link:../../../deepseek-harness/packages/core/session",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "link:../../../deepseek-harness/packages/session/session-persistence-jsonl",
+    "@deepseek-ai/dsh-shell": "link:../../../deepseek-harness/packages/shell/shell",
+    "@deepseek-ai/dsh-skill": "link:../../../deepseek-harness/packages/skill/skill",
+    "@deepseek-ai/dsh-storage": "link:../../../deepseek-harness/packages/storage/storage",
+    "@deepseek-ai/dsh-storage-domain": "link:../../../deepseek-harness/packages/storage/storage-domain",
+    "@deepseek-ai/dsh-storage-json": "link:../../../deepseek-harness/packages/storage/storage-json",
+    "@deepseek-ai/dsh-subprocess-local": "link:../../../deepseek-harness/packages/subprocess/subprocess-local",
+    "@deepseek-ai/dsh-system-prompt": "link:../../../deepseek-harness/packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:../../../deepseek-harness/packages/core/tools",
+    "@deepseek-ai/dsh-typert-registry": "link:../../../deepseek-harness/packages/typert/registry",
+    "@deepseek-ai/dsh-web-frontend": "link:../../../deepseek-harness/apps/web",
+    "@deepseek-ai/dsh-workspace": "link:../../../deepseek-harness/packages/workspace/workspace",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@oryh/ai-client-core": "workspace:*",
+    "@oryh/dsh-bundle": "workspace:*",
+    "@types/ws": "8.18.1",
+    "ws": "8.21.0",
+    "@deepseek-ai/dsh-scope": "link:../../../deepseek-harness/packages/core/scope",
+    "@deepseek-ai/dsh-agent": "link:../../../deepseek-harness/packages/core/agent",
+    "@deepseek-ai/dsh-agent-loop": "link:../../../deepseek-harness/packages/core/agent-loop",
+    "@deepseek-ai/dsh-session-projection": "link:../../../deepseek-harness/packages/session/session-projection",
+    "@deepseek-ai/dsh-tool-skill": "link:../../../deepseek-harness/packages/skill/tool-skill",
+    "@deepseek-ai/dsh-agent-presets": "link:../../../deepseek-harness/packages/preset/agent-presets",
+    "@deepseek-ai/dsh-api-session-controller": "link:../../../deepseek-harness/packages/api/session-controller",
+    "@deepseek-ai/dsh-agent-default-model": "link:../../../deepseek-harness/packages/core/agent-default-model",
+    "@deepseek-ai/dsh-session-query": "link:../../../deepseek-harness/packages/session-query/session-query",
+    "@deepseek-ai/dsh-attachment-local": "link:../../../deepseek-harness/packages/attachment/attachment-local",
+    "@deepseek-ai/dsh-client-file-upload": "link:../../../deepseek-harness/packages/client/file-upload",
+    "@deepseek-ai/dsh-commands": "link:../../../deepseek-harness/packages/interaction/commands"
+  },
+  "exports": {
+    "./profile-plugin": {
+      "types": "./lib/profile-plugin.d.ts",
+      "default": "./lib/profile-plugin.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./server-gateway": {
+      "types": "./lib/server-gateway.d.ts",
+      "default": "./lib/server-gateway.js"
+    },
+    "./native-preset": {
+      "types": "./lib/native-preset.d.ts",
+      "default": "./lib/native-preset.js"
+    },
+    "./native-binding": {
+      "types": "./lib/native-binding.d.ts",
+      "default": "./lib/native-binding.js"
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

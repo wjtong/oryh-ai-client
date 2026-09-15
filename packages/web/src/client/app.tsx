@@ -26,7 +26,14 @@ export function App({ dark, page, onIdentity }: { dark: boolean; page: BusinessV
     const [expenseDirty, setExpenseDirty] = useState(false);
     const [busy, setBusy] = useState<BusyAction>('load');
     const [error, setError] = useState<string | undefined>();
-    const [origin, setOrigin] = useState('http://127.0.0.1:8080');
+    const [origin, setOrigin] = useState('');
+    useEffect(() => {
+        let live = true;
+        void remote.connectionDefaults().then(defaults => {
+            if (live) setOrigin(current => current || defaults.origin);
+        }).catch(() => { /* A default is optional; users can still enter their server. */ });
+        return () => { live = false; };
+    }, [remote]);
     const [disconnectOpen, setDisconnectOpen] = useState(false);
     const isDark = dark;
     const selectedConnection = snapshot.activeConnectionId === undefined
@@ -155,9 +162,14 @@ function ConnectView({ styles, origin, pending, busy, onOriginChange, onBegin, o
       {pending === undefined ? (<Card className={styles.card}>
           <div className={styles.connectForm}>
             <Field label={copy.origin} hint={copy.originHelp}>
-              <Input value={origin} onChange={event => onOriginChange(event.target.value)}/>
+              <Input value={origin} list="oryh-server-suggestions" placeholder="https://your-oryh.example.com" onChange={event => onOriginChange(event.target.value)}/>
+              <datalist id="oryh-server-suggestions">
+                <option value="https://oryh.ai"/>
+                <option value="https://oryh.cn"/>
+                <option value="https://calwbiz-new.banff-tech.com"/>
+              </datalist>
             </Field>
-            <Button appearance="primary" size="large" icon={<IconDeviceDesktop size={18} stroke={1.8}/>} disabled={busy !== undefined} onClick={onBegin}>
+            <Button appearance="primary" size="large" icon={<IconDeviceDesktop size={18} stroke={1.8}/>} disabled={busy !== undefined || !origin.trim()} onClick={onBegin}>
               {copy.startConnection}
             </Button>
           </div>

@@ -10,7 +10,7 @@ import type { TodoDetailRequest, ChatClearRequest } from './types.js'
 import type { OryhTimesheetRemote, TimesheetHeader, TimesheetTodo, TimesheetOptions, TimesheetDetail, TimesheetIntent } from '@oryh/ai-client-timesheets'
 import type { TimesheetDetailRequest, TimesheetActionRequest } from './types.js'
 import { OryhClientRemoteAdapter } from '@oryh/ai-client-core'
-import type { SkillBundleService, SkillSyncResult } from '@oryh/ai-client-core'
+import type { OryhSkillService, SkillRefreshResult } from '@oryh/ai-client-core'
 import { OryhClientError } from '@oryh/ai-client-foundation'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -29,7 +29,7 @@ declare module '@deepseek-ai/cordis' {
     oryhProjects:OryhProjectRemote
     oryhChat: BusinessChat
     oryhTodoDetails: TodoDetailService
-    oryhSkills: SkillBundleService
+    oryhSkills: OryhSkillService
     oryhAbort: () => void
     oryhClient: OryhClientController
     oryhTimesheets: OryhTimesheetRemote
@@ -53,6 +53,16 @@ export class OryhRemote extends TypertRemoteService {
       abort()
       await Promise.allSettled([...this.active])
     }, 'oryh pending requests')
+  }
+  /** Public deployment hint only; credentials never cross this Remote. */
+  @Remote('connectionDefaults') connectionDefaults(): { origin: string } {
+    const value = process.env.ORYH_SERVER_ORIGIN?.trim()
+    if (!value) return { origin: '' }
+    const url = new URL(value)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
+      throw new Error('ORYH_SERVER_ORIGIN must be an HTTP(S) origin without credentials or a path')
+    }
+    return { origin: url.origin }
   }
   @Remote('listConnections') listConnections(): Promise<readonly ConnectionSummary[]> { return this.call(() => this.ctx.oryhClient.listConnections()) }
   @Remote('beginConnection') beginConnection(request: ConnectRequest): Promise<BeginConnectionView> { return this.call(() => this.ctx.oryhClient.beginConnection(request.origin, request.clientName)) }
@@ -85,8 +95,8 @@ export class OryhRemote extends TypertRemoteService {
   @Remote('todoDetail') todoDetail(request: TodoDetailRequest): Promise<TodoDocument> { return this.call(() => this.ctx.oryhTodoDetails.read(request.connectionId, request.todoId)) }
   @Remote('chatSelect') chatSelect(request: ChatSelection): Promise<ChatContextView> { return this.call(() => this.ctx.oryhChat.select(request)) }
   @Remote('chatClear') chatClear(request: ChatClearRequest): Promise<void> { return this.call(() => this.ctx.oryhChat.clear(request.sessionId)) }
-  /** Install or refresh the ORYH skill bundle for this connection's principal. */
-  @Remote('skillSync') skillSync(request: ConnectionRequest & { force?: boolean }): Promise<SkillSyncResult> { return this.call(() => this.ctx.oryhSkills.sync(request.connectionId, request.force === true)) }
+  /** Refresh the authorized skill source for this connection. */
+  @Remote('skillSync') skillSync(request: ConnectionRequest & { force?: boolean }): Promise<SkillRefreshResult> { return this.call(() => this.ctx.oryhSkills.sync(request.connectionId, request.force === true)) }
   @Remote('timesheetChatSync') timesheetChatSync(request: TimesheetChatState): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.sync(request)) }
   /** Start the pre-submit norm review; it returns at once and reports over the command stream. */
   @Remote('timesheetReviewStart') timesheetReviewStart(request: { sessionId: string; headerId: string }): Promise<void> { return this.call(() => this.ctx.oryhChat.timesheet.reviewStart(request.sessionId, request.headerId)) }

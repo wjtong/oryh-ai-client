@@ -16,7 +16,7 @@ export const zhCN = {
   connectAnotherAccount: '连接其他账号',
   switchAccountHelp: '授权页会使用当前 ORYH 浏览器账号。若需更换账号，请先在 ORYH Console 中退出并登录目标账号，再确认本次授权。',
   origin: 'ORYH 服务地址',
-  originHelp: '仅支持 HTTP 或 HTTPS 的 ORYH 根地址。',
+  originHelp: '输入 ORYH 官网或自部署服务器的完整地址，建议使用 HTTPS。',
   startConnection: '开始连接',
   approvalTitle: '在浏览器中确认此设备',
   approvalDescription: 'ORYH 会将此设备绑定到当前登录账号。客户端不会显示或复制访问凭据。',

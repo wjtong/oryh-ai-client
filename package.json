@@ -12,7 +12,12 @@
     "profile:install": "node scripts/install-profile.mjs",
     "test": "pnpm --recursive run test",
     "typecheck": "pnpm run build && pnpm --recursive run typecheck",
-    "verify": "pnpm run typecheck && pnpm run test"
+    "verify": "pnpm run typecheck && pnpm run test",
+    "server:p0:inventory": "node scripts/server-p0-baseline.mjs",
+    "server:p0:cold-build": "node scripts/server-p0-cold-build.mjs",
+    "server:p0": "pnpm --filter @oryh/server-lab build && pnpm --filter @oryh/server-lab test && pnpm --filter @oryh/server-lab probe:docker",
+    "server:p0:shell": "pnpm --filter @oryh/server-lab build && pnpm --filter @oryh/server-lab probe:shell",
+    "server:preflight": "node scripts/server-deployment-preflight.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/dsh": "link:../deepseek-harness/apps/cli",

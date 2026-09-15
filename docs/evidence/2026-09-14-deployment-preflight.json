@@ -1,0 +1,17 @@
+{
+  "origin": "https://calwbiz-new.banff-tech.com",
+  "passed": false,
+  "checkedAt": "2026-09-14T13:56:12.222Z",
+  "failures": [
+    {
+      "path": "/.well-known/oauth-authorization-server",
+      "reason": "HTTPS or metadata request failed",
+      "code": "DEPTH_ZERO_SELF_SIGNED_CERT"
+    },
+    {
+      "path": "/.well-known/oauth-protected-resource/mcp",
+      "reason": "HTTPS or metadata request failed",
+      "code": "DEPTH_ZERO_SELF_SIGNED_CERT"
+    }
+  ]
+}
